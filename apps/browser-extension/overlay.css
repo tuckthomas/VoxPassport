@@ -1,0 +1,62 @@
+#livetranslator-meet-overlay {
+  position: fixed;
+  bottom: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 999999;
+  pointer-events: none;
+  width: 90%;
+  max-width: 720px;
+}
+
+.lt-subtitles-box {
+  background: rgba(15, 23, 42, 0.88);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  padding: 10px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  font-family: 'Google Sans', Roboto, Arial, sans-serif;
+}
+
+.lt-caption-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.lt-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.lt-badge.lt-en {
+  background: #2563eb;
+  color: #eff6ff;
+}
+
+.lt-badge.lt-ro {
+  background: #059669;
+  color: #ecfdf5;
+}
+
+.lt-text {
+  font-weight: 500;
+}
+
+.lt-ro-text {
+  color: #38bdf8;
+}
+
+.lt-en-text {
+  color: #34d399;
+}

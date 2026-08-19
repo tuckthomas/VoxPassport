@@ -1,0 +1,119 @@
+# Model manifest — list of all tracked models with checksums and revisions.
+# This file is maintained by the ModelRegistry and installer system.
+# Do NOT hard-code absolute paths. Models are discovered via the registry.
+
+schema_version: "1"
+
+models:
+
+  - model_id: "nvidia-nemotron-3.5-asr-streaming-0.6b"
+    name: "NVIDIA Nemotron 3.5 ASR Streaming 0.6B"
+    capability: "ASR"
+    provider: "nvidia"
+    upstream_id: ""            # Fill after bakeoff verification of exact HF model ID
+    revision: ""               # Fill after verification
+    supported_languages: []    # Fill after verification
+    download_source: "huggingface"
+    license: "OpenMDW-1.1"
+    estimated_download_size_gb: 1.2
+    required_runtime: "nemo"
+    min_runtime_version: ""
+    sha256: ""                 # Fill after first download
+
+  - model_id: "nvidia-parakeet-tdt-0.6b-v3"
+    name: "NVIDIA Parakeet TDT 0.6B v3"
+    capability: "ASR"
+    provider: "nvidia"
+    upstream_id: ""
+    revision: ""
+    supported_languages: []
+    download_source: "huggingface"
+    license: "CC-BY-4.0"
+    estimated_download_size_gb: 1.2
+    required_runtime: "nemo"
+    min_runtime_version: ""
+    sha256: ""
+
+  - model_id: "nvidia-canary-1b-v2"
+    name: "NVIDIA Canary-1B-v2"
+    capability: "DIRECT_SPEECH_TRANSLATION"
+    provider: "nvidia"
+    upstream_id: ""
+    revision: ""
+    supported_languages: []
+    download_source: "huggingface"
+    license: "CC-BY-4.0"
+    estimated_download_size_gb: 2.0
+    required_runtime: "nemo"
+    min_runtime_version: ""
+    sha256: ""
+
+  - model_id: "xiaomi-milmmt-46-1b-v1.0"
+    name: "Xiaomi MiLMMT-46-1B-v1.0"
+    capability: "TRANSLATION"
+    provider: "xiaomi"
+    upstream_id: ""
+    revision: ""
+    supported_languages: []
+    download_source: "huggingface"
+    license: "Apache-2.0 (code) / CHECK_WEIGHTS"
+    estimated_download_size_gb: 2.0
+    required_runtime: "transformers"
+    min_runtime_version: ""
+    sha256: ""
+
+  - model_id: "xiaomi-milmmt-46-4b-v1.0"
+    name: "Xiaomi MiLMMT-46-4B-v1.0"
+    capability: "TRANSLATION"
+    provider: "xiaomi"
+    upstream_id: ""
+    revision: ""
+    supported_languages: []
+    download_source: "huggingface"
+    license: "Apache-2.0 (code) / CHECK_WEIGHTS"
+    estimated_download_size_gb: 8.0
+    required_runtime: "transformers"
+    min_runtime_version: ""
+    sha256: ""
+
+  - model_id: "nvidia-riva-translate-4b-v2"
+    name: "NVIDIA Riva-Translate-4B-Instruct-v2"
+    capability: "TRANSLATION"
+    provider: "nvidia"
+    upstream_id: ""
+    revision: ""
+    supported_languages: []
+    download_source: "huggingface"
+    license: "NVIDIA-OpenModel"
+    estimated_download_size_gb: 8.0
+    required_runtime: "nemo_or_transformers"
+    min_runtime_version: ""
+    sha256: ""
+
+  - model_id: "omnivoice-stock"
+    name: "k2-fsa OmniVoice (stock voice)"
+    capability: "TTS"
+    provider: "k2-fsa"
+    upstream_id: ""
+    revision: ""
+    supported_languages: []
+    download_source: "huggingface_or_github"
+    license: "CHECK_UPSTREAM"
+    estimated_download_size_gb: 1.0
+    required_runtime: "k2_sherpa_or_native"
+    min_runtime_version: ""
+    sha256: ""
+
+  - model_id: "silero-vad-v4"
+    name: "Silero VAD v4"
+    capability: "VAD"
+    provider: "snakers4"
+    upstream_id: "snakers4/silero-vad"
+    revision: ""
+    supported_languages: ["*"]
+    download_source: "huggingface"
+    license: "MIT"
+    estimated_download_size_gb: 0.01
+    required_runtime: "pytorch"
+    min_runtime_version: "2.0.0"
+    sha256: ""

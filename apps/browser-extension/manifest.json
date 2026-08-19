@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "LiveTranslator — Google Meet Caption Companion",
+  "version": "1.0.0",
+  "description": "Displays live bidirectional English ↔ Romanian translated captions directly inside Google Meet.",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://meet.google.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://meet.google.com/*"],
+      "js": ["content.js"],
+      "css": ["overlay.css"]
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "LiveTranslator Controls"
+  }
+}

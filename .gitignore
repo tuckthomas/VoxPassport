@@ -1,0 +1,83 @@
+# ==============================================================================
+# LiveTranslator / VoxPassport .gitignore
+# ==============================================================================
+
+# --- Sensitive User Data & Voice Profiles ---
+data/
+!data/.gitkeep
+
+# --- Audio Files & Recordings (Personal voice samples / test recordings) ---
+*.wav
+*.mp3
+*.ogg
+*.flac
+*.m4a
+*.webm
+*.aac
+*.audio
+*.pcm
+
+# --- Environment & Sensitive Credentials ---
+.env
+.env.*
+*.env
+*.pem
+*.key
+*.pfx
+*.crt
+*credential*
+*secret*
+
+# --- Python Environment & Caches ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+.cache/
+.pytest_cache/
+*.egg-info/
+.coverage
+htmlcov/
+
+# --- Installed Local Packages (Site-packages) ---
+packages/*
+!packages/caption-protocol/
+!packages/shared-config/
+
+# --- Model Weights & Large Binary Checkpoints ---
+models/
+!models/.gitkeep
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.onnx
+*.nemo
+*.ckpt
+*.gguf
+*.tflite
+
+# --- Rust Build Artifacts ---
+target/
+crates/*/target/
+Cargo.lock
+
+# --- Node / Web Build Artifacts ---
+node_modules/
+dist/
+.vite/
+.vite-temp/
+
+# --- IDE, OS & Local Artifacts ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log
+.system_generated/
+
+# --- Benchmark Runs & Traces ---
+benchmarks/*/results/*.json
+!benchmarks/*/results/.gitkeep

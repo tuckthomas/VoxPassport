@@ -1,0 +1,15 @@
+[package]
+name = "livetranslator-audio-windows"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+livetranslator-audio-core = { path = "../audio-core" }
+livetranslator-protocol = { path = "../protocol" }
+windows = { version = "0.52", features = [
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_Endpoints",
+    "Win32_System_Com",
+] }
+log = "0.4"
+thiserror = "1.0"

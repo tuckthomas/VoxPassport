@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = [
+    "audio-core",
+    "audio-windows",
+    "protocol",
+    "ipc-client",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["LiveTranslator Team"]
+license = "Apache-2.0"

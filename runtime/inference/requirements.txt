@@ -1,0 +1,58 @@
+# LiveTranslator — Python Runtime Dependencies
+# =============================================
+# Install with: pip install -r requirements.txt
+#
+# Runtime versions are specified as minimums.
+# Always verify compatibility with all selected models before upgrading.
+# Record exact installed versions in benchmark reports.
+
+# Core ML framework
+torch>=2.2.0          # PyTorch — required for Silero VAD, most models
+torchaudio>=2.2.0     # Audio utilities
+
+# Hugging Face ecosystem
+transformers>=4.40.0  # Required for MiLMMT-46, potentially Riva
+accelerate>=0.27.0    # Device mapping, mixed precision
+safetensors>=0.4.0    # Safe weight loading (prefer over pickle)
+huggingface-hub>=0.20.0  # Model downloads, authentication
+
+# NVIDIA NeMo (required for Nemotron, Parakeet, Canary, Riva)
+# Install separately — large dependency with optional components:
+#   pip install nemo_toolkit[asr]
+# or: pip install git+https://github.com/NVIDIA/NeMo.git@<version>#egg=nemo_toolkit[asr]
+# nemo_toolkit[asr]   # Listed here for reference — install manually
+
+# Audio I/O
+soundfile>=0.12.0     # WAV reading/writing (benchmarks)
+sounddevice>=0.4.6    # Real-time audio capture/playback (Milestone 1+)
+# pyaudio             # Alternative audio backend (Windows WASAPI)
+
+# gRPC (for IPC between desktop companion and inference runtime)
+grpcio>=1.60.0
+grpcio-tools>=1.60.0
+protobuf>=4.25.0
+
+# Async utilities & WebSockets
+asyncio-throttle>=1.0.2
+websockets>=12.0
+aiohttp>=3.9.0
+
+# Configuration
+pyyaml>=6.0
+
+# Metrics and evaluation
+# sacrebleu>=2.4.0    # Full chrF++/BLEU — optional but recommended for bakeoff
+# comet>=2.2.0        # COMET translation quality metric — optional
+
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+
+# Development / type checking
+mypy>=1.8.0
+
+# Privacy / encryption (for voice profile persistence)
+cryptography>=42.0.0
+
+# Logging / observability (content-free metrics only)
+# prometheus-client>=0.19.0  # Optional — for metrics export

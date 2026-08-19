@@ -1,0 +1,10 @@
+[package]
+name = "livetranslator-audio-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+livetranslator-protocol = { path = "../protocol" }
+ringbuf = "0.3"
+thiserror = "1.0"
+log = "0.4"

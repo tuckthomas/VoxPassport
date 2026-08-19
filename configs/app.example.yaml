@@ -1,0 +1,98 @@
+pipeline:
+  source_language: en
+  target_language: ro
+  mode: full_duplex              # full_duplex | outbound_translation | inbound_translation | captions_only
+  captions: true
+  tts: true
+  voice_clone: false
+
+models:
+  asr:
+    en:
+      provider: nemotron35_streaming
+      model_id: "nvidia-nemotron-3.5-asr-streaming-0.6b"
+      quantization: fp16
+    ro:
+      provider: nemotron35_streaming
+      model_id: "nvidia-nemotron-3.5-asr-streaming-0.6b"
+      quantization: fp16
+  translation:
+    en_ro:
+      provider: milmmt46
+      model_id: "xiaomi-milmmt-46-1b-v1.0"
+      quantization: fp16
+    ro_en:
+      provider: milmmt46
+      model_id: "xiaomi-milmmt-46-1b-v1.0"
+      quantization: fp16
+  tts:
+    ro:
+      provider: omnivoice
+      model_id: "omnivoice-stock"
+      mode: stock                # stock | cloned
+    en:
+      provider: omnivoice
+      model_id: "omnivoice-stock"
+      mode: stock
+  vad:
+    provider: silero
+    model_id: "silero-vad-v4"
+
+audio:
+  physical_mic_device: ""        # Empty = use system default; set to device name or ID
+  conference_loopback_device: "" # Empty = auto-detect system output loopback
+  virtual_mic_device: ""         # Empty = first available virtual cable
+  local_monitor_device: ""       # Empty = system default output
+
+  sample_rate_internal_hz: 16000 # Internal processing sample rate for ASR
+  tts_output_sample_rate_hz: 48000
+  enable_aec: true
+  enable_noise_suppression: true
+  enable_agc: false
+
+latency:
+  max_uncommitted_phrase_ms: 1800  # Force commit after this duration even without silence
+  endpoint_silence_ms: 350         # Silence after speech to trigger endpoint
+  min_speech_duration_ms: 150      # Ignore speech shorter than this
+  max_utterance_duration_ms: 30000 # Hard cap on utterance length
+  pre_roll_ms: 100                 # Prepend this much audio before speech onset
+  post_roll_ms: 100                # Append this much audio after speech offset
+
+phrase_committer:
+  commit_at_punctuation: true
+  commit_after_stable_prefix_ms: 800
+  commit_after_endpoint_silence: true
+  commit_after_stable_revisions: 3
+  max_unsent_phrase_ms: 1800
+
+privacy:
+  persist_transcripts: false
+  persist_audio: false
+  persist_translation_history: false
+  encrypt_voice_profiles: true
+
+remote_inference:
+  enabled: false
+  endpoint: ""                   # e.g. "grpcs://your-inference-server:50051"
+  tls: true
+  transmit_raw_audio: false      # Must be explicitly set to true to send audio remotely
+  data_retention_policy: "none"
+
+model_research_agent:
+  enabled: true
+  schedule: "weekly"             # weekly | daily | manual | disabled
+  auto_download_candidates: false
+  max_candidate_download_size_gb: 0  # 0 = never auto-download
+
+model_storage:
+  base_path: ""                  # Empty = default app data directory
+  cleanup_policy: "suggest_only" # never | suggest_only | auto_after_days
+  cleanup_after_days: 90
+  max_cache_size_gb: 0           # 0 = unlimited
+
+runtime_tier: balanced           # low_latency_light | balanced | quality
+
+ipc:
+  inference_server_address: "127.0.0.1:50051"
+  browser_companion_port: 9876
+  browser_companion_bind: "127.0.0.1"

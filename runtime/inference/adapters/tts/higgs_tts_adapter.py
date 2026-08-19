@@ -1,34 +1,31 @@
 """
-LiveTranslator — Higgs TTS 3 Adapter (Boson AI)
-==============================================
-Wraps Boson AI Higgs TTS 3 conversational foundation model architecture
-for multilingual expressive speech synthesis and zero-shot voice cloning.
+VoxPassport — Higgs TTS 3 Adapter
+=================================
+Real Boson AI Higgs TTS 3 voice-cloning client.
+
+This adapter intentionally does not accept or reuse an OmniVoice engine. The old
+implementation labeled OmniVoice output as "Higgs TTS 3", making A/B testing
+invalid. Higgs now talks to its own vLLM-Omni /v1/audio/speech endpoint.
 """
 
 from __future__ import annotations
 
-import asyncio
-import io
+import base64
 import logging
-import uuid
+import os
+from pathlib import Path
 from typing import AsyncIterator, Optional
 
+import aiohttp
+
 from runtime.inference.adapters.base import TtsAdapter
-from runtime.inference.protocol import (
-    AudioFrame,
-    LanguageCode,
-    SampleFormat,
-    TtsAudioChunk,
-    VoiceSpec,
-)
+from runtime.inference.protocol import LanguageCode, TtsAudioChunk, VoiceSpec
 
 logger = logging.getLogger(__name__)
 
 
 class HiggsTtsAdapter(TtsAdapter):
-    """
-    TTS adapter for Boson AI Higgs TTS 3.
-    """
+    """Client for a real Higgs TTS 3 server."""
 
     ADAPTER_NAME = "HiggsTtsAdapter"
     _NATIVE_SAMPLE_RATE_HZ = 24000
@@ -36,24 +33,29 @@ class HiggsTtsAdapter(TtsAdapter):
     def __init__(
         self,
         model_path: Optional[str] = None,
-        device: str = "cpu",
+        device: str = "cuda",
         shared_engine: Optional[object] = None,
+        endpoint_url: Optional[str] = None,
     ):
-        self._model_path = model_path
+        if shared_engine is not None:
+            logger.warning(
+                "Ignoring shared_engine for Higgs TTS 3. Reusing OmniVoice here was "
+                "the previous model-routing bug."
+            )
+        self._model_path = model_path or "bosonai/higgs-tts-3-4b"
         self._device = device
-        self._model = shared_engine
-        self._loaded = shared_engine is not None
-        self._speaker_cache: dict[str, object] = {}
+        self._endpoint_url = (
+            endpoint_url
+            or os.getenv("VOXPASSPORT_HIGGS_TTS_URL", "http://127.0.0.1:8095")
+        ).rstrip("/")
+        self._loaded = True
 
     async def load(self) -> None:
-        if self._loaded:
-            return
-        logger.info("Loading Higgs TTS 3...")
+        # The model lives in the dedicated vLLM-Omni server process. Loading this
+        # adapter only makes the client available.
         self._loaded = True
-        logger.info("Higgs TTS 3 loaded.")
 
     async def unload(self) -> None:
-        logger.info("Unloading Higgs TTS 3.")
         self._loaded = False
 
     async def synthesize_stream(
@@ -62,66 +64,67 @@ class HiggsTtsAdapter(TtsAdapter):
         language: LanguageCode,
         voice: VoiceSpec,
     ) -> AsyncIterator[TtsAudioChunk]:
-        """Synthesize text and yield PCM audio chunks."""
-        if not self._loaded:
-            raise RuntimeError("HiggsTtsAdapter not loaded.")
-        utterance_id = str(uuid.uuid4())
-        segment_id = str(uuid.uuid4())
-        yield TtsAudioChunk(
-            utterance_id=utterance_id,
-            segment_id=segment_id,
-            sequence=0,
-            sample_rate_hz=self._NATIVE_SAMPLE_RATE_HZ,
-            sample_format=SampleFormat.PCM_F32LE,
-            data=b"",
-            is_final_chunk=True,
+        raise NotImplementedError(
+            "Higgs streaming transport is not wired into TtsAudioChunk yet."
         )
+        yield  # pragma: no cover
+
+    @staticmethod
+    def _audio_data_uri(path: str) -> str:
+        audio_path = Path(path)
+        if not audio_path.exists():
+            raise FileNotFoundError(f"Reference audio does not exist: {path}")
+        encoded = base64.b64encode(audio_path.read_bytes()).decode("ascii")
+        return f"data:audio/wav;base64,{encoded}"
 
     async def generate_cloned_audio(
         self,
         text: str,
         ref_audio_path: str,
         ref_text: str = "",
-        num_step: int = 2,
+        num_step: int = 32,
         language: str = "Romanian",
     ) -> bytes:
-        """Generate cloned speech using Higgs TTS 3 conversational foundation architecture."""
-        loop = asyncio.get_running_loop()
-        
-        def _generate():
-            import soundfile as sf
-            from omnivoice import OmniVoiceGenerationConfig
-            
-            if self._model and hasattr(self._model, "_model") and self._model._model:
-                cache_key = f"{ref_audio_path}_{ref_text}"
-                if cache_key not in self._speaker_cache:
-                    self._speaker_cache[cache_key] = self._model._model.create_voice_clone_prompt(
-                        ref_audio=ref_audio_path,
-                        ref_text=ref_text or "Artificial intelligence enables seamless real-time conference translations across multiple languages.",
-                        preprocess_prompt=False,
-                    )
-                prompt = self._speaker_cache[cache_key]
-                cfg = OmniVoiceGenerationConfig(num_step=num_step, preprocess_prompt=False, denoise=False)
-                audio = self._model._model.generate(
-                    text=text,
-                    language=language or "Romanian",
-                    voice_clone_prompt=prompt,
-                    generation_config=cfg,
-                )
-                buf = io.BytesIO()
-                sf.write(buf, audio[0], 24000, format='WAV')
-                buf.seek(0)
-                return buf.read()
+        """Generate a real Higgs TTS 3 clone through vLLM-Omni."""
+        if not self._loaded:
+            raise RuntimeError("HiggsTtsAdapter is not loaded.")
+        if not text or not text.strip():
+            raise ValueError("Target TTS text must not be empty.")
 
-            import numpy as np
-            duration_s = max(2.5, len(text.split()) * 0.35)
-            sample_rate = 24000
-            t = np.linspace(0, duration_s, int(sample_rate * duration_s), endpoint=False)
-            buf = io.BytesIO()
-            sf.write(buf, np.zeros_like(t, dtype=np.float32), sample_rate, format='WAV', subtype='PCM_16')
-            return buf.getvalue()
+        clean_ref_text = (ref_text or "").strip()
+        payload = {
+            "model": self._model_path,
+            "input": text.strip(),
+            "ref_audio": self._audio_data_uri(ref_audio_path),
+            "response_format": "wav",
+        }
+        if clean_ref_text:
+            payload["ref_text"] = clean_ref_text
 
-        return await loop.run_in_executor(None, _generate)
+        timeout = aiohttp.ClientTimeout(total=180)
+        url = f"{self._endpoint_url}/v1/audio/speech"
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(url, json=payload) as response:
+                    body = await response.read()
+                    if response.status != 200:
+                        detail = body.decode("utf-8", errors="replace")[:1500]
+                        raise RuntimeError(
+                            f"Higgs TTS 3 server returned HTTP {response.status}: {detail}"
+                        )
+                    if len(body) < 500:
+                        raise RuntimeError(
+                            "Higgs TTS 3 returned an unexpectedly small audio payload."
+                        )
+                    return body
+        except (aiohttp.ClientError, TimeoutError) as exc:
+            raise RuntimeError(
+                "Real Higgs TTS 3 is not reachable. Start its vLLM-Omni server, "
+                "for example: `vllm-omni serve bosonai/higgs-tts-3-4b "
+                "--host 0.0.0.0 --port 8095 --trust-remote-code --omni`, or set "
+                "VOXPASSPORT_HIGGS_TTS_URL. VoxPassport will not silently fall "
+                "back to OmniVoice."
+            ) from exc
 
     async def supports_voice_cloning(self) -> bool:
         return True
@@ -134,4 +137,10 @@ class HiggsTtsAdapter(TtsAdapter):
         return self._NATIVE_SAMPLE_RATE_HZ
 
     async def health_check(self) -> bool:
-        return self._loaded
+        try:
+            timeout = aiohttp.ClientTimeout(total=2)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(f"{self._endpoint_url}/v1/models") as response:
+                    return response.status < 500
+        except Exception:
+            return False

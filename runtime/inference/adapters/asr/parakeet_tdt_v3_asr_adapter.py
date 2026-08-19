@@ -1,16 +1,18 @@
 """Streaming adapter for NVIDIA Parakeet TDT 0.6B v3.
 
-The Hugging Face/Transformers checkpoint is used locally. Audio is accumulated
-per stream and re-decoded at short intervals so VoxPassport receives revisionable
-partial hypotheses. Parakeet internally handles its supported multilingual input,
-but the public checkpoint does not reliably expose the detected language label;
-that distinction is represented explicitly in TranscriptEvent.metadata.
+The Hugging Face/Transformers checkpoint is used locally. Multiple logical ASR
+adapters/streams share one physical Parakeet model so bidirectional translation
+does not duplicate the same 0.6B model in VRAM. Inference is serialized through
+the shared pipeline because Transformers pipelines are not guaranteed to be
+thread-safe when two conference directions speak at once.
 """
 
 from __future__ import annotations
 
 import asyncio
+import gc
 import logging
+import threading
 import uuid
 from pathlib import Path
 from typing import AsyncIterator, Optional
@@ -44,11 +46,20 @@ class ParakeetTdtV3AsrAdapter(AsrAdapter):
     ADAPTER_NAME = "ParakeetTdtV3AsrAdapter"
     REQUIRED_SAMPLE_RATE_HZ = 16000
 
+    # English and Romanian are streams of the same multilingual model. Keep one
+    # physical Transformers pipeline per process rather than one model per slot.
+    _shared_lock = threading.Lock()
+    _shared_inference_lock = threading.Lock()
+    _shared_pipe = None
+    _shared_key: tuple[str, int] | None = None
+    _shared_refcount = 0
+
     def __init__(self, model_id: str = _UPSTREAM_MODEL_ID, device: str = "cuda") -> None:
         self._model_id = model_id
         self._device = device
         self._pipe = None
         self._loaded = False
+        self._shared_ref_acquired = False
         self._active_streams: dict[str, _ParakeetStreamState] = {}
         self._decode_interval_s = 0.75
         self._max_context_s = 12.0
@@ -70,13 +81,38 @@ class ParakeetTdtV3AsrAdapter(AsrAdapter):
             local_candidate = project_root / "models" / "nvidia-parakeet-tdt-0.6b-v3"
             model_target = str(local_candidate) if local_candidate.exists() else self._model_id
             device = 0 if torch.cuda.is_available() and self._device != "cpu" else -1
-            kwargs = {"device": device}
-            if device >= 0:
-                kwargs["torch_dtype"] = torch.float16
-            self._pipe = pipeline("automatic-speech-recognition", model=model_target, **kwargs)
-            logger.info("Loaded Parakeet TDT locally from %s", model_target)
+            key = (model_target, device)
+            cls = type(self)
+
+            with cls._shared_lock:
+                if cls._shared_pipe is not None:
+                    if cls._shared_key != key:
+                        raise RuntimeError(
+                            "A shared Parakeet model is already resident with a different model/device. "
+                            "Unload the active ASR model before switching variants."
+                        )
+                    cls._shared_refcount += 1
+                    self._pipe = cls._shared_pipe
+                    self._shared_ref_acquired = True
+                    logger.info(
+                        "Reusing shared Parakeet TDT model (%d logical ASR adapters)",
+                        cls._shared_refcount,
+                    )
+                    return
+
+                kwargs = {"device": device}
+                if device >= 0:
+                    kwargs["torch_dtype"] = torch.float16
+                pipe = pipeline("automatic-speech-recognition", model=model_target, **kwargs)
+                cls._shared_pipe = pipe
+                cls._shared_key = key
+                cls._shared_refcount = 1
+                self._pipe = pipe
+                self._shared_ref_acquired = True
+                logger.info("Loaded one shared Parakeet TDT model from %s", model_target)
         except Exception:
             self._pipe = None
+            self._shared_ref_acquired = False
             logger.exception("Failed to load Parakeet TDT")
 
     async def unload(self) -> None:
@@ -85,14 +121,30 @@ class ParakeetTdtV3AsrAdapter(AsrAdapter):
             if state.infer_task:
                 state.infer_task.cancel()
         self._active_streams.clear()
-        self._pipe = None
-        self._loaded = False
-        try:
-            import torch
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        except Exception:
-            pass
+
+        released_pipe = None
+        cls = type(self)
+        with cls._shared_lock:
+            if self._shared_ref_acquired:
+                cls._shared_refcount = max(0, cls._shared_refcount - 1)
+                self._shared_ref_acquired = False
+                if cls._shared_refcount == 0:
+                    released_pipe = cls._shared_pipe
+                    cls._shared_pipe = None
+                    cls._shared_key = None
+            self._pipe = None
+            self._loaded = False
+
+        if released_pipe is not None:
+            del released_pipe
+            gc.collect()
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
+            logger.info("Released shared Parakeet TDT model")
 
     async def start_stream(self, config: AsrConfig) -> AsrStream:
         if not self._loaded:
@@ -133,7 +185,8 @@ class ParakeetTdtV3AsrAdapter(AsrAdapter):
         if self._pipe is None or not pcm:
             return "", None
         audio = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
-        result = self._pipe({"array": audio, "sampling_rate": int(sample_rate)})
+        with type(self)._shared_inference_lock:
+            result = self._pipe({"array": audio, "sampling_rate": int(sample_rate)})
         if isinstance(result, dict):
             text = str(result.get("text", "")).strip()
             detected = result.get("language") or result.get("lang")
@@ -183,6 +236,7 @@ class ParakeetTdtV3AsrAdapter(AsrAdapter):
                     "configured_language": configured,
                     "detected_language": model_reported_language,
                     "language_detection": detection_mode,
+                    "shared_model_instance": True,
                 },
             )
         )

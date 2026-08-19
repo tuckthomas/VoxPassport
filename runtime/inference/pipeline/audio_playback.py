@@ -1,42 +1,24 @@
-"""
-LiveTranslator — Real-Time Audio Playback Engine
-=================================================
-Manages playback of synthesized speech chunks to:
-1. Virtual Microphone device (BUS_VIRTUAL_MIC -> fed into conference apps)
-2. Local Monitor / Headphones (BUS_LOCAL_MONITOR -> for local user listening)
+"""VoxPassport — real-time TTS audio playback engine.
 
-Features:
-- Streaming chunk jitter buffer
-- Automatic sample rate conversion / format conversion (e.g. float32 to int16)
-- Virtual microphone device routing
-- Underrun / overflow protection
-- Async chunk consumption queue
+Consumes model-native PCM chunks and converts/resamples them to the fixed output
+device rate. This is required when hot-swapping 24 kHz engines (Higgs/OmniVoice)
+and 48 kHz engines (MOSS) during one conference session.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import struct
-import threading
-import time
 from typing import Optional
 
-from runtime.inference.protocol import (
-    AudioBus,
-    SampleFormat,
-    TtsAudioChunk,
-)
+import numpy as np
+
+from runtime.inference.protocol import AudioBus, SampleFormat, TtsAudioChunk
 
 logger = logging.getLogger(__name__)
 
 
 class AudioPlaybackEngine:
-    """
-    Playback engine for streaming TTS synthesized chunks to an audio output device
-    (Virtual Mic or Local Monitor).
-    """
-
     def __init__(
         self,
         bus: AudioBus = AudioBus.VIRTUAL_MIC,
@@ -48,24 +30,18 @@ class AudioPlaybackEngine:
         self.sample_rate_hz = sample_rate_hz
         self.channels = channels
         self.device_index = device_index
-
         self._stream = None
         self._is_running = False
         self._queue: asyncio.Queue[TtsAudioChunk] = asyncio.Queue(maxsize=100)
-        self._thread: Optional[threading.Thread] = None
-
-        # Statistics
         self.chunks_played = 0
         self.bytes_played = 0
 
     async def start(self) -> None:
-        """Start the audio playback stream."""
         if self._is_running:
             return
         self._is_running = True
         self.chunks_played = 0
         self.bytes_played = 0
-
         try:
             import sounddevice as sd
             self._stream = sd.RawOutputStream(
@@ -75,73 +51,79 @@ class AudioPlaybackEngine:
                 dtype="int16",
             )
             self._stream.start()
-            logger.info("Audio playback stream opened on %s (device=%s, rate=%d)", self.bus.value, self.device_index, self.sample_rate_hz)
-        except Exception as e:
-            logger.warning(
-                "sounddevice output stream failed or not available (%s). Starting software drain mode for %s.",
-                e, self.bus.value
+            logger.info(
+                "Audio playback stream opened on %s (device=%s, rate=%d)",
+                self.bus.value, self.device_index, self.sample_rate_hz,
             )
-
-        # Start playback consumer loop task
+        except Exception as exc:
+            logger.warning(
+                "sounddevice output stream failed or not available (%s). "
+                "Starting software drain mode for %s.", exc, self.bus.value,
+            )
         asyncio.create_task(self._consumer_loop())
 
     async def enqueue_chunk(self, chunk: TtsAudioChunk) -> None:
-        """Feed a synthesized TTS chunk into the playback queue."""
         if not self._is_running:
             return
-        try:
-            await self._queue.put(chunk)
-        except Exception as e:
-            logger.warning("Playback queue put error on %s: %s", self.bus.value, e)
+        await self._queue.put(chunk)
 
     async def _consumer_loop(self) -> None:
-        """Async consumer pulling chunks from the queue and writing to the output stream."""
         while self._is_running:
             try:
-                chunk: TtsAudioChunk = await asyncio.wait_for(self._queue.get(), timeout=0.1)
+                chunk = await asyncio.wait_for(self._queue.get(), timeout=0.1)
             except asyncio.TimeoutError:
                 continue
-
             if not chunk.data:
                 continue
-
-            # Convert data to int16 PCM if needed
-            pcm_s16 = self._convert_to_s16le(chunk.data, chunk.sample_format)
+            pcm_s16 = self._convert_and_resample(chunk)
+            if not pcm_s16:
+                continue
             self.chunks_played += 1
             self.bytes_played += len(pcm_s16)
-
             if self._stream:
                 try:
                     self._stream.write(pcm_s16)
-                except Exception as e:
-                    logger.debug("Playback write exception on %s: %s", self.bus.value, e)
+                except Exception as exc:
+                    logger.debug("Playback write exception on %s: %s", self.bus.value, exc)
             else:
-                # In mock/drain mode, sleep to approximate real-time audio duration
                 n_samples = len(pcm_s16) // (2 * self.channels)
                 duration_s = n_samples / max(1, self.sample_rate_hz)
                 await asyncio.sleep(duration_s * 0.8)
 
-    def _convert_to_s16le(self, data: bytes, fmt: SampleFormat) -> bytes:
-        """Convert any supported PCM format to PCM_S16LE."""
-        if fmt == SampleFormat.PCM_S16LE:
-            return data
-        elif fmt == SampleFormat.PCM_F32LE:
-            n_samples = len(data) // 4
-            if n_samples == 0:
-                return b""
-            f32_vals = struct.unpack(f"<{n_samples}f", data)
-            s16_vals = [max(-32768, min(32767, int(v * 32767))) for v in f32_vals]
-            return struct.pack(f"<{n_samples}h", *s16_vals)
-        return data
+    def _convert_and_resample(self, chunk: TtsAudioChunk) -> bytes:
+        """Convert the declared chunk format and sample rate to output S16LE PCM."""
+        if chunk.sample_format == SampleFormat.PCM_S16LE:
+            samples = np.frombuffer(chunk.data, dtype="<i2").astype(np.float32)
+        elif chunk.sample_format == SampleFormat.PCM_F32LE:
+            samples = np.frombuffer(chunk.data, dtype="<f4").astype(np.float32)
+            samples = np.clip(samples, -1.0, 1.0) * 32767.0
+        else:
+            raise ValueError(f"Unsupported playback sample format: {chunk.sample_format}")
+        if samples.size == 0:
+            return b""
+        source_rate = int(chunk.sample_rate_hz or self.sample_rate_hz)
+        if source_rate != self.sample_rate_hz:
+            out_count = max(1, int(round(samples.size * self.sample_rate_hz / source_rate)))
+            if samples.size == 1:
+                samples = np.repeat(samples, out_count)
+            else:
+                src_positions = np.arange(samples.size, dtype=np.float64)
+                dst_positions = np.linspace(
+                    0.0, float(samples.size - 1), out_count, dtype=np.float64
+                )
+                samples = np.interp(dst_positions, src_positions, samples).astype(np.float32)
+        return np.clip(np.rint(samples), -32768, 32767).astype("<i2").tobytes()
 
     async def stop(self) -> None:
-        """Stop playback and drain queue."""
         self._is_running = False
         if self._stream:
             try:
                 self._stream.stop()
                 self._stream.close()
-            except Exception as e:
-                logger.warning("Error closing playback stream: %s", e)
+            except Exception as exc:
+                logger.warning("Error closing playback stream: %s", exc)
             self._stream = None
-        logger.info("Audio playback stopped on %s (played %d chunks)", self.bus.value, self.chunks_played)
+        logger.info(
+            "Audio playback stopped on %s (played %d chunks)",
+            self.bus.value, self.chunks_played,
+        )

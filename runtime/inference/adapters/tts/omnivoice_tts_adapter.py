@@ -16,12 +16,7 @@ from pathlib import Path
 from typing import AsyncIterator, Optional
 
 from runtime.inference.adapters.base import TtsAdapter
-from runtime.inference.protocol import (
-    LanguageCode,
-    SampleFormat,
-    TtsAudioChunk,
-    VoiceSpec,
-)
+from runtime.inference.protocol import LanguageCode, SampleFormat, TtsAudioChunk, VoiceSpec
 
 logger = logging.getLogger(__name__)
 
@@ -42,25 +37,27 @@ class OmniVoiceTtsAdapter(TtsAdapter):
         self._external_stream_engines: dict[str, TtsAdapter] = {}
 
     async def load(self) -> None:
-        if self._loaded:
+        # Activate only. Load OmniVoice weights lazily on first OmniVoice use so a
+        # Higgs/MOSS active profile does not consume VRAM for an unused model.
+        self._loaded = True
+
+    async def _ensure_omnivoice_loaded(self) -> None:
+        if self._model is not None:
             return
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._load_blocking)
         if self._model is None:
             raise RuntimeError("OmniVoice failed to load; inspect the preceding log.")
-        self._loaded = True
 
     def _load_blocking(self) -> None:
         import sys
         import torch
-
         project_root = Path(__file__).resolve().parents[4]
         pkg_dir = str(project_root / "packages")
         if pkg_dir not in sys.path:
             sys.path.insert(0, pkg_dir)
         sys.modules["torchvision"] = None
         from omnivoice import OmniVoice
-
         local_candidate = project_root / "models" / "omnivoice-stock"
         model_target = str(local_candidate) if local_candidate.exists() else (self._model_path or "k2-fsa/OmniVoice")
         use_cuda = torch.cuda.is_available() and self._device != "cpu"
@@ -110,10 +107,7 @@ class OmniVoiceTtsAdapter(TtsAdapter):
         except (TypeError, ValueError):
             return cls._DEFAULT_QUALITY_STEPS
         if steps < cls._MIN_QUALITY_STEPS:
-            logger.warning(
-                "Refusing OmniVoice num_step=%s; using %s quality steps.",
-                steps, cls._DEFAULT_QUALITY_STEPS,
-            )
+            logger.warning("Refusing OmniVoice num_step=%s; using %s quality steps.", steps, cls._DEFAULT_QUALITY_STEPS)
             return cls._DEFAULT_QUALITY_STEPS
         return steps
 
@@ -196,58 +190,40 @@ class OmniVoiceTtsAdapter(TtsAdapter):
         self._model = None
         self._loaded = False
 
-    async def synthesize_stream(
-        self,
-        text: str,
-        language: LanguageCode,
-        voice: VoiceSpec,
-    ) -> AsyncIterator[TtsAudioChunk]:
-        """Generate with OmniVoice or dispatch cloned live speech to the saved backend."""
+    async def synthesize_stream(self, text: str, language: LanguageCode, voice: VoiceSpec) -> AsyncIterator[TtsAudioChunk]:
+        """Generate OmniVoice audio or dispatch cloned live speech to the saved backend."""
         import numpy as np
         import soundfile as sf
-        from omnivoice import OmniVoiceGenerationConfig
-
-        if not self._loaded or self._model is None:
+        if not self._loaded:
             raise RuntimeError("OmniVoiceTtsAdapter not loaded.")
         if not text or not text.strip():
             raise ValueError("Target TTS text must not be empty.")
-
         language_value = getattr(language, "value", str(language))
+
         if voice.is_cloned:
             profile_id = self._resolve_profile_id(voice.voice_profile_id)
-            clone_model = self._normalize_clone_model(
-                self._profile_metadata(profile_id).get("clone_model", "omnivoice")
-            )
+            clone_model = self._normalize_clone_model(self._profile_metadata(profile_id).get("clone_model", "omnivoice"))
             if clone_model != "omnivoice":
                 engine = await self._external_stream_engine(clone_model)
-                routed_voice = VoiceSpec(
-                    language=language, is_cloned=True, voice_profile_id=profile_id
-                )
-                async for chunk in engine.synthesize_stream(
-                    text=text, language=language, voice=routed_voice
-                ):
+                routed_voice = VoiceSpec(language=language, is_cloned=True, voice_profile_id=profile_id)
+                async for chunk in engine.synthesize_stream(text=text, language=language, voice=routed_voice):
                     yield chunk
                 return
-
-            ref_audio, ref_text = self._profile_reference(
-                VoiceSpec(language=language, is_cloned=True, voice_profile_id=profile_id)
-            )
+            await self._ensure_omnivoice_loaded()
+            ref_audio, ref_text = self._profile_reference(VoiceSpec(language=language, is_cloned=True, voice_profile_id=profile_id))
             wav_bytes = await self.generate_cloned_audio(
-                text=text,
-                ref_audio_path=str(ref_audio),
-                ref_text=ref_text,
-                num_step=self._DEFAULT_QUALITY_STEPS,
-                language=language_value,
+                text=text, ref_audio_path=str(ref_audio), ref_text=ref_text,
+                num_step=self._DEFAULT_QUALITY_STEPS, language=language_value,
             )
             audio, sample_rate = sf.read(io.BytesIO(wav_bytes), dtype="float32", always_2d=False)
         else:
+            await self._ensure_omnivoice_loaded()
+            from omnivoice import OmniVoiceGenerationConfig
             loop = asyncio.get_running_loop()
             def _generate_stock():
                 cfg = OmniVoiceGenerationConfig(
-                    num_step=self._DEFAULT_QUALITY_STEPS,
-                    denoise=True,
-                    preprocess_prompt=True,
-                    postprocess_output=True,
+                    num_step=self._DEFAULT_QUALITY_STEPS, denoise=True,
+                    preprocess_prompt=True, postprocess_output=True,
                 )
                 result = self._model.generate(
                     text=text.strip(), language=language_value,
@@ -262,7 +238,6 @@ class OmniVoiceTtsAdapter(TtsAdapter):
         if audio.ndim > 1:
             audio = audio.mean(axis=-1 if audio.shape[-1] < audio.shape[0] else 0)
         audio = np.ascontiguousarray(audio.reshape(-1), dtype="<f4")
-
         utterance_id = str(uuid.uuid4())
         segment_id = str(uuid.uuid4())
         chunk_samples = max(1, int(sample_rate * 0.10))
@@ -270,38 +245,27 @@ class OmniVoiceTtsAdapter(TtsAdapter):
         for offset in range(0, audio.size, chunk_samples):
             piece = audio[offset:offset + chunk_samples]
             yield TtsAudioChunk(
-                utterance_id=utterance_id,
-                segment_id=segment_id,
-                sequence=sequence,
-                sample_rate_hz=int(sample_rate),
-                sample_format=SampleFormat.PCM_F32LE,
-                data=piece.tobytes(),
-                is_final_chunk=False,
+                utterance_id=utterance_id, segment_id=segment_id, sequence=sequence,
+                sample_rate_hz=int(sample_rate), sample_format=SampleFormat.PCM_F32LE,
+                data=piece.tobytes(), is_final_chunk=False,
             )
             sequence += 1
             await asyncio.sleep(0)
         yield TtsAudioChunk(
-            utterance_id=utterance_id,
-            segment_id=segment_id,
-            sequence=sequence,
-            sample_rate_hz=int(sample_rate),
-            sample_format=SampleFormat.PCM_F32LE,
-            data=b"",
-            is_final_chunk=True,
+            utterance_id=utterance_id, segment_id=segment_id, sequence=sequence,
+            sample_rate_hz=int(sample_rate), sample_format=SampleFormat.PCM_F32LE,
+            data=b"", is_final_chunk=True,
         )
 
     async def generate_cloned_audio(
-        self,
-        text: str,
-        ref_audio_path: str,
-        ref_text: str = "",
-        num_step: int = 32,
-        language: str = "Romanian",
+        self, text: str, ref_audio_path: str, ref_text: str = "",
+        num_step: int = 32, language: str = "Romanian",
     ) -> bytes:
         import soundfile as sf
         from omnivoice import OmniVoiceGenerationConfig
-        if not self._loaded or self._model is None:
-            raise RuntimeError("OmniVoice neural model not loaded.")
+        if not self._loaded:
+            raise RuntimeError("OmniVoice adapter is not active.")
+        await self._ensure_omnivoice_loaded()
         if not text or not text.strip():
             raise ValueError("Target TTS text must not be empty.")
         if not Path(ref_audio_path).exists():
@@ -311,7 +275,6 @@ class OmniVoiceTtsAdapter(TtsAdapter):
             raise ValueError("OmniVoice cloning requires the real transcript of the reference clip.")
         effective_steps = self._quality_steps(num_step)
         loop = asyncio.get_running_loop()
-
         def _generate() -> bytes:
             cache_key = self._cache_key(ref_audio_path, clean_ref_text)
             prompt = self._speaker_cache.get(cache_key)
@@ -321,10 +284,8 @@ class OmniVoiceTtsAdapter(TtsAdapter):
                 )
                 self._speaker_cache[cache_key] = prompt
             cfg = OmniVoiceGenerationConfig(
-                num_step=effective_steps,
-                denoise=True,
-                preprocess_prompt=True,
-                postprocess_output=True,
+                num_step=effective_steps, denoise=True,
+                preprocess_prompt=True, postprocess_output=True,
             )
             audio = self._model.generate(
                 text=text.strip(), language=language or None,
@@ -339,12 +300,7 @@ class OmniVoiceTtsAdapter(TtsAdapter):
             return buf.getvalue()
         return await loop.run_in_executor(None, _generate)
 
-    async def enroll_voice(
-        self,
-        voice_profile_id: str,
-        reference_audio: bytes,
-        reference_sample_rate_hz: int,
-    ) -> None:
+    async def enroll_voice(self, voice_profile_id: str, reference_audio: bytes, reference_sample_rate_hz: int) -> None:
         if not self._loaded:
             raise RuntimeError("OmniVoiceTtsAdapter not loaded.")
         logger.info("Enrollment requested for voice profile: %s", voice_profile_id)
@@ -363,4 +319,4 @@ class OmniVoiceTtsAdapter(TtsAdapter):
         return self._NATIVE_SAMPLE_RATE_HZ
 
     async def health_check(self) -> bool:
-        return self._loaded and self._model is not None
+        return self._loaded

@@ -35,3 +35,4 @@ jobs:
           python -m pytest -q
           tests/integration/test_tts_adapter_integrity.py
           tests/integration/test_runtime_state_integrity.py
+          tests/integration/test_low_vram_integrity.py

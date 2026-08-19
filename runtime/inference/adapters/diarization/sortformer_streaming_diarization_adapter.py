@@ -2,12 +2,15 @@
 
 This adapter is deliberately not on the critical ASR path. Audio is copied into
 a rolling buffer and diarization is scheduled on a background task; ASR,
-translation, and TTS never wait for a speaker label.
+translation, and TTS never wait for a speaker label. On low-VRAM systems the
+sidecar runs on CPU so it cannot crowd cloned TTS off the GPU during Live Studio
+or pre-conference debugging.
 """
 
 from __future__ import annotations
 
 import asyncio
+import gc
 import logging
 import math
 import re
@@ -25,6 +28,7 @@ class SortformerStreamingDiarizationAdapter:
     MODEL_ID = "nvidia/diar_streaming_sortformer_4spk-v2.1"
     REQUIRED_SAMPLE_RATE_HZ = 16000
     MAX_SPEAKERS = 4
+    LOW_VRAM_CUTOFF_GB = 12.0
 
     # NVIDIA's published low-input-buffer-latency configuration.
     CHUNK_LEN = 6
@@ -36,12 +40,13 @@ class SortformerStreamingDiarizationAdapter:
     def __init__(
         self,
         model_path: str | Path,
-        device: str = "cuda",
+        device: str = "auto",
         inference_interval_s: float = 1.04,
         rolling_context_s: float = 12.0,
     ) -> None:
         self.model_path = Path(model_path)
-        self.device = device
+        self.device = str(device).lower()
+        self.resolved_device = "cpu"
         self.inference_interval_s = max(1.04, float(inference_interval_s))
         self.rolling_context_s = max(self.inference_interval_s, float(rolling_context_s))
         self._model = None
@@ -72,6 +77,24 @@ class SortformerStreamingDiarizationAdapter:
             raise RuntimeError("Streaming Sortformer failed to load")
         self._loaded = True
 
+    def _choose_device(self, torch) -> str:
+        if self.device == "cpu":
+            return "cpu"
+        if self.device in {"cuda", "cuda:0"}:
+            return "cuda" if torch.cuda.is_available() else "cpu"
+        if self.device != "auto":
+            raise ValueError(f"Unsupported Sortformer device policy: {self.device!r}")
+        if not torch.cuda.is_available():
+            return "cpu"
+        total_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        if total_gb <= self.LOW_VRAM_CUTOFF_GB:
+            logger.info(
+                "Sortformer low-VRAM policy: %.1f GB GPU detected; diarization will run on CPU",
+                total_gb,
+            )
+            return "cpu"
+        return "cuda"
+
     def _load_blocking(self) -> None:
         try:
             import torch
@@ -83,7 +106,8 @@ class SortformerStreamingDiarizationAdapter:
             ) from exc
 
         checkpoint = self._checkpoint_path()
-        map_location = "cuda" if torch.cuda.is_available() and self.device != "cpu" else "cpu"
+        self.resolved_device = self._choose_device(torch)
+        map_location = "cuda" if self.resolved_device == "cuda" else "cpu"
         model = SortformerEncLabelModel.restore_from(
             restore_path=str(checkpoint), map_location=map_location, strict=False
         )
@@ -96,7 +120,7 @@ class SortformerStreamingDiarizationAdapter:
         modules.spkcache_len = self.SPKCACHE_LEN
         modules._check_streaming_parameters()
         self._model = model
-        logger.info("Loaded Streaming Sortformer sidecar from %s", checkpoint)
+        logger.info("Loaded Streaming Sortformer sidecar from %s on %s", checkpoint, self.resolved_device)
 
     async def unload(self) -> None:
         if self._infer_task and not self._infer_task.done():
@@ -106,11 +130,15 @@ class SortformerStreamingDiarizationAdapter:
             except asyncio.CancelledError:
                 pass
         self._infer_task = None
+        old_model = self._model
         self._model = None
         self._loaded = False
         self._pcm.clear()
         self._bytes_since_infer = 0
         self._latest = None
+        if old_model is not None:
+            del old_model
+        gc.collect()
         try:
             import torch
             if torch.cuda.is_available():

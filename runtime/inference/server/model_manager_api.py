@@ -1,8 +1,7 @@
 """Model-manager business logic for VoxPassport.
 
-The controller owns the canonical model IDs and registry slot semantics used by
-both the REST API and the desktop model manager.  UI aliases are accepted, but
-only canonical IDs are persisted.
+The controller owns canonical model IDs, installation state, and the active
+runtime slots used by both the REST API and desktop Model Hub.
 """
 
 from __future__ import annotations
@@ -11,8 +10,8 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from runtime.inference.model_registry.registry import KnownGoodModelSet, ModelRegistry, ModelRegistryEntry
 from runtime.inference.model_registry.installers import DownloadManager, HuggingFaceInstaller, LocalImportInstaller
+from runtime.inference.model_registry.registry import KnownGoodModelSet, ModelRegistry, ModelRegistryEntry
 from runtime.inference.protocol import InstallationStatus, ModelCapability, RecommendationState
 
 logger = logging.getLogger(__name__)
@@ -38,13 +37,19 @@ class ModelManagerController:
         "xiaomimilm-milmmt-46-4b-v1.0": "xiaomi-milmmt-46-4b-v1.0",
         "xiaomi-milmmt-46-4b": "xiaomi-milmmt-46-4b-v1.0",
         "xiaomi-milmmt-46-4b-v1.0": "xiaomi-milmmt-46-4b-v1.0",
-        "snakers4-silero-vad": "silero-vad-v4",
+        "silero-vad-v4": "silero-vad-v6.2.1",
+        "snakers4-silero-vad": "silero-vad-v6.2.1",
+        "silero-vad-v6.2.1": "silero-vad-v6.2.1",
+        "nvidia-diar_streaming_sortformer_4spk-v2.1": "nvidia-diar-streaming-sortformer-4spk-v2.1",
+        "facebook-omniasr-ctc-300m": "meta-omniasr-ctc-300m",
+        "facebook-omniasr-ctc-1b": "meta-omniasr-ctc-1b",
     }
 
     _UI_IDS = {
         "omnivoice-stock": "omnivoice",
         "xiaomi-milmmt-46-1b-v1.0": "xiaomi-milmmt-46-1b",
         "xiaomi-milmmt-46-4b-v1.0": "xiaomi-milmmt-46-4b",
+        "silero-vad-v4": "silero-vad-v6.2.1",
     }
 
     def __init__(
@@ -57,7 +62,31 @@ class ModelManagerController:
         self.registry = registry
         self._model_store_dir = Path(model_store_dir) if model_store_dir else Path("models")
         self._staging_dir = Path(staging_dir) if staging_dir else self._model_store_dir / ".staging"
-        self._download_manager = DownloadManager(on_progress=on_progress)
+        self._external_on_progress = on_progress
+        self._download_manager = DownloadManager(on_progress=self._handle_download_progress)
+
+    def _handle_download_progress(self, task) -> None:
+        """Keep persistent registry state synchronized with asynchronous downloads."""
+        try:
+            if task.phase == "done":
+                install_path = self._model_store_dir / task.model_id
+                size_gb = None
+                if install_path.exists():
+                    size_gb = sum(
+                        path.stat().st_size for path in install_path.rglob("*") if path.is_file()
+                    ) / 1e9
+                self.registry.update_installation_status(
+                    task.model_id, InstallationStatus.INSTALLED, installed_size_gb=size_gb
+                )
+            elif task.phase == "failed" and not task.cancelled:
+                self.registry.update_installation_status(task.model_id, InstallationStatus.FAILED)
+        except Exception:
+            logger.warning("Could not synchronize download state for %s", task.model_id, exc_info=True)
+        if self._external_on_progress:
+            try:
+                self._external_on_progress(task)
+            except Exception:
+                logger.debug("External model progress callback failed", exc_info=True)
 
     @classmethod
     def canonical_model_id(cls, model_id: str | None) -> str:
@@ -78,10 +107,10 @@ class ModelManagerController:
         return "TRANSLATION" if cap in {"NMT", "MT", "TRANSLATE"} else cap
 
     def list_installed(self) -> List[Dict[str, Any]]:
-        return [e.to_dict() for e in self.registry.list_entries(installed_only=True)]
+        return [entry.to_dict() for entry in self.registry.list_entries(installed_only=True)]
 
     def list_available(self) -> List[Dict[str, Any]]:
-        return [e.to_dict() for e in self.registry.list_entries()]
+        return [entry.to_dict() for entry in self.registry.list_entries()]
 
     def get_active_slots(self) -> Dict[str, Optional[str]]:
         raw = {slot: getattr(self.registry._active, slot) for slot in KnownGoodModelSet.SLOT_NAMES}
@@ -96,10 +125,7 @@ class ModelManagerController:
         return result
 
     def _installed_on_disk(self, model_id: str) -> bool:
-        candidates = [self._model_store_dir / model_id]
-        if model_id == "omnivoice-stock":
-            candidates.append(self._model_store_dir / "omnivoice-stock")
-        return any(p.exists() for p in candidates)
+        return (self._model_store_dir / model_id).exists()
 
     def _ensure_registry_install_state(self, model_id: str) -> ModelRegistryEntry:
         entry = self.registry.get_entry(model_id)
@@ -144,12 +170,16 @@ class ModelManagerController:
         elif cap == "VAD":
             self.registry.set_active_model("VAD", canonical)
         else:
-            raise ValueError(f"Unsupported active model capability: {cap}")
+            raise ValueError(
+                f"{cap} is catalog/install-only and is not an active serial pipeline slot"
+            )
         return canonical
 
     @staticmethod
     def _infer_capability(model_id: str, upstream_id: str) -> ModelCapability:
         text = f"{model_id} {upstream_id}".lower()
+        if any(token in text for token in ("diar", "sortformer", "speaker-diarization")):
+            return ModelCapability.DIARIZATION
         if "vad" in text:
             return ModelCapability.VAD
         if any(token in text for token in ("tts", "speech-synthesis", "voice", "omnivoice", "voxcpm", "moss")):
@@ -214,7 +244,9 @@ class ModelManagerController:
         upstream = upstream or entry.upstream_id
         rev = revision or entry.revision or "main"
         if not upstream:
-            raise ValueError(f"Model {canonical!r} has no upstream_id configured.")
+            raise ValueError(
+                f"Model {canonical!r} is a watchlist/package-asset entry and has no official Hugging Face repository configured."
+            )
 
         if provider == "local":
             installer = LocalImportInstaller(
@@ -290,7 +322,7 @@ class ModelManagerController:
         return self.registry.rollback_to_known_good(set_id=set_id)
 
     def get_cleanup_candidates(self, n_days_unused: int = 30) -> List[Dict[str, Any]]:
-        return [c.to_dict() for c in self.registry.get_cleanup_candidates(n_days_unused=n_days_unused)]
+        return [candidate.to_dict() for candidate in self.registry.get_cleanup_candidates(n_days_unused=n_days_unused)]
 
     def execute_cleanup(self, n_days_unused: int = 30) -> Dict[str, Any]:
         candidates = self.registry.get_cleanup_candidates(n_days_unused=n_days_unused)

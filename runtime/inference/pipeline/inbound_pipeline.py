@@ -36,6 +36,7 @@ class InboundTranslationPipeline:
         source_language: LanguageCode = LanguageCode.RO,
         target_language: LanguageCode = LanguageCode.EN,
         synthesize_audio: bool = True,
+        diarization_adapter: Optional[object] = None,
     ) -> None:
         self.vad_adapter = vad_adapter
         self.asr_adapter = asr_adapter
@@ -48,6 +49,7 @@ class InboundTranslationPipeline:
         self.source_language = source_language
         self.target_language = target_language
         self.synthesize_audio = synthesize_audio
+        self.diarization_adapter = diarization_adapter
         self.voice_spec = voice_spec or VoiceSpec(language=target_language, is_cloned=False)
         self.phrase_committer = PhraseCommitter(
             phrase_config or PhraseCommitterConfig(), self._on_phrase_committed, source_language
@@ -60,6 +62,7 @@ class InboundTranslationPipeline:
         self._current_utterance_metrics: Optional[UtteranceMetrics] = None
         self._metric_utterance_id = ""
         self._last_asr_utterance_id = ""
+        self._speaker_by_utterance: dict[str, dict] = {}
 
     async def start(self) -> None:
         if self._is_running:
@@ -82,11 +85,29 @@ class InboundTranslationPipeline:
         self._asr_events_task = asyncio.create_task(self._asr_events_loop())
         logger.info("Inbound pipeline active: %s -> %s", self.source_language.value, self.target_language.value)
 
+    def _latest_speaker_metadata(self) -> dict:
+        if not self.diarization_adapter or not hasattr(self.diarization_adapter, "latest_speaker"):
+            return {}
+        try:
+            return self.diarization_adapter.latest_speaker() or {}
+        except Exception:
+            logger.debug("Could not read parallel diarization label", exc_info=True)
+            return {}
+
     async def _capture_and_vad_loop(self) -> None:
         while self._is_running:
             frame = await self.capture_engine.get_frame(timeout=0.1)
             if frame is None:
                 continue
+
+            # Diarization is a sidecar: push_audio only buffers/schedules work and
+            # never blocks ASR on a completed speaker-classification result.
+            if self.diarization_adapter and hasattr(self.diarization_adapter, "push_audio"):
+                try:
+                    await self.diarization_adapter.push_audio(frame)
+                except Exception:
+                    logger.debug("Inbound parallel diarization push failed", exc_info=True)
+
             vad_events = []
             if isinstance(self.vad_adapter, SileroVadAdapter) and self._vad_state:
                 try:
@@ -132,15 +153,22 @@ class InboundTranslationPipeline:
                 self._current_utterance_metrics.asr_first_partial_ns = now_ns
             if event.is_final and self._current_utterance_metrics:
                 self._current_utterance_metrics.asr_final_ns = now_ns
+
+            speaker = self._latest_speaker_metadata()
+            if speaker:
+                self._speaker_by_utterance[event.utterance_id] = speaker
+            metadata = dict(event.metadata or {})
+            metadata.update(self._speaker_by_utterance.get(event.utterance_id, {}))
             if self.caption_callback:
                 self.caption_callback(
                     CaptionEvent(
                         event_type=CaptionEventType.SOURCE_PARTIAL if event.is_partial else CaptionEventType.SOURCE_FINAL,
                         utterance_id=event.utterance_id,
-                        language=self.source_language,
+                        language=event.source_language,
                         text=event.text,
                         is_final=event.is_final,
                         monotonic_timestamp_ns=now_ns,
+                        metadata=metadata,
                     )
                 )
             self.phrase_committer.on_transcript_event(event)
@@ -160,6 +188,7 @@ class InboundTranslationPipeline:
                 self._current_utterance_metrics.mt_complete_ns = time.monotonic_ns()
             translated = mt_result.translated_text
             self.phrase_committer.add_translation_to_context(phrase.text, translated)
+            speaker_metadata = self._speaker_by_utterance.get(phrase.utterance_id, {})
             if self.caption_callback:
                 self.caption_callback(
                     CaptionEvent(
@@ -168,6 +197,7 @@ class InboundTranslationPipeline:
                         language=self.target_language,
                         text=translated,
                         is_final=True,
+                        metadata=dict(speaker_metadata),
                     )
                 )
             if not self.synthesize_audio:
@@ -187,6 +217,8 @@ class InboundTranslationPipeline:
                 self.metrics.record_utterance(self._current_utterance_metrics)
         except Exception:
             logger.exception("Inbound translate/synthesize failed")
+        finally:
+            self._speaker_by_utterance.pop(phrase.utterance_id, None)
 
     async def stop(self) -> None:
         if not self._is_running:
@@ -203,6 +235,7 @@ class InboundTranslationPipeline:
             if task:
                 task.cancel()
         self._main_task = self._asr_events_task = None
+        self._speaker_by_utterance.clear()
         await self.capture_engine.stop()
         if self.synthesize_audio:
             await self.playback_engine.stop()

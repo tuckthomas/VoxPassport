@@ -16,7 +16,7 @@ class LanguageCode(str, enum.Enum):
     """Language codes currently accepted by the runtime.
 
     MiLMMT supports a much larger set; this enum contains the languages exposed
-    by the desktop UI plus common expansion targets.  `_missing_` also accepts a
+    by the desktop UI plus common expansion targets. `_missing_` also accepts a
     regional BCP-47 form such as ``pt-BR`` and resolves it to its base language.
     """
 
@@ -189,7 +189,6 @@ class CaptionEventType(str, enum.Enum):
     LATENCY_UPDATE = "latency_update"
     ERROR = "error"
 
-    # Backward-compatible aliases used by the existing duplex pipelines.
     PARTIAL_SOURCE = "source_partial"
     FINAL_SOURCE = "source_final"
     COMMITTED_TRANSLATION = "translation_final"
@@ -264,6 +263,7 @@ class ModelCapability(str, enum.Enum):
     TRANSLATION = "TRANSLATION"
     TTS = "TTS"
     VAD = "VAD"
+    DIARIZATION = "DIARIZATION"
     DIRECT_SPEECH_TRANSLATION = "DIRECT_SPEECH_TRANSLATION"
 
 

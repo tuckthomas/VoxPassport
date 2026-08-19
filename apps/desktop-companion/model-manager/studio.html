@@ -2092,10 +2092,14 @@
     </div>
 
     <div class="header-actions">
-      <div class="active-voice-badge" data-tooltip="Currently selected voice for speech synthesis" data-tooltip-pos="bottom">
-        Active Voice: <span class="active-voice-highlight" id="topActiveVoiceLabel">Loading...</span>
-      </div>
-      <a class="btn-header" href="/overlay/index.html" target="_blank" data-tooltip="Open subtitle overlay in floating window" data-tooltip-pos="bottom">Meeting Overlay</a>
+      <a class="btn-header" href="/overlay/index.html" target="_blank" data-tooltip="Open subtitle overlay in floating window" data-tooltip-pos="bottom">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+          <line x1="8" y1="21" x2="16" y2="21"></line>
+          <line x1="12" y1="17" x2="12" y2="21"></line>
+        </svg>
+        <span>Meeting Overlay</span>
+      </a>
     </div>
   </header>
 
@@ -3176,6 +3180,7 @@
 
     // Profile Management
     let currentlyPlayingProfileId = null;
+    let currentActiveProfileName = "None";
 
     async function loadProfiles() {
       const container = document.getElementById('profilesContainer');
@@ -3240,7 +3245,9 @@
             container.innerHTML = `<div style="font-size:12px; color:var(--text-muted); padding:10px 0;">No profiles enrolled yet.</div>`;
           }
 
-          document.getElementById('topActiveVoiceLabel').textContent = activeName;
+          const topBadge = document.getElementById('topActiveVoiceLabel');
+          if (topBadge) topBadge.textContent = activeName;
+          currentActiveProfileName = activeName;
         }
       } catch(e) {}
     }
@@ -3357,7 +3364,8 @@
       }
 
       // 4. Default fallback: play currently active voice profile
-      const activeVoice = document.getElementById('topActiveVoiceLabel').textContent.trim();
+      const topBadge = document.getElementById('topActiveVoiceLabel');
+      const activeVoice = topBadge ? topBadge.textContent.trim() : currentActiveProfileName;
       const targetId = (activeVoice && activeVoice !== "None") ? activeVoice : "Default";
       playProfile(targetId);
     }

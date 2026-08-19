@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+from pathlib import Path
 from typing import Callable, Optional
 
 from runtime.inference.adapters.base import AsrAdapter, TranslationAdapter, TtsAdapter, VadAdapter
@@ -21,6 +23,8 @@ logger = logging.getLogger(__name__)
 
 class DuplexOrchestrator:
     """Coordinates both directions and keeps live pipeline references hot-swappable."""
+
+    DIARIZATION_MODEL_ID = "nvidia-diar-streaming-sortformer-4spk-v2.1"
 
     def __init__(
         self,
@@ -53,6 +57,7 @@ class DuplexOrchestrator:
         self.mt_adapter = mt_adapter
         self.tts_adapter_ro = tts_adapter_ro
         self.tts_adapter_en = tts_adapter_en
+        self.diarization_adapter: Optional[object] = None
 
         self.mic_capture = AudioCaptureEngine(bus=AudioBus.PHYSICAL_MIC, sample_rate_hz=16000)
         self.conf_capture = AudioCaptureEngine(bus=AudioBus.REMOTE_CONFERENCE, sample_rate_hz=16000)
@@ -155,7 +160,7 @@ class DuplexOrchestrator:
                 adapter = OmniVoiceTtsAdapter()
         elif slot.startswith("asr_"):
             if "parakeet" not in mid:
-                raise ValueError(f"No production ASR adapter is implemented for {model_id!r}")
+                raise ValueError(f"No production streaming ASR adapter is implemented for {model_id!r}")
             from runtime.inference.adapters.asr.parakeet_tdt_v3_asr_adapter import ParakeetTdtV3AsrAdapter
             adapter = ParakeetTdtV3AsrAdapter(model_id=model_id)
         elif slot.startswith("translation_"):
@@ -244,6 +249,32 @@ class DuplexOrchestrator:
         if was_active:
             await self.start()
 
+    async def _maybe_load_diarization_sidecar(self) -> Optional[object]:
+        """Load Sortformer only when explicitly downloaded; never block startup."""
+        mode = os.getenv("VOXPASSPORT_DIARIZATION", "auto").strip().lower()
+        if mode in {"0", "off", "false", "disabled", "none"}:
+            return None
+        project_root = Path(__file__).resolve().parents[3]
+        model_path = project_root / "models" / self.DIARIZATION_MODEL_ID
+        if not model_path.exists():
+            if mode in {"1", "on", "true", "enabled", "force"}:
+                logger.warning(
+                    "Diarization requested but %s is not downloaded; continuing without it",
+                    model_path,
+                )
+            return None
+        try:
+            from runtime.inference.adapters.diarization import SortformerStreamingDiarizationAdapter
+            adapter = SortformerStreamingDiarizationAdapter(model_path=model_path)
+            await adapter.load()
+            logger.info("Parallel inbound speaker diarization enabled")
+            return adapter
+        except Exception:
+            # Diarization is intentionally optional and must never take down the
+            # translation path if NeMo/runtime compatibility is unavailable.
+            logger.warning("Could not start optional Sortformer diarization sidecar", exc_info=True)
+            return None
+
     async def start(self) -> None:
         if self._is_active:
             return
@@ -252,6 +283,7 @@ class DuplexOrchestrator:
             self.vad_adapter, self.asr_adapter_en, self.asr_adapter_ro,
             self.mt_adapter, self.tts_adapter_ro, self.tts_adapter_en,
         ])
+        self.diarization_adapter = await self._maybe_load_diarization_sidecar()
         speak = self.mode != PipelineMode.CAPTIONS_ONLY
 
         if self.mode in (PipelineMode.FULL_DUPLEX, PipelineMode.OUTBOUND_TRANSLATION, PipelineMode.CAPTIONS_ONLY):
@@ -287,11 +319,15 @@ class DuplexOrchestrator:
                 source_language=self.remote_language,
                 target_language=self.user_language,
                 synthesize_audio=speak,
+                diarization_adapter=self.diarization_adapter,
             )
             await self.inbound_pipeline.start()
         logger.info(
-            "Duplex orchestrator running: user=%s remote=%s mode=%s",
-            self.user_language.value, self.remote_language.value, self.mode.value,
+            "Duplex orchestrator running: user=%s remote=%s mode=%s diarization=%s",
+            self.user_language.value,
+            self.remote_language.value,
+            self.mode.value,
+            bool(self.diarization_adapter),
         )
 
     async def set_mode(self, new_mode: PipelineMode) -> None:
@@ -318,6 +354,12 @@ class DuplexOrchestrator:
         if self.inbound_pipeline:
             await self.inbound_pipeline.stop()
             self.inbound_pipeline = None
+        if self.diarization_adapter and hasattr(self.diarization_adapter, "unload"):
+            try:
+                await self.diarization_adapter.unload()
+            except Exception:
+                logger.exception("Diarization sidecar unload failed")
+        self.diarization_adapter = None
         await self._unload_unique([
             self.vad_adapter, self.asr_adapter_en, self.asr_adapter_ro,
             self.mt_adapter, self.tts_adapter_ro, self.tts_adapter_en,

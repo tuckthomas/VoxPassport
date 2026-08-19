@@ -1,322 +1,361 @@
-"""
-LiveTranslator — Built-in Model Catalog
-========================================
-Pre-populated catalog entries for all candidate models listed in the plan.
+"""Built-in VoxPassport model catalog.
 
-These entries are the starting point for the ModelRegistry.
-They represent known models that may be installed and benchmarked.
-All upstream_id and revision fields are PLACEHOLDERS until verified
-against official model cards (Section 46 of the plan).
-
-Rules:
-  - Do not hard-code absolute paths.
-  - Do not assume a model is available until verified with its current model card.
-  - Track license separately from technical quality.
+Catalog entries are discovery/install metadata, not a claim that a model is
+already installed or production-approved. Production defaults remain the
+low-latency Parakeet -> MiLMMT cascade until local benchmarks justify a swap.
 """
 
 from __future__ import annotations
 
 from runtime.inference.model_registry.registry import ModelRegistryEntry
-from runtime.inference.protocol import (
-    InstallationStatus,
-    ModelCapability,
-    RecommendationState,
-)
+from runtime.inference.protocol import ModelCapability, RecommendationState
+
+
+def _entry(
+    *,
+    model_id: str,
+    name: str,
+    family: str,
+    provider: str,
+    capability: ModelCapability,
+    upstream_id: str,
+    revision: str = "main",
+    source_languages: list[str] | None = None,
+    target_languages: list[str] | None = None,
+    supports_english: bool = True,
+    supports_romanian: bool = True,
+    streaming: bool = False,
+    voice_cloning: bool = False,
+    cross_lingual_voice_cloning: bool = False,
+    runtime: str = "pytorch",
+    min_runtime_version: str = "",
+    quantization: list[str] | None = None,
+    download_gb: float = 0.0,
+    vram: dict[str, str] | None = None,
+    ram_gb: float | None = None,
+    license_name: str = "verify",
+    commercial_use: str = "verify",
+    redistribution: str = "verify",
+    trust_level: str = "OFFICIAL_VERIFIED",
+    recommendation: RecommendationState = RecommendationState.CANDIDATE,
+    requires_remote_code: bool = False,
+) -> ModelRegistryEntry:
+    return ModelRegistryEntry(
+        model_id=model_id,
+        name=name,
+        family=family,
+        provider=provider,
+        capability=capability,
+        upstream_id=upstream_id,
+        revision=revision,
+        supported_source_languages=source_languages or [],
+        supported_target_languages=target_languages or [],
+        supports_english=supports_english,
+        supports_romanian=supports_romanian,
+        streaming_support=streaming,
+        voice_cloning_support=voice_cloning,
+        cross_lingual_voice_cloning=cross_lingual_voice_cloning,
+        required_runtime=runtime,
+        min_runtime_version=min_runtime_version,
+        quantization_options=quantization or [],
+        estimated_download_size_gb=download_gb,
+        installed_size_gb=None,
+        expected_vram_tiers=vram or {},
+        expected_ram_gb=ram_gb,
+        license=license_name,
+        commercial_use=commercial_use,
+        redistribution=redistribution,
+        requires_remote_code=requires_remote_code,
+        trust_level=trust_level,
+        recommendation_state=recommendation,
+    )
 
 
 def get_builtin_catalog() -> list[ModelRegistryEntry]:
-    """
-    Return all built-in catalog entries.
-    These are registered into the ModelRegistry at first startup.
-    """
     return [
-        # ----------------------------------------------------------------
-        # VAD
-        # ----------------------------------------------------------------
-        ModelRegistryEntry(
-            model_id="silero-vad-v4",
-            name="Silero VAD v4",
+        # VAD: runtime-managed through the official pinned torch.hub tag.
+        _entry(
+            model_id="silero-vad-v6.2.1",
+            name="Silero VAD v6.2.1",
             family="silero-vad",
             provider="snakers4",
             capability=ModelCapability.VAD,
             upstream_id="snakers4/silero-vad",
-            revision="v4",  # verify exact tag
-            supported_source_languages=["*"],
-            supported_target_languages=[],
-            supports_english=True,
-            supports_romanian=True,
-            streaming_support=True,
-            voice_cloning_support=False,
-            cross_lingual_voice_cloning=False,
-            required_runtime="pytorch",
+            revision="v6.2.1",
+            source_languages=["*"],
+            streaming=True,
+            runtime="pytorch_torchhub",
             min_runtime_version="2.0.0",
-            quantization_options=[],
-            estimated_download_size_gb=0.01,
-            installed_size_gb=None,
-            expected_vram_tiers={},
-            expected_ram_gb=0.1,
-            license="MIT",
+            download_gb=0.01,
+            ram_gb=0.1,
+            license_name="MIT",
             commercial_use="yes",
             redistribution="yes",
-            trust_level="OFFICIAL_VERIFIED",
-            recommendation_state=RecommendationState.CANDIDATE,
+            recommendation=RecommendationState.RECOMMENDED_UPGRADE,
         ),
 
-        # ----------------------------------------------------------------
-        # ASR — Primary Candidate
-        # ----------------------------------------------------------------
-        ModelRegistryEntry(
-            model_id="nvidia-nemotron-3.5-asr-streaming-0.6b",
-            name="NVIDIA Nemotron 3.5 ASR Streaming 0.6B",
-            family="nemotron",
-            provider="nvidia",
-            capability=ModelCapability.ASR,
-            upstream_id="",  # MUST verify from model card (Section 46)
-            revision="",     # MUST verify
-            supported_source_languages=["en", "ro"],  # verify RO support
-            supported_target_languages=[],
-            supports_english=True,
-            supports_romanian=True,  # UNVERIFIED — verify on exact checkpoint
-            streaming_support=True,
-            voice_cloning_support=False,
-            cross_lingual_voice_cloning=False,
-            required_runtime="nemo",
-            min_runtime_version="2.0.0",
-            quantization_options=["fp16", "bf16", "int8"],
-            estimated_download_size_gb=1.2,
-            installed_size_gb=None,
-            expected_vram_tiers={"fp16": "~3GB", "int8": "~1.5GB"},
-            expected_ram_gb=2.0,
-            license="OpenMDW-1.1",
-            commercial_use="verify",
-            redistribution="verify",
-            trust_level="OFFICIAL_VERIFIED",
-            recommendation_state=RecommendationState.RECOMMENDED_FOR_LOCAL_BENCHMARK,
-        ),
-
-        # ----------------------------------------------------------------
-        # ASR — Benchmark Comparator & Primary Multilingual ASR
-        # ----------------------------------------------------------------
-        ModelRegistryEntry(
+        # Primary production ASR.
+        _entry(
             model_id="nvidia-parakeet-tdt-0.6b-v3",
             name="NVIDIA Parakeet TDT 0.6B v3",
             family="parakeet",
             provider="nvidia",
             capability=ModelCapability.ASR,
             upstream_id="nvidia/parakeet-tdt-0.6b-v3",
-            revision="main",
-            supported_source_languages=["en", "ro"],  # Supports 25 European languages including RO
-            supported_target_languages=[],
-            supports_english=True,
-            supports_romanian=True,
-            streaming_support=True,
-            voice_cloning_support=False,
-            cross_lingual_voice_cloning=False,
-            required_runtime="nemo",
-            min_runtime_version="2.0.0",
-            quantization_options=["fp16", "bf16"],
-            estimated_download_size_gb=1.2,
-            installed_size_gb=None,
-            expected_vram_tiers={"fp16": "~3GB"},
-            expected_ram_gb=2.0,
-            license="CC-BY-4.0",
+            source_languages=[
+                "bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de",
+                "el", "hu", "it", "lv", "lt", "mt", "pl", "pt", "ro", "sk",
+                "sl", "es", "sv", "ru", "uk",
+            ],
+            streaming=True,
+            runtime="transformers",
+            quantization=["fp16", "bf16"],
+            download_gb=1.2,
+            vram={"fp16": "~3GB"},
+            ram_gb=2.0,
+            license_name="CC-BY-4.0",
             commercial_use="yes",
             redistribution="yes",
-            trust_level="OFFICIAL_VERIFIED",
-            recommendation_state=RecommendationState.RECOMMENDED_FOR_LOCAL_BENCHMARK,
+            recommendation=RecommendationState.RECOMMENDED_FOR_LOCAL_BENCHMARK,
         ),
 
-        # ----------------------------------------------------------------
-        # Direct Speech Translation — Experimental
-        # ----------------------------------------------------------------
-        ModelRegistryEntry(
+        # Legacy research candidate kept in the catalog but not the default.
+        _entry(
+            model_id="nvidia-nemotron-3.5-asr-streaming-0.6b",
+            name="NVIDIA Nemotron 3.5 ASR Streaming 0.6B",
+            family="nemotron",
+            provider="nvidia",
+            capability=ModelCapability.ASR,
+            upstream_id="",
+            source_languages=["en", "ro"],
+            streaming=True,
+            runtime="nemo",
+            quantization=["fp16", "bf16", "int8"],
+            download_gb=1.2,
+            vram={"fp16": "~3GB", "int8": "~1.5GB"},
+            ram_gb=2.0,
+            license_name="OpenMDW-1.1",
+            trust_level="UNVERIFIED",
+            recommendation=RecommendationState.WATCH,
+        ),
+
+        # Meta Omnilingual ASR official Hugging Face checkpoints: directly
+        # downloadable from the Model Hub and useful as benchmark comparators.
+        _entry(
+            model_id="meta-omniasr-ctc-300m",
+            name="Meta OmniASR CTC 300M",
+            family="omnilingual-asr",
+            provider="facebook",
+            capability=ModelCapability.ASR,
+            upstream_id="facebook/omniASR-CTC-300M",
+            source_languages=["*"],
+            streaming=False,
+            runtime="omnilingual_asr_fairseq2",
+            download_gb=1.3,
+            vram={"bf16": "~2GB upstream estimate"},
+            ram_gb=4.0,
+            license_name="Apache-2.0",
+            commercial_use="yes",
+            redistribution="yes",
+            recommendation=RecommendationState.CANDIDATE,
+        ),
+        _entry(
+            model_id="meta-omniasr-ctc-1b",
+            name="Meta OmniASR CTC 1B",
+            family="omnilingual-asr",
+            provider="facebook",
+            capability=ModelCapability.ASR,
+            upstream_id="facebook/omniASR-CTC-1B",
+            source_languages=["*"],
+            streaming=False,
+            runtime="omnilingual_asr_fairseq2",
+            download_gb=3.9,
+            vram={"bf16": "~3GB upstream estimate"},
+            ram_gb=6.0,
+            license_name="Apache-2.0",
+            commercial_use="yes",
+            redistribution="yes",
+            recommendation=RecommendationState.RECOMMENDED_FOR_LOCAL_BENCHMARK,
+        ),
+        # Meta's December-2025 v2 asset exists in the official omnilingual-asr
+        # package, but there is not currently a Meta-owned v2 HF repository.
+        # Keep it visible as WATCH rather than silently downloading a community
+        # conversion under an official-looking model ID.
+        _entry(
+            model_id="meta-omniasr-ctc-1b-v2",
+            name="Meta OmniASR CTC 1B v2 (official package asset; HF pending)",
+            family="omnilingual-asr-v2",
+            provider="facebookresearch",
+            capability=ModelCapability.ASR,
+            upstream_id="",
+            source_languages=["*"],
+            streaming=False,
+            runtime="omnilingual_asr_fairseq2_asset",
+            download_gb=3.7,
+            vram={"bf16": "~3GB upstream estimate"},
+            ram_gb=6.0,
+            license_name="Apache-2.0",
+            commercial_use="yes",
+            redistribution="yes",
+            recommendation=RecommendationState.WATCH,
+        ),
+
+        # Direct speech -> translated text experimental path. It does not replace
+        # the Parakeet -> MiLMMT cascade until it wins local latency/quality tests.
+        _entry(
             model_id="nvidia-canary-1b-v2",
             name="NVIDIA Canary-1B-v2",
             family="canary",
             provider="nvidia",
             capability=ModelCapability.DIRECT_SPEECH_TRANSLATION,
             upstream_id="nvidia/canary-1b-v2",
-            revision="main",
-            supported_source_languages=["en", "ro", "de", "es", "fr"],
-            supported_target_languages=["en", "ro", "de", "es", "fr"],
-            supports_english=True,
-            supports_romanian=True,
-            streaming_support=False,
-            voice_cloning_support=False,
-            cross_lingual_voice_cloning=False,
-            required_runtime="nemo",
-            min_runtime_version="2.0.0",
-            quantization_options=["fp16"],
-            estimated_download_size_gb=2.0,
-            installed_size_gb=None,
-            expected_vram_tiers={"fp16": "~5GB"},
-            expected_ram_gb=4.0,
-            license="CC-BY-4.0",
+            source_languages=["en", "ro", "de", "es", "fr", "*"],
+            target_languages=["en", "ro", "de", "es", "fr", "*"],
+            streaming=False,
+            runtime="nemo",
+            quantization=["fp16"],
+            download_gb=2.0,
+            vram={"fp16": "~5GB"},
+            ram_gb=4.0,
+            license_name="CC-BY-4.0",
             commercial_use="yes",
             redistribution="yes",
-            trust_level="OFFICIAL_VERIFIED",
-            recommendation_state=RecommendationState.CANDIDATE,
+            recommendation=RecommendationState.CANDIDATE,
         ),
 
-        # ----------------------------------------------------------------
-        # Translation — Primary Low-Latency Candidate
-        # ----------------------------------------------------------------
-        ModelRegistryEntry(
+        # Optional inbound-only diarization sidecar. Downloading it does not put
+        # it in front of ASR; the orchestrator runs it in parallel when present.
+        _entry(
+            model_id="nvidia-diar-streaming-sortformer-4spk-v2.1",
+            name="NVIDIA Streaming Sortformer 4-Speaker v2.1",
+            family="streaming-sortformer-diarization",
+            provider="nvidia",
+            capability=ModelCapability.DIARIZATION,
+            upstream_id="nvidia/diar_streaming_sortformer_4spk-v2.1",
+            source_languages=["*"],
+            streaming=True,
+            runtime="nemo_toolkit[asr]",
+            download_gb=0.492,
+            vram={"fp16": "benchmark locally"},
+            ram_gb=4.0,
+            license_name="NVIDIA-Open-Model-License",
+            commercial_use="verify",
+            redistribution="verify",
+            recommendation=RecommendationState.CANDIDATE,
+        ),
+
+        # Primary and quality translation modes.
+        _entry(
             model_id="xiaomi-milmmt-46-1b-v1.0",
             name="Xiaomi MiLMMT-46-1B-v1.0",
             family="milmmt46",
             provider="xiaomi",
             capability=ModelCapability.TRANSLATION,
             upstream_id="xiaomi-research/MiLMMT-46-1B-v1.0",
-            revision="main",
-            supported_source_languages=["en", "ro", "*"],
-            supported_target_languages=["en", "ro", "*"],
-            supports_english=True,
-            supports_romanian=True,
-            streaming_support=False,
-            voice_cloning_support=False,
-            cross_lingual_voice_cloning=False,
-            required_runtime="transformers",
+            source_languages=["en", "ro", "*"],
+            target_languages=["en", "ro", "*"],
+            runtime="transformers",
             min_runtime_version="4.40.0",
-            quantization_options=["fp16", "bf16", "int8", "int4"],
-            estimated_download_size_gb=2.0,
-            installed_size_gb=None,
-            expected_vram_tiers={"fp16": "~3GB", "int8": "~1.5GB"},
-            expected_ram_gb=4.0,
-            license="Apache-2.0 (code) / Gemma Terms",
+            quantization=["fp16", "bf16", "int8", "int4"],
+            download_gb=2.0,
+            vram={"fp16": "~3GB", "int8": "~1.5GB"},
+            ram_gb=4.0,
+            license_name="Apache-2.0 (code) / Gemma Terms",
             commercial_use="yes",
             redistribution="yes",
-            requires_remote_code=False,
-            trust_level="OFFICIAL_VERIFIED",
-            recommendation_state=RecommendationState.RECOMMENDED_FOR_LOCAL_BENCHMARK,
+            recommendation=RecommendationState.RECOMMENDED_FOR_LOCAL_BENCHMARK,
         ),
-
-        # ----------------------------------------------------------------
-        # Translation — Quality Candidate
-        # ----------------------------------------------------------------
-        ModelRegistryEntry(
+        _entry(
             model_id="xiaomi-milmmt-46-4b-v1.0",
             name="Xiaomi MiLMMT-46-4B-v1.0",
             family="milmmt46",
             provider="xiaomi",
             capability=ModelCapability.TRANSLATION,
             upstream_id="xiaomi-research/MiLMMT-46-4B-v1.0",
-            revision="main",
-            supported_source_languages=["en", "ro", "*"],
-            supported_target_languages=["en", "ro", "*"],
-            supports_english=True,
-            supports_romanian=True,
-            streaming_support=False,
-            voice_cloning_support=False,
-            cross_lingual_voice_cloning=False,
-            required_runtime="transformers",
+            source_languages=["en", "ro", "*"],
+            target_languages=["en", "ro", "*"],
+            runtime="transformers",
             min_runtime_version="4.40.0",
-            quantization_options=["fp16", "bf16", "int8", "int4"],
-            estimated_download_size_gb=8.0,
-            installed_size_gb=None,
-            expected_vram_tiers={"fp16": "~10GB", "int8": "~5GB", "int4": "~3GB"},
-            expected_ram_gb=12.0,
-            license="Apache-2.0 (code) / Gemma Terms",
+            quantization=["fp16", "bf16", "int8", "int4"],
+            download_gb=8.0,
+            vram={"fp16": "~10GB", "int8": "~5GB", "int4": "~3GB"},
+            ram_gb=12.0,
+            license_name="Apache-2.0 (code) / Gemma Terms",
             commercial_use="yes",
             redistribution="yes",
-            requires_remote_code=False,
-            trust_level="OFFICIAL_VERIFIED",
-            recommendation_state=RecommendationState.CANDIDATE,
+            recommendation=RecommendationState.CANDIDATE,
         ),
-
-        # ----------------------------------------------------------------
-        # Translation — Quality Comparator
-        # ----------------------------------------------------------------
-        ModelRegistryEntry(
+        _entry(
             model_id="nvidia-riva-translate-4b-v2",
             name="NVIDIA Riva-Translate-4B-Instruct-v2",
             family="riva-translate",
             provider="nvidia",
             capability=ModelCapability.TRANSLATION,
             upstream_id="nvidia/riva-translate-4b-instruct-v2",
-            revision="main",
-            supported_source_languages=["en", "ro"],
-            supported_target_languages=["en", "ro"],
-            supports_english=True,
-            supports_romanian=True,
-            streaming_support=False,
-            voice_cloning_support=False,
-            cross_lingual_voice_cloning=False,
-            required_runtime="nemo_or_transformers",
-            min_runtime_version="",
-            quantization_options=["fp16"],
-            estimated_download_size_gb=8.0,
-            installed_size_gb=None,
-            expected_vram_tiers={"fp16": "~10GB"},
-            expected_ram_gb=12.0,
-            license="NVIDIA-OpenModel",
-            commercial_use="verify",
-            redistribution="verify",
-            trust_level="OFFICIAL_VERIFIED",
-            recommendation_state=RecommendationState.CANDIDATE,
+            source_languages=["en", "ro"],
+            target_languages=["en", "ro"],
+            runtime="nemo_or_transformers",
+            quantization=["fp16"],
+            download_gb=8.0,
+            vram={"fp16": "~10GB"},
+            ram_gb=12.0,
+            license_name="NVIDIA-OpenModel",
+            recommendation=RecommendationState.CANDIDATE,
+        ),
+        # Research/watch entry only: no public official model weights are wired to
+        # the HF download button yet.
+        _entry(
+            model_id="meta-omnilingual-mt",
+            name="Meta Omnilingual MT (watchlist - official weights pending)",
+            family="omnilingual-mt",
+            provider="meta",
+            capability=ModelCapability.TRANSLATION,
+            upstream_id="",
+            source_languages=["*"],
+            target_languages=["*"],
+            runtime="weights_not_publicly_wired",
+            license_name="verify",
+            trust_level="OFFICIAL_RESEARCH_ONLY",
+            recommendation=RecommendationState.WATCH,
         ),
 
-        # ----------------------------------------------------------------
-        # TTS — Primary Candidate
-        # ----------------------------------------------------------------
-        ModelRegistryEntry(
+        # TTS entries retained from the existing stack.
+        _entry(
             model_id="omnivoice-stock",
             name="k2-fsa OmniVoice (stock voice)",
             family="omnivoice",
             provider="k2-fsa",
             capability=ModelCapability.TTS,
             upstream_id="k2-fsa/OmniVoice",
-            revision="main",
-            supported_source_languages=[],
-            supported_target_languages=["en", "ro"],
-            supports_english=True,
-            supports_romanian=True,
-            streaming_support=True,
-            voice_cloning_support=True,
+            target_languages=["en", "ro", "*"],
+            streaming=True,
+            voice_cloning=True,
             cross_lingual_voice_cloning=True,
-            required_runtime="k2_or_sherpa_onnx",
-            min_runtime_version="",
-            quantization_options=[],
-            estimated_download_size_gb=1.0,
-            installed_size_gb=None,
-            expected_vram_tiers={},
-            expected_ram_gb=1.0,
-            license="Apache-2.0",
-            commercial_use="yes",
-            redistribution="yes",
-            trust_level="OFFICIAL_VERIFIED",
-            recommendation_state=RecommendationState.RECOMMENDED_FOR_LOCAL_BENCHMARK,
+            runtime="omnivoice_native",
+            download_gb=2.45,
+            ram_gb=4.0,
+            license_name="CC-BY-NC weights / Apache-2.0 code",
+            commercial_use="no",
+            redistribution="verify",
+            recommendation=RecommendationState.RECOMMENDED_FOR_LOCAL_BENCHMARK,
         ),
-
-        # ----------------------------------------------------------------
-        # TTS — Research Comparator (non-production until license verified)
-        # ----------------------------------------------------------------
-        ModelRegistryEntry(
+        _entry(
             model_id="higgs-tts-3",
             name="Higgs TTS 3",
             family="higgs-tts",
-            provider="higgs-audio",
+            provider="bosonai",
             capability=ModelCapability.TTS,
-            upstream_id="",
-            revision="",
-            supported_source_languages=[],
-            supported_target_languages=["en"],  # RO support unverified
-            supports_english=True,
-            supports_romanian=False,  # unverified
-            streaming_support=False,
-            voice_cloning_support=True,
-            cross_lingual_voice_cloning=False,
-            required_runtime="transformers_or_native",
-            min_runtime_version="",
-            quantization_options=[],
-            estimated_download_size_gb=5.0,
-            installed_size_gb=None,
-            expected_vram_tiers={},
-            expected_ram_gb=8.0,
-            license="UNKNOWN",  # Must verify before any use
+            upstream_id="bosonai/higgs-tts-3-4b",
+            target_languages=["en", "ro", "*"],
+            streaming=True,
+            voice_cloning=True,
+            cross_lingual_voice_cloning=True,
+            runtime="sglang-omni",
+            download_gb=9.31,
+            ram_gb=12.0,
+            license_name="research/non-commercial; separate production license",
             commercial_use="verify",
             redistribution="verify",
-            trust_level="UNVERIFIED",
-            recommendation_state=RecommendationState.WATCH,
+            recommendation=RecommendationState.CANDIDATE,
         ),
     ]

@@ -1,12 +1,17 @@
 """Xiaomi MiLMMT-46 local translation adapter.
 
 The adapter uses the model's documented translation prompt and performs inference
-locally.  It never sends conference text to an external translation service.
+locally. It never sends conference text to an external translation service.
+
+On GPUs with limited VRAM, translation intentionally stays on CPU so ASR + cloned
+TTS can coexist during Voice Studio, Live Studio, and Debug verification. Higher
+VRAM systems may keep MiLMMT on CUDA automatically.
 """
 
 from __future__ import annotations
 
 import asyncio
+import gc
 import logging
 import time
 from pathlib import Path
@@ -36,12 +41,16 @@ _LANGUAGE_NAMES = {
 class MiLMMT46TranslationAdapter:
     """Local Transformers adapter for MiLMMT-46 1B/4B checkpoints."""
 
+    # Leave enough room for Parakeet, OmniVoice generation activations and the
+    # CUDA context on cards such as the RTX 2070 8GB.
+    LOW_VRAM_CUTOFF_GB = 10.0
+
     def __init__(
         self,
         model_size: str = "1b",
         model_id: Optional[str] = None,
         max_new_tokens: int = 256,
-        device: str = "cuda",
+        device: str = "auto",
     ) -> None:
         size = str(model_size).lower()
         if size not in ("1b", "4b"):
@@ -49,7 +58,8 @@ class MiLMMT46TranslationAdapter:
         self._model_size = size
         self._model_id = model_id or f"xiaomi-research/MiLMMT-46-{size.upper()}-v1.0"
         self._max_new_tokens = int(max_new_tokens)
-        self._device = device
+        self._device = str(device).lower()
+        self._resolved_device = "cpu"
         self._model = None
         self._tokenizer = None
         self._loaded = False
@@ -66,6 +76,24 @@ class MiLMMT46TranslationAdapter:
             )
         self._loaded = True
 
+    def _choose_device(self, torch) -> str:
+        if self._device == "cpu":
+            return "cpu"
+        if self._device in {"cuda", "cuda:0"}:
+            return "cuda" if torch.cuda.is_available() else "cpu"
+        if self._device != "auto":
+            raise ValueError(f"Unsupported MiLMMT device policy: {self._device!r}")
+        if not torch.cuda.is_available():
+            return "cpu"
+        total_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        if total_gb <= self.LOW_VRAM_CUTOFF_GB:
+            logger.info(
+                "MiLMMT low-VRAM policy: %.1f GB GPU detected; keeping translation on CPU",
+                total_gb,
+            )
+            return "cpu"
+        return "cuda"
+
     def _load_blocking(self) -> None:
         try:
             import sys
@@ -76,22 +104,33 @@ class MiLMMT46TranslationAdapter:
             project_root = Path(__file__).resolve().parents[4]
             local_candidate = project_root / "models" / f"xiaomi-milmmt-46-{self._model_size}-v1.0"
             model_target = str(local_candidate) if local_candidate.exists() else self._model_id
+            resolved = self._choose_device(torch)
+            self._resolved_device = resolved
 
             self._tokenizer = AutoTokenizer.from_pretrained(model_target, trust_remote_code=False)
-            use_cuda = torch.cuda.is_available() and self._device != "cpu"
-            dtype = torch.bfloat16 if use_cuda else torch.float32
-            self._model = AutoModelForCausalLM.from_pretrained(
-                model_target,
-                torch_dtype=dtype,
-                device_map="auto" if use_cuda else None,
-                low_cpu_mem_usage=True,
-                trust_remote_code=False,
-            )
-            if not use_cuda:
+            if resolved == "cuda":
+                self._model = AutoModelForCausalLM.from_pretrained(
+                    model_target,
+                    torch_dtype=torch.float16,
+                    device_map={"": "cuda:0"},
+                    low_cpu_mem_usage=True,
+                    trust_remote_code=False,
+                )
+            else:
+                self._model = AutoModelForCausalLM.from_pretrained(
+                    model_target,
+                    torch_dtype=torch.float32,
+                    device_map=None,
+                    low_cpu_mem_usage=True,
+                    trust_remote_code=False,
+                )
                 self._model.to("cpu")
             self._model.eval()
             self._load_error = None
-            logger.info("Loaded MiLMMT-46-%s locally from %s", self._model_size.upper(), model_target)
+            logger.info(
+                "Loaded MiLMMT-46-%s locally from %s on %s",
+                self._model_size.upper(), model_target, resolved,
+            )
         except Exception as exc:
             self._model = None
             self._tokenizer = None
@@ -99,9 +138,13 @@ class MiLMMT46TranslationAdapter:
             logger.exception("Failed to load MiLMMT-46 locally")
 
     async def unload(self) -> None:
+        old_model = self._model
         self._model = None
         self._tokenizer = None
         self._loaded = False
+        if old_model is not None:
+            del old_model
+        gc.collect()
         try:
             import torch
             if torch.cuda.is_available():

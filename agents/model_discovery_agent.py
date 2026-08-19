@@ -1,66 +1,48 @@
-"""
-LiveTranslator — Scheduled Model Discovery & Research Agent
-=============================================================
-Autonomous discovery agent that scans model hubs (Hugging Face, arXiv, GitHub),
-identifies emerging EN<->RO models, analyzes benchmark cards, and updates
-the ModelRegistry recommendation state.
+"""Scheduled Hugging Face model discovery for VoxPassport.
 
-Discovery Pipeline (Section 16D):
-1. Scan model providers (HuggingFace Hub API, NVIDIA, Xiaomi, Meta, k2-fsa)
-2. Filter for Romanian (RO) & English (EN) capability
-3. Validate license terms (MIT, Apache-2.0, OpenMDW, CC-BY, Gemma/Commercial constraints)
-4. Evaluate latency / VRAM requirements
-5. Update ModelRegistry entry recommendation state:
-   IGNORE -> WATCH -> CANDIDATE -> RECOMMENDED_FOR_LOCAL_BENCHMARK
+Discovery is advisory: candidates are registered for inspection/download but are
+never activated automatically.
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-import time
-from dataclasses import asdict, dataclass
-from typing import List, Optional
+from dataclasses import dataclass, field
+from typing import Optional
 
 from runtime.inference.model_registry.registry import ModelRegistry, ModelRegistryEntry
-from runtime.inference.protocol import (
-    InstallationStatus,
-    ModelCapability,
-    RecommendationState,
-)
+from runtime.inference.protocol import InstallationStatus, ModelCapability, RecommendationState
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class DiscoveryCandidate:
-    """A newly identified upstream model candidate."""
     upstream_id: str
     name: str
     family: str
     provider: str
     capability: ModelCapability
-    supports_romanian: bool
-    supports_english: bool
-    streaming_support: bool
-    license_tag: str
-    estimated_size_gb: float
+    languages: list[str] = field(default_factory=list)
+    streaming_support: bool = False
+    license_tag: str = "verify"
+    estimated_size_gb: float = 0.0
     notes: str = ""
+
+    @property
+    def supports_romanian(self) -> bool:
+        return "ro" in self.languages or "*" in self.languages
+
+    @property
+    def supports_english(self) -> bool:
+        return "en" in self.languages or "*" in self.languages
 
 
 class ModelDiscoveryAgent:
-    """
-    Automated research agent discovering and evaluating candidate translation models.
-    """
-
-    def __init__(
-        self,
-        registry: ModelRegistry,
-        scan_interval_hours: float = 24.0,
-    ):
+    def __init__(self, registry: ModelRegistry, scan_interval_hours: float = 24.0) -> None:
         self.registry = registry
-        self.scan_interval_hours = scan_interval_hours
+        self.scan_interval_hours = float(scan_interval_hours)
         self._is_running = False
         self._task: Optional[asyncio.Task] = None
 
@@ -69,143 +51,167 @@ class ModelDiscoveryAgent:
             return
         self._is_running = True
         self._task = asyncio.create_task(self._periodic_scan_loop())
-        logger.info("Model Discovery Agent started (interval: %.1f hours)", self.scan_interval_hours)
 
     async def stop(self) -> None:
         self._is_running = False
         if self._task:
             self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
             self._task = None
-        logger.info("Model Discovery Agent stopped.")
 
-    async def run_discovery_pass(self) -> List[ModelRegistryEntry]:
-        """
-        Execute one discovery pass over upstream sources.
-        """
-        logger.info("Executing Model Discovery pass...")
+    async def run_discovery_pass(self) -> list[ModelRegistryEntry]:
         candidates = await self._fetch_upstream_candidates()
-        promoted_entries = []
+        promoted: list[ModelRegistryEntry] = []
+        for candidate in candidates:
+            entry = self._evaluate_and_convert(candidate)
+            if entry is None:
+                continue
+            self.registry.register(entry)
+            promoted.append(entry)
+        logger.info("Model discovery processed %d candidates", len(candidates))
+        return promoted
 
-        for cand in candidates:
-            entry = self._evaluate_and_convert(cand)
-            if entry:
-                self.registry.register(entry)
-                promoted_entries.append(entry)
-                logger.info(
-                    "Model Discovery Agent added/updated: %s (%s) -> %s",
-                    entry.model_id,
-                    entry.capability.value,
-                    entry.recommendation_state.value,
-                )
+    @staticmethod
+    def _capability_for_pipeline(pipeline_tag: str) -> Optional[ModelCapability]:
+        tag = str(pipeline_tag or "").lower()
+        if tag == "automatic-speech-recognition":
+            return ModelCapability.ASR
+        if tag in {"translation", "text2text-generation"}:
+            return ModelCapability.TRANSLATION
+        if tag in {"text-to-speech", "text-to-audio"}:
+            return ModelCapability.TTS
+        return None
 
-        logger.info("Discovery pass completed. %d candidates processed.", len(promoted_entries))
-        return promoted_entries
+    @staticmethod
+    def _languages(model) -> list[str]:
+        values: set[str] = set()
+        for tag in getattr(model, "tags", None) or []:
+            if isinstance(tag, str) and tag.startswith("language:"):
+                values.add(tag.split(":", 1)[1].lower())
+        card = getattr(model, "card_data", None)
+        if card:
+            raw = getattr(card, "language", None)
+            if isinstance(raw, str):
+                values.add(raw.lower())
+            elif isinstance(raw, (list, tuple)):
+                values.update(str(x).lower() for x in raw)
+        return sorted(values)
 
-    async def _fetch_upstream_candidates(self) -> List[DiscoveryCandidate]:
-        """
-        Query upstream indices (HuggingFace Hub / NeMo Hub / Sherpa).
-        Returns list of discovery candidates.
-        """
-        # Built-in curated search targets for EN<->RO models
-        return [
-            DiscoveryCandidate(
-                upstream_id="nvidia/nemotron-3.5-asr-streaming-0.6b",
-                name="NVIDIA Nemotron 3.5 ASR Streaming 0.6B",
-                family="nemotron",
-                provider="nvidia",
-                capability=ModelCapability.ASR,
-                supports_romanian=True,
-                supports_english=True,
-                streaming_support=True,
-                license_tag="OpenMDW-1.1",
-                estimated_size_gb=1.2,
-                notes="Primary streaming ASR candidate for EN and RO.",
-            ),
-            DiscoveryCandidate(
-                upstream_id="XiaomiMiLM/MiLMMT-46-1B-v1.0",
-                name="Xiaomi MiLMMT-46 1B v1.0",
-                family="milmmt46",
-                provider="xiaomi",
-                capability=ModelCapability.TRANSLATION,
-                supports_romanian=True,
-                supports_english=True,
-                streaming_support=False,
-                license_tag="Apache-2.0",
-                estimated_size_gb=2.0,
-                notes="Primary low-latency translation candidate.",
-            ),
-            DiscoveryCandidate(
-                upstream_id="XiaomiMiLM/MiLMMT-46-4B-v1.0",
-                name="Xiaomi MiLMMT-46 4B v1.0",
-                family="milmmt46",
-                provider="xiaomi",
-                capability=ModelCapability.TRANSLATION,
-                supports_romanian=True,
-                supports_english=True,
-                streaming_support=False,
-                license_tag="Apache-2.0",
-                estimated_size_gb=8.0,
-                notes="Quality translation candidate for high-end GPUs.",
-            ),
-            DiscoveryCandidate(
-                upstream_id="k2-fsa/omnivoice",
-                name="k2-fsa OmniVoice",
-                family="omnivoice",
-                provider="k2-fsa",
-                capability=ModelCapability.TTS,
-                supports_romanian=True,
-                supports_english=True,
-                streaming_support=True,
-                license_tag="Apache-2.0",
-                estimated_size_gb=1.0,
-                notes="Streaming TTS with cross-lingual voice cloning.",
-            ),
-        ]
+    @staticmethod
+    def _license(model) -> str:
+        for tag in getattr(model, "tags", None) or []:
+            if isinstance(tag, str) and tag.startswith("license:"):
+                return tag.split(":", 1)[1]
+        return "verify"
 
-    def _evaluate_and_convert(self, cand: DiscoveryCandidate) -> Optional[ModelRegistryEntry]:
-        """Convert an upstream candidate into a ModelRegistryEntry with recommendation state."""
-        model_id = cand.upstream_id.replace("/", "-").lower()
+    @staticmethod
+    def _estimated_size_gb(model) -> float:
+        total = 0
+        for sibling in getattr(model, "siblings", None) or []:
+            size = getattr(sibling, "size", None)
+            name = str(getattr(sibling, "rfilename", ""))
+            if size and any(name.endswith(ext) for ext in (".safetensors", ".bin", ".gguf", ".nemo")):
+                total += int(size)
+        return round(total / 1024**3, 2) if total else 0.0
+
+    @staticmethod
+    def _list_models(api, task: str):
+        kwargs = dict(filter=task, sort="downloads", limit=30, full=True)
+        try:
+            return api.list_models(direction=-1, **kwargs)
+        except TypeError:
+            # Keep discovery compatible with older huggingface-hub installations
+            # whose list_models signature predates the direction keyword.
+            return api.list_models(**kwargs)
+
+    def _fetch_hf_blocking(self) -> list[DiscoveryCandidate]:
+        from huggingface_hub import HfApi
+
+        api = HfApi()
+        discovered: dict[str, DiscoveryCandidate] = {}
+        for task in ("automatic-speech-recognition", "translation", "text-to-speech"):
+            try:
+                for model in self._list_models(api, task):
+                    model_id = str(getattr(model, "id", "") or "").strip()
+                    if not model_id:
+                        continue
+                    capability = self._capability_for_pipeline(getattr(model, "pipeline_tag", None) or task)
+                    if capability is None:
+                        continue
+                    provider = model_id.split("/", 1)[0] if "/" in model_id else "community"
+                    discovered[model_id] = DiscoveryCandidate(
+                        upstream_id=model_id,
+                        name=model_id.split("/")[-1],
+                        family=model_id.split("/")[-1].lower(),
+                        provider=provider,
+                        capability=capability,
+                        languages=self._languages(model),
+                        streaming_support=any(
+                            "stream" in str(tag).lower()
+                            for tag in (getattr(model, "tags", None) or [])
+                        ),
+                        license_tag=self._license(model),
+                        estimated_size_gb=self._estimated_size_gb(model),
+                        notes=f"Discovered from Hugging Face task index: {task}",
+                    )
+            except Exception as exc:
+                logger.warning("Hugging Face discovery failed for %s: %s", task, exc)
+        return list(discovered.values())
+
+    async def _fetch_upstream_candidates(self) -> list[DiscoveryCandidate]:
+        return await asyncio.to_thread(self._fetch_hf_blocking)
+
+    def _evaluate_and_convert(self, candidate: DiscoveryCandidate) -> Optional[ModelRegistryEntry]:
+        model_id = candidate.upstream_id.replace("/", "-").lower()
         existing = self.registry.get_entry(model_id)
         if existing and existing.installation_status == InstallationStatus.INSTALLED:
-            return None  # Keep existing installed status
+            return None
 
-        # Determine recommendation state based on capabilities
-        rec_state = RecommendationState.RECOMMENDED_FOR_LOCAL_BENCHMARK
-        if not cand.supports_romanian:
-            rec_state = RecommendationState.WATCH
-
+        languages = candidate.languages or ["*"]
+        rec = RecommendationState.CANDIDATE
+        if candidate.supports_romanian and candidate.supports_english:
+            rec = RecommendationState.RECOMMENDED_FOR_LOCAL_BENCHMARK
+        license_lower = candidate.license_tag.lower()
+        commercial = "yes" if license_lower in {"mit", "apache-2.0", "bsd", "cc-by-4.0"} else "verify"
         return ModelRegistryEntry(
             model_id=model_id,
-            name=cand.name,
-            family=cand.family,
-            provider=cand.provider,
-            capability=cand.capability,
-            upstream_id=cand.upstream_id,
+            name=candidate.name,
+            family=candidate.family,
+            provider=candidate.provider,
+            capability=candidate.capability,
+            upstream_id=candidate.upstream_id,
             revision="main",
-            supported_source_languages=["en", "ro"] if cand.supports_romanian else ["en"],
-            supported_target_languages=["ro", "en"] if cand.supports_romanian else ["en"],
-            supports_english=cand.supports_english,
-            supports_romanian=cand.supports_romanian,
-            streaming_support=cand.streaming_support,
-            voice_cloning_support=(cand.capability == ModelCapability.TTS),
-            cross_lingual_voice_cloning=(cand.capability == ModelCapability.TTS),
-            required_runtime="pytorch",
-            min_runtime_version="2.0.0",
-            quantization_options=["fp16", "int8"],
-            estimated_download_size_gb=cand.estimated_size_gb,
+            supported_source_languages=languages,
+            supported_target_languages=languages,
+            supports_english=candidate.supports_english,
+            supports_romanian=candidate.supports_romanian,
+            streaming_support=candidate.streaming_support,
+            voice_cloning_support=(candidate.capability == ModelCapability.TTS),
+            cross_lingual_voice_cloning=False,
+            required_runtime="pytorch_or_transformers",
+            min_runtime_version="",
+            quantization_options=[],
+            estimated_download_size_gb=candidate.estimated_size_gb,
             installed_size_gb=None,
-            expected_vram_tiers={"fp16": f"~{int(cand.estimated_size_gb * 2)}GB"},
-            expected_ram_gb=4.0,
-            license=cand.license_tag,
-            commercial_use="yes" if "Apache" in cand.license_tag or "MIT" in cand.license_tag else "verify",
-            redistribution="yes",
-            recommendation_state=rec_state,
+            expected_vram_tiers={},
+            expected_ram_gb=None,
+            license=candidate.license_tag,
+            commercial_use=commercial,
+            redistribution="verify",
+            trust_level="UNVERIFIED",
+            recommendation_state=rec,
         )
 
     async def _periodic_scan_loop(self) -> None:
         while self._is_running:
             try:
                 await self.run_discovery_pass()
-            except Exception as e:
-                logger.warning("Discovery pass error: %s", e)
-            await asyncio.sleep(self.scan_interval_hours * 3600)
+            except Exception:
+                logger.exception("Model discovery pass failed")
+            try:
+                await asyncio.sleep(self.scan_interval_hours * 3600)
+            except asyncio.CancelledError:
+                break

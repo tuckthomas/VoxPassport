@@ -1,9 +1,7 @@
-"""
-LiveTranslator — Shared Protocol Types
-=======================================
-All wire-level and in-process data structures for the translation pipeline.
-No model-specific code belongs here. These types are shared across all adapters,
-the pipeline, the scheduler, and the IPC layer.
+"""VoxPassport shared runtime protocol types.
+
+These types are intentionally model-agnostic and are shared by adapters,
+pipelines, the scheduler, and the local UI/API boundary.
 """
 
 from __future__ import annotations
@@ -14,57 +12,82 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 
-# ---------------------------------------------------------------------------
-# Language codes
-# ---------------------------------------------------------------------------
-
 class LanguageCode(str, enum.Enum):
-    """BCP-47 language codes used in this application."""
+    """Language codes currently accepted by the runtime.
+
+    MiLMMT supports a much larger set; this enum contains the languages exposed
+    by the desktop UI plus common expansion targets.  `_missing_` also accepts a
+    regional BCP-47 form such as ``pt-BR`` and resolves it to its base language.
+    """
+
     EN = "en"
     RO = "ro"
+    ES = "es"
+    FR = "fr"
+    DE = "de"
+    IT = "it"
+    PT = "pt"
+    NL = "nl"
+    PL = "pl"
+    CS = "cs"
+    HU = "hu"
+    TR = "tr"
+    RU = "ru"
+    UK = "uk"
+    BG = "bg"
+    EL = "el"
+    AR = "ar"
+    HE = "he"
+    HI = "hi"
+    BN = "bn"
+    FA = "fa"
+    FI = "fi"
+    SV = "sv"
+    DA = "da"
+    NO = "no"
+    HR = "hr"
+    SK = "sk"
+    SL = "sl"
+    ID = "id"
+    MS = "ms"
+    VI = "vi"
+    TH = "th"
+    TL = "tl"
+    JA = "ja"
+    KO = "ko"
+    ZH = "zh"
 
     @classmethod
     def _missing_(cls, value: object) -> Optional["LanguageCode"]:
-        # Allow plain strings like "en-US" to fall back to base code
         if isinstance(value, str):
-            base = value.split("-")[0].lower()
+            base = value.split("-")[0].lower().strip()
             for member in cls:
                 if member.value == base:
                     return member
         return None
 
 
-# ---------------------------------------------------------------------------
-# Audio frame
-# ---------------------------------------------------------------------------
-
 class SampleFormat(str, enum.Enum):
-    PCM_S16LE = "pcm_s16le"   # 16-bit signed little-endian
-    PCM_F32LE = "pcm_f32le"   # 32-bit float little-endian
+    PCM_S16LE = "pcm_s16le"
+    PCM_F32LE = "pcm_f32le"
 
 
 @dataclass(slots=True)
 class AudioFrame:
-    """A single block of raw PCM audio."""
     stream_id: str
     sequence: int
     monotonic_timestamp_ns: int
     sample_rate_hz: int
     channels: int
     sample_format: SampleFormat
-    data: bytes  # Raw PCM payload — never base64, never JSON
+    data: bytes
 
     @staticmethod
     def now_ns() -> int:
         return time.monotonic_ns()
 
 
-# ---------------------------------------------------------------------------
-# Audio bus identifiers
-# ---------------------------------------------------------------------------
-
 class AudioBus(str, enum.Enum):
-    """Logical audio buses. These names are used throughout the routing layer."""
     PHYSICAL_MIC = "BUS_PHYSICAL_MIC"
     REMOTE_CONFERENCE = "BUS_REMOTE_CONFERENCE"
     OUTBOUND_TRANSLATED_TTS = "BUS_OUTBOUND_TRANSLATED_TTS"
@@ -72,10 +95,6 @@ class AudioBus(str, enum.Enum):
     VIRTUAL_MIC = "BUS_VIRTUAL_MIC"
     LOCAL_MONITOR = "BUS_LOCAL_MONITOR"
 
-
-# ---------------------------------------------------------------------------
-# VAD events
-# ---------------------------------------------------------------------------
 
 class VadEventType(str, enum.Enum):
     SPEECH_START = "speech_start"
@@ -91,19 +110,14 @@ class VadEvent:
     confidence: float = 1.0
 
 
-# ---------------------------------------------------------------------------
-# ASR / Transcript events
-# ---------------------------------------------------------------------------
-
 class TranscriptState(str, enum.Enum):
-    PARTIAL = "partial"   # Revisionable hypothesis
-    STABLE = "stable"     # Stable prefix, not yet final
-    FINAL = "final"       # Endpoint reached; no further revisions
+    PARTIAL = "partial"
+    STABLE = "stable"
+    FINAL = "final"
 
 
 @dataclass(slots=True)
 class TranscriptEvent:
-    """Emitted by an ASR adapter for each partial/final recognition result."""
     utterance_id: str
     revision: int
     source_language: LanguageCode
@@ -111,7 +125,6 @@ class TranscriptEvent:
     state: TranscriptState
     start_ms: Optional[float] = None
     end_ms: Optional[float] = None
-    # Optional model-specific metadata — never contains raw audio
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -123,13 +136,8 @@ class TranscriptEvent:
         return self.state == TranscriptState.FINAL
 
 
-# ---------------------------------------------------------------------------
-# Translation events
-# ---------------------------------------------------------------------------
-
 @dataclass(slots=True)
 class TranslationContext:
-    """Recent committed source text to provide context to the translation model."""
     recent_source_segments: list[str] = field(default_factory=list)
     recent_translated_segments: list[str] = field(default_factory=list)
 
@@ -145,7 +153,6 @@ class TranslationResult:
 
 @dataclass(slots=True)
 class TranslationEvent:
-    """Published when a committed source segment has been translated."""
     utterance_id: str
     segment_id: str
     source_language: LanguageCode
@@ -156,27 +163,24 @@ class TranslationEvent:
     created_monotonic_ns: int = field(default_factory=time.monotonic_ns)
 
 
-# ---------------------------------------------------------------------------
-# TTS audio events
-# ---------------------------------------------------------------------------
-
 @dataclass(slots=True)
 class TtsAudioChunk:
-    """A streaming chunk of synthesized PCM audio."""
     utterance_id: str
     segment_id: str
     sequence: int
     sample_rate_hz: int
     sample_format: SampleFormat
-    data: bytes  # Raw PCM
+    data: bytes
     is_final_chunk: bool = False
 
 
-# ---------------------------------------------------------------------------
-# Caption events
-# ---------------------------------------------------------------------------
-
 class CaptionEventType(str, enum.Enum):
+    """Caption event names.
+
+    The alias members preserve compatibility with older pipeline code while the
+    canonical wire values stay stable.
+    """
+
     SOURCE_PARTIAL = "source_partial"
     SOURCE_FINAL = "source_final"
     TRANSLATION_PARTIAL = "translation_partial"
@@ -185,9 +189,16 @@ class CaptionEventType(str, enum.Enum):
     LATENCY_UPDATE = "latency_update"
     ERROR = "error"
 
+    # Backward-compatible aliases used by the existing duplex pipelines.
+    PARTIAL_SOURCE = "source_partial"
+    FINAL_SOURCE = "source_final"
+    COMMITTED_TRANSLATION = "translation_final"
+
 
 @dataclass(slots=True)
 class CaptionEvent:
+    """Caption payload compatible with both old and new field names."""
+
     event_type: CaptionEventType
     utterance_id: str
     language: LanguageCode
@@ -195,15 +206,23 @@ class CaptionEvent:
     is_provisional: bool = True
     created_monotonic_ns: int = field(default_factory=time.monotonic_ns)
     metadata: dict[str, Any] = field(default_factory=dict)
+    is_final: Optional[bool] = None
+    monotonic_timestamp_ns: Optional[int] = None
 
+    def __post_init__(self) -> None:
+        if self.is_final is None:
+            self.is_final = not self.is_provisional
+        else:
+            self.is_provisional = not self.is_final
 
-# ---------------------------------------------------------------------------
-# Metrics event
-# ---------------------------------------------------------------------------
+        if self.monotonic_timestamp_ns is None:
+            self.monotonic_timestamp_ns = self.created_monotonic_ns
+        else:
+            self.created_monotonic_ns = self.monotonic_timestamp_ns
+
 
 @dataclass(slots=True)
 class MetricsEvent:
-    """Content-free performance metrics. Never contains speech content."""
     utterance_id: str
     capture_to_asr_partial_ms: Optional[float] = None
     endpoint_to_asr_final_ms: Optional[float] = None
@@ -220,10 +239,6 @@ class MetricsEvent:
     vram_used_mb: float = 0.0
     dropped_audio_frames: int = 0
 
-
-# ---------------------------------------------------------------------------
-# Pipeline mode
-# ---------------------------------------------------------------------------
 
 class PipelineMode(str, enum.Enum):
     FULL_DUPLEX = "full_duplex"
@@ -243,10 +258,6 @@ class RuntimeTier(str, enum.Enum):
     QUALITY = "quality"
     DEGRADED_CAPTIONS_ONLY = "degraded_captions_only"
 
-
-# ---------------------------------------------------------------------------
-# Model capability
-# ---------------------------------------------------------------------------
 
 class ModelCapability(str, enum.Enum):
     ASR = "ASR"
@@ -282,15 +293,8 @@ class RecommendationState(str, enum.Enum):
     RECOMMENDED_UPGRADE = "RECOMMENDED_UPGRADE"
 
 
-# ---------------------------------------------------------------------------
-# Voice specification
-# ---------------------------------------------------------------------------
-
 @dataclass(slots=True)
 class VoiceSpec:
-    """Describes a voice for TTS synthesis."""
     language: LanguageCode
     is_cloned: bool = False
-    # Voice profile ID — references persisted (encrypted) speaker conditioning data.
-    # None means use the default stock voice for the language.
     voice_profile_id: Optional[str] = None

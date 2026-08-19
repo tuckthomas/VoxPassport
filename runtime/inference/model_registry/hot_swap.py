@@ -1,19 +1,4 @@
-"""
-LiveTranslator - Hot-Swap State Machine
-========================================
-Safe model swapping without interrupting active utterances.
-
-State transitions (Section 16A.3):
-  REQUESTED -> PRELOADING -> READY -> DRAINING_OLD_MODEL -> ACTIVE
-                                                          -> FAILED -> ROLLED_BACK
-
-Rules:
-  - Never switch mid-utterance. Wait for current committed phrase to finish.
-  - Preload new model before unloading old when VRAM permits.
-  - Run health check on new adapter before activating.
-  - Auto-rollback to prior known-good on any failure.
-  - Only content-free failure info is logged (no transcripts/audio).
-"""
+"""Safe runtime model hot-swap state machine."""
 
 from __future__ import annotations
 
@@ -30,9 +15,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class HotSwapRequest:
-    """Describes a requested model swap for one capability slot."""
-    slot: str                   # e.g. "asr_en", "translation_en_ro"
-    model_id: str               # target model to activate
+    slot: str
+    model_id: str
     capability: ModelCapability
     requested_at: float = field(default_factory=time.time)
     state: HotSwapState = HotSwapState.REQUESTED
@@ -41,34 +25,46 @@ class HotSwapRequest:
 
 
 class HotSwapController:
-    """
-    Orchestrates safe hot-swapping of model adapters.
-
-    Usage:
-        controller = HotSwapController(registry, orchestrator)
-        async for event in controller.swap(slot="asr_en", new_model_id="..."):
-            send_to_ui(event)
-    """
+    """Preload, drain, bind, persist, and rollback one runtime slot."""
 
     def __init__(
         self,
-        registry,                           # ModelRegistry
-        get_adapter: Callable[[str], object],  # slot -> current loaded adapter
-        load_adapter: Callable[[str, str], Awaitable[object]],   # (slot, model_id) -> adapter
-        unload_adapter: Callable[[str, object], Awaitable[None]],  # (slot, adapter) -> None
-        health_check: Callable[[object], Awaitable[bool]],         # adapter -> bool
-        drain_slot: Callable[[str], Awaitable[None]],              # slot -> drain in-flight work
+        registry,
+        get_adapter: Callable[[str], object],
+        set_adapter: Callable[[str, object], None],
+        load_adapter: Callable[[str, str], Awaitable[object]],
+        unload_adapter: Callable[[str, object], Awaitable[None]],
+        health_check: Callable[[object], Awaitable[bool]],
+        drain_slot: Callable[[str], Awaitable[None]],
         vram_headroom_gb: float = 1.0,
-    ):
+    ) -> None:
         self.registry = registry
         self._get_adapter = get_adapter
+        self._set_adapter = set_adapter
         self._load_adapter = load_adapter
         self._unload_adapter = unload_adapter
         self._health_check = health_check
         self._drain_slot = drain_slot
         self.vram_headroom_gb = vram_headroom_gb
-
         self._active_swaps: dict[str, HotSwapRequest] = {}
+
+    def _persist_slot(self, slot: str, model_id: str) -> None:
+        if slot == "asr_en":
+            self.registry.set_active_model("ASR", model_id, language="en")
+        elif slot == "asr_ro":
+            self.registry.set_active_model("ASR", model_id, language="ro")
+        elif slot == "translation_en_ro":
+            self.registry.set_active_model("TRANSLATION", model_id, language_pair="en-ro")
+        elif slot == "translation_ro_en":
+            self.registry.set_active_model("TRANSLATION", model_id, language_pair="ro-en")
+        elif slot == "tts_en":
+            self.registry.set_active_model("TTS", model_id, language="en")
+        elif slot == "tts_ro":
+            self.registry.set_active_model("TTS", model_id, language="ro")
+        elif slot == "vad":
+            self.registry.set_active_model("VAD", model_id)
+        else:
+            raise ValueError(f"Unknown runtime slot: {slot}")
 
     async def swap(
         self,
@@ -76,85 +72,58 @@ class HotSwapController:
         new_model_id: str,
         capability: ModelCapability = ModelCapability.ASR,
     ):
-        """
-        Async generator yielding HotSwapRequest state updates.
-
-        Caller must consume all events to drive the swap to completion.
-        """
         req = HotSwapRequest(slot=slot, model_id=new_model_id, capability=capability)
         self._active_swaps[slot] = req
-
-        prior_model_id = self.registry.get_active_model_id(
-            capability.value, language=slot.split("_")[-1]
-        )
+        prior_model_id = getattr(self.registry._active, slot, None)
+        old_adapter = self._get_adapter(slot)
+        new_adapter = None
 
         try:
-            # REQUESTED -> PRELOADING
             req.state = HotSwapState.PRELOADING
             yield req
-            logger.info("[HotSwap] Preloading %s for slot %s", new_model_id, slot)
-
             new_adapter = await self._load_adapter(slot, new_model_id)
             if new_adapter is None:
-                raise RuntimeError(f"Adapter load returned None for {new_model_id!r}")
+                raise RuntimeError("adapter_load_returned_none")
 
-            # PRELOADING -> READY
             req.state = HotSwapState.READY
             yield req
+            if not await self._health_check(new_adapter):
+                raise RuntimeError("adapter_health_check_failed")
 
-            # Health check on new adapter
-            healthy = await self._health_check(new_adapter)
-            if not healthy:
-                raise RuntimeError(f"Health check failed for new adapter {new_model_id!r}")
-
-            # READY -> DRAINING_OLD_MODEL
             req.state = HotSwapState.DRAINING_OLD_MODEL
             yield req
-            logger.info("[HotSwap] Draining slot %s before swap", slot)
-
-            # Wait for current utterance to complete (max 5 seconds)
             try:
                 await asyncio.wait_for(self._drain_slot(slot), timeout=5.0)
             except asyncio.TimeoutError:
-                logger.warning("[HotSwap] Drain timeout for slot %s — proceeding with swap.", slot)
+                logger.warning("Hot-swap drain timed out for %s; switching after timeout", slot)
 
-            # Unload old adapter
-            old_adapter = self._get_adapter(slot)
-            if old_adapter is not None:
+            # The missing step in the old implementation: actually bind the new
+            # adapter into the orchestrator/pipeline before claiming ACTIVE.
+            self._set_adapter(slot, new_adapter)
+            self._persist_slot(slot, new_model_id)
+
+            if old_adapter is not None and old_adapter is not new_adapter:
                 await self._unload_adapter(slot, old_adapter)
 
-            # Activate new model in registry
-            self.registry.set_active_model(capability.value, new_model_id)
-
-            # DRAINING_OLD_MODEL -> ACTIVE
             req.state = HotSwapState.ACTIVE
             yield req
-            logger.info("[HotSwap] Slot %s now using %s", slot, new_model_id)
-
         except Exception as exc:
-            # FAILED -> ROLLED_BACK
-            error_msg = type(exc).__name__  # content-free — no transcript/audio info
-            logger.error("[HotSwap] Slot %s swap to %s FAILED: %s", slot, new_model_id, error_msg)
             req.state = HotSwapState.FAILED
-            req.error = error_msg
+            req.error = f"{type(exc).__name__}: {exc}"
             yield req
 
-            # Attempt rollback
             if prior_model_id:
-                logger.info("[HotSwap] Rolling back slot %s to %s", slot, prior_model_id)
                 try:
-                    await self._load_adapter(slot, prior_model_id)
-                    self.registry.set_active_model(capability.value, prior_model_id)
+                    rollback_adapter = await self._load_adapter(slot, prior_model_id)
+                    self._set_adapter(slot, rollback_adapter)
+                    self._persist_slot(slot, prior_model_id)
+                    if new_adapter is not None and new_adapter is not rollback_adapter:
+                        await self._unload_adapter(slot, new_adapter)
                     req.state = HotSwapState.ROLLED_BACK
                     req.rolled_back_to = prior_model_id
                     yield req
-                    logger.info("[HotSwap] Rollback successful: slot %s restored to %s", slot, prior_model_id)
-                except Exception as rollback_exc:
-                    logger.error(
-                        "[HotSwap] Rollback also failed for slot %s: %s",
-                        slot, type(rollback_exc).__name__,
-                    )
-
+                except Exception:
+                    logger.exception("Hot-swap rollback failed for %s", slot)
         finally:
             self._active_swaps.pop(slot, None)
 

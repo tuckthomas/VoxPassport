@@ -1,41 +1,28 @@
 """
-LiveTranslator — OmniVoice TTS Adapter
-=======================================
-Wraps k2-fsa OmniVoice for streaming Romanian and English TTS synthesis.
+VoxPassport — OmniVoice TTS Adapter
+===================================
+Real k2-fsa OmniVoice inference for multilingual zero-shot voice cloning.
 
-Model family:  k2-fsa OmniVoice
-Source:        https://github.com/k2-fsa/  (verify exact repo and model)
-License:       CHECK UPSTREAM — must verify distribution rights before packaging
-Runtime:       k2 / sherpa-onnx or native Python (verify from upstream)
-
-Key requirements:
-  - Stream audio chunks as soon as the model can emit them (minimize time-to-first-audio)
-  - Cache speaker conditioning/prompt data after enrollment (do NOT recompute per sentence)
-  - Support both stock (non-cloned) and zero-shot cloned voice
-  - Expose native output sample rate
-  - Support Romanian and English synthesis
-
-Status: STUB — interface wired, inference not yet implemented.
-
-IMPORTANT before implementing:
-  - Verify exact OmniVoice model download location and model format.
-  - Verify Romanian language support quality (is it production-grade?).
-  - Verify cross-lingual voice cloning behavior (English ref → Romanian output).
-  - Verify distribution/packaging rights.
-  - Test chunk boundary artifacts.
+Important quality guardrails:
+  - OmniVoice upstream defaults to 32 iterative decoding steps and recommends
+    16 for faster inference. The previous VoxPassport implementation forced
+    2 steps, which can severely damage intelligibility.
+  - Reference-prompt preprocessing, denoising, and output post-processing use
+    the upstream quality defaults instead of being explicitly disabled.
+  - A missing reference transcript is never replaced with invented text.
 """
 
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
-import time
 import uuid
+from pathlib import Path
 from typing import AsyncIterator, Optional
 
 from runtime.inference.adapters.base import TtsAdapter
 from runtime.inference.protocol import (
-    AudioFrame,
     LanguageCode,
     SampleFormat,
     TtsAudioChunk,
@@ -44,30 +31,14 @@ from runtime.inference.protocol import (
 
 logger = logging.getLogger(__name__)
 
-_OMNIVOICE_REPO_PLACEHOLDER = "k2-fsa/OmniVoice"  # UNVERIFIED — check actual repo
-_OMNIVOICE_VERIFIED = False
-
 
 class OmniVoiceTtsAdapter(TtsAdapter):
-    """
-    TTS adapter for k2-fsa OmniVoice.
-
-    Supports:
-      - Stock (non-cloned) Romanian and English synthesis
-      - Zero-shot voice cloning (when voice profile is enrolled)
-      - Streaming PCM output (chunks emitted as they are synthesized)
-
-    Voice cloning notes:
-      - Call enroll_voice() once to create a speaker profile.
-      - Pass the profile ID in VoiceSpec for subsequent synthesis calls.
-      - Never recompute the speaker prompt for every sentence — use cached conditioning.
-      - Cross-lingual cloning (English reference → Romanian output) may introduce accent;
-        benchmark and compare with stock voice before enabling as default.
-    """
+    """TTS adapter for k2-fsa OmniVoice."""
 
     ADAPTER_NAME = "OmniVoiceTtsAdapter"
-    # OmniVoice native output sample rate — verify from model card
-    _NATIVE_SAMPLE_RATE_HZ = 24000  # UNVERIFIED — set correct value after model verification
+    _NATIVE_SAMPLE_RATE_HZ = 24000
+    _DEFAULT_QUALITY_STEPS = 32
+    _MIN_QUALITY_STEPS = 16
 
     def __init__(
         self,
@@ -78,14 +49,7 @@ class OmniVoiceTtsAdapter(TtsAdapter):
         self._device = device
         self._model = None
         self._loaded = False
-        # Cache of speaker conditioning tensors keyed by voice_profile_id
         self._speaker_cache: dict[str, object] = {}
-
-        if not _OMNIVOICE_VERIFIED:
-            logger.warning(
-                "OmniVoiceTtsAdapter: upstream model not yet verified. "
-                "See Section 46 of plan and benchmarks/tts_bakeoff.py."
-            )
 
     async def load(self) -> None:
         if self._loaded:
@@ -93,61 +57,120 @@ class OmniVoiceTtsAdapter(TtsAdapter):
         logger.info("Loading OmniVoice TTS...")
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._load_blocking)
+        if self._model is None:
+            raise RuntimeError("OmniVoice failed to load; inspect the preceding log output.")
         self._loaded = True
         logger.info("OmniVoice TTS loaded.")
 
     def _load_blocking(self) -> None:
         import sys
-        from pathlib import Path
+        import torch
+
         project_root = Path(__file__).resolve().parents[4]
         pkg_dir = str(project_root / "packages")
         if pkg_dir not in sys.path:
             sys.path.insert(0, pkg_dir)
         sys.modules["torchvision"] = None
 
-        import torch
         from omnivoice import OmniVoice
 
         local_candidate = project_root / "models" / "omnivoice-stock"
-        model_target = str(local_candidate) if local_candidate.exists() else (self._model_path or "k2-fsa/OmniVoice")
+        model_target = (
+            str(local_candidate)
+            if local_candidate.exists()
+            else (self._model_path or "k2-fsa/OmniVoice")
+        )
 
-        logger.info("Loading neural OmniVoice TTS from %s...", model_target)
+        use_cuda = torch.cuda.is_available() and self._device != "cpu"
+        device_map = "cuda:0" if use_cuda else "cpu"
+        dtype = torch.float16 if use_cuda else torch.float32
+
+        logger.info("Loading neural OmniVoice from %s on %s...", model_target, device_map)
         try:
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            self._model = OmniVoice.from_pretrained(model_target, device_map=device, dtype=torch.float32)
-            logger.info("OmniVoice neural TTS loaded on %s.", device)
-            
-            # Pre-warm enrolled voice profiles into _speaker_cache
-            try:
-                profiles_dir = project_root / "data" / "voice_profiles"
-                if profiles_dir.exists():
-                    for pdir in profiles_dir.iterdir():
-                        if pdir.is_dir() and not pdir.name.startswith(".") and (pdir / "reference.wav").exists():
-                            ref_wav = str(pdir / "reference.wav")
-                            ref_txt = ""
-                            if (pdir / "reference.txt").exists():
-                                try:
-                                    with open(pdir / "reference.txt", "r", encoding="utf-8") as tf:
-                                        ref_txt = tf.read().strip()
-                                except Exception:
-                                    pass
-                            ckey = f"{ref_wav}_{ref_txt}"
-                            if ckey not in self._speaker_cache:
-                                logger.info("Pre-warming voice profile clone prompt for '%s'...", pdir.name)
-                                self._speaker_cache[ckey] = self._model.create_voice_clone_prompt(
-                                    ref_audio=ref_wav,
-                                    ref_text=ref_txt or "Artificial intelligence enables seamless real-time conference translations across multiple languages. I am enrolling my voice profile so my Romanian translations sound naturally like me in meetings.",
-                                    preprocess_prompt=False,
-                                )
-            except Exception as e:
-                logger.warning("Failed to pre-warm voice profile prompts: %s", e)
-
-        except Exception as e:
-            logger.error("Failed to load OmniVoice model: %s", e)
+            self._model = OmniVoice.from_pretrained(
+                model_target,
+                device_map=device_map,
+                dtype=dtype,
+            )
+            sample_rate = getattr(self._model, "sampling_rate", None)
+            if sample_rate:
+                self._NATIVE_SAMPLE_RATE_HZ = int(sample_rate)
+            logger.info("OmniVoice neural TTS loaded on %s.", device_map)
+            self._prewarm_saved_profiles(project_root)
+        except Exception as exc:
+            logger.exception("Failed to load OmniVoice model: %s", exc)
             self._model = None
+
+    def _prewarm_saved_profiles(self, project_root: Path) -> None:
+        """Cache valid saved reference prompts without inventing transcripts."""
+        if self._model is None:
+            return
+
+        profiles_dir = project_root / "data" / "voice_profiles"
+        if not profiles_dir.exists():
+            return
+
+        for profile_dir in profiles_dir.iterdir():
+            if not profile_dir.is_dir() or profile_dir.name.startswith("."):
+                continue
+
+            ref_audio = profile_dir / "reference.wav"
+            ref_text_file = profile_dir / "reference.txt"
+            if not ref_audio.exists() or not ref_text_file.exists():
+                continue
+
+            try:
+                ref_text = ref_text_file.read_text(encoding="utf-8").strip()
+            except Exception as exc:
+                logger.warning("Could not read transcript for %s: %s", profile_dir.name, exc)
+                continue
+
+            if not ref_text:
+                logger.warning(
+                    "Skipping OmniVoice prewarm for '%s': reference transcript is empty.",
+                    profile_dir.name,
+                )
+                continue
+
+            cache_key = self._cache_key(str(ref_audio), ref_text)
+            if cache_key in self._speaker_cache:
+                continue
+
+            try:
+                logger.info("Pre-warming OmniVoice profile '%s'...", profile_dir.name)
+                self._speaker_cache[cache_key] = self._model.create_voice_clone_prompt(
+                    ref_audio=str(ref_audio),
+                    ref_text=ref_text,
+                    preprocess_prompt=True,
+                )
+            except Exception as exc:
+                logger.warning("Failed to pre-warm '%s': %s", profile_dir.name, exc)
+
+    @staticmethod
+    def _cache_key(ref_audio_path: str, ref_text: str) -> str:
+        return f"{Path(ref_audio_path).resolve()}::{ref_text.strip()}"
+
+    @classmethod
+    def _quality_steps(cls, requested_steps: int) -> int:
+        """Reject the old two-step shortcut that corrupted speech quality."""
+        try:
+            steps = int(requested_steps)
+        except (TypeError, ValueError):
+            return cls._DEFAULT_QUALITY_STEPS
+
+        if steps < cls._MIN_QUALITY_STEPS:
+            logger.warning(
+                "Requested OmniVoice num_step=%s is below the upstream fast-quality "
+                "recommendation. Using %s steps instead.",
+                steps,
+                cls._DEFAULT_QUALITY_STEPS,
+            )
+            return cls._DEFAULT_QUALITY_STEPS
+        return steps
 
     async def unload(self) -> None:
         logger.info("Unloading OmniVoice TTS.")
+        self._speaker_cache.clear()
         self._model = None
         self._loaded = False
 
@@ -157,7 +180,7 @@ class OmniVoiceTtsAdapter(TtsAdapter):
         language: LanguageCode,
         voice: VoiceSpec,
     ) -> AsyncIterator[TtsAudioChunk]:
-        """Synthesize text and yield PCM audio chunks."""
+        """Streaming transport remains separate from the preview cloning path."""
         if not self._loaded:
             raise RuntimeError("OmniVoiceTtsAdapter not loaded.")
         utterance_id = str(uuid.uuid4())
@@ -177,42 +200,64 @@ class OmniVoiceTtsAdapter(TtsAdapter):
         text: str,
         ref_audio_path: str,
         ref_text: str = "",
-        num_step: int = 2,
+        num_step: int = 32,
         language: str = "Romanian",
     ) -> bytes:
-        """Generate speech in cloned voice matching the reference audio file."""
-        import io
+        """Generate cloned speech from the actual reference audio and transcript."""
         import soundfile as sf
         from omnivoice import OmniVoiceGenerationConfig
-        
-        loop = asyncio.get_running_loop()
-        
-        def _generate():
-            if not self._model:
-                raise RuntimeError("OmniVoice neural model not loaded.")
-            
-            # Cache speaker prompt for instant generation
-            cache_key = f"{ref_audio_path}_{ref_text}"
-            if cache_key not in self._speaker_cache:
-                self._speaker_cache[cache_key] = self._model.create_voice_clone_prompt(
-                    ref_audio=ref_audio_path,
-                    ref_text=ref_text or "Artificial intelligence enables seamless real-time conference translations across multiple languages. I am enrolling my voice profile so my Romanian translations sound naturally like me in meetings.",
-                    preprocess_prompt=False,
-                )
-            prompt = self._speaker_cache[cache_key]
 
-            cfg = OmniVoiceGenerationConfig(num_step=num_step, preprocess_prompt=False, denoise=False)
+        if not self._loaded or self._model is None:
+            raise RuntimeError("OmniVoice neural model not loaded.")
+        if not text or not text.strip():
+            raise ValueError("Target TTS text must not be empty.")
+        if not Path(ref_audio_path).exists():
+            raise FileNotFoundError(f"Reference audio does not exist: {ref_audio_path}")
+
+        clean_ref_text = (ref_text or "").strip()
+        if not clean_ref_text:
+            raise ValueError(
+                "OmniVoice cloning requires the real transcript of the reference clip. "
+                "VoxPassport will not substitute fabricated reference text."
+            )
+
+        effective_steps = self._quality_steps(num_step)
+        loop = asyncio.get_running_loop()
+
+        def _generate() -> bytes:
+            cache_key = self._cache_key(ref_audio_path, clean_ref_text)
+            prompt = self._speaker_cache.get(cache_key)
+            if prompt is None:
+                prompt = self._model.create_voice_clone_prompt(
+                    ref_audio=ref_audio_path,
+                    ref_text=clean_ref_text,
+                    preprocess_prompt=True,
+                )
+                self._speaker_cache[cache_key] = prompt
+
+            cfg = OmniVoiceGenerationConfig(
+                num_step=effective_steps,
+                denoise=True,
+                preprocess_prompt=True,
+                postprocess_output=True,
+            )
             audio = self._model.generate(
-                text=text,
-                language=language or "Romanian",
+                text=text.strip(),
+                language=language or None,
                 voice_clone_prompt=prompt,
                 generation_config=cfg,
             )
+            if not audio:
+                raise RuntimeError("OmniVoice returned no audio.")
+
+            sample_rate = int(
+                getattr(self._model, "sampling_rate", None)
+                or self._NATIVE_SAMPLE_RATE_HZ
+            )
             buf = io.BytesIO()
-            sf.write(buf, audio[0], 24000, format='WAV')
-            buf.seek(0)
-            return buf.read()
-            
+            sf.write(buf, audio[0], sample_rate, format="WAV")
+            return buf.getvalue()
+
         return await loop.run_in_executor(None, _generate)
 
     async def enroll_voice(
@@ -221,52 +266,33 @@ class OmniVoiceTtsAdapter(TtsAdapter):
         reference_audio: bytes,
         reference_sample_rate_hz: int,
     ) -> None:
-        """
-        Enroll a speaker voice profile from a reference audio clip.
-
-        Args:
-            voice_profile_id: A unique ID for this speaker profile (caller-provided).
-            reference_audio: PCM audio of the reference speaker (3-10 seconds of clean speech).
-            reference_sample_rate_hz: Sample rate of reference_audio.
-
-        The computed conditioning is cached in memory (not persisted here).
-        Persistence with encryption is handled by the VoiceProfileStore layer.
-        """
+        """VoiceProfileStore persists enrollment audio; prompt caching occurs on synthesis."""
         if not self._loaded:
             raise RuntimeError("OmniVoiceTtsAdapter not loaded.")
-
-        logger.info("Enrolling voice profile: %s", voice_profile_id)
-        # TODO: Compute speaker conditioning from reference_audio using OmniVoice.
-        # Cache the result in self._speaker_cache[voice_profile_id].
-        logger.warning("OmniVoiceTtsAdapter.enroll_voice: STUB.")
-        # Stub: store placeholder
-        self._speaker_cache[voice_profile_id] = object()
+        logger.info("Enrollment requested for voice profile: %s", voice_profile_id)
 
     def evict_voice_profile(self, voice_profile_id: str) -> None:
-        """Remove a cached speaker conditioning from memory."""
-        removed = self._speaker_cache.pop(voice_profile_id, None)
-        if removed:
-            logger.info("Evicted voice profile from cache: %s", voice_profile_id)
+        # Cache keys are based on reference path + transcript rather than profile ID.
+        self._speaker_cache.clear()
+        logger.info("Cleared cached OmniVoice prompts after evicting %s", voice_profile_id)
 
     async def supports_voice_cloning(self) -> bool:
-        # TODO: Verify this is True after implementing enroll_voice.
-        return True  # OmniVoice is designed for zero-shot voice cloning
+        return True
 
     async def supports_language(self, language: LanguageCode) -> bool:
-        # TODO: Verify supported languages from OmniVoice model card.
-        return language in (LanguageCode.EN, LanguageCode.RO)
+        # OmniVoice supports hundreds of languages; the app's LanguageCode enum
+        # determines which ones VoxPassport currently exposes.
+        return True
 
     @property
     def native_sample_rate_hz(self) -> int:
         return self._NATIVE_SAMPLE_RATE_HZ
 
     async def health_check(self) -> bool:
-        return self._loaded
+        return self._loaded and self._model is not None
 
     def __repr__(self) -> str:
         return (
-            f"OmniVoiceTtsAdapter("
-            f"device={self._device!r}, "
-            f"loaded={self._loaded}, "
-            f"cached_profiles={list(self._speaker_cache.keys())})"
+            f"OmniVoiceTtsAdapter(device={self._device!r}, loaded={self._loaded}, "
+            f"cached_profiles={len(self._speaker_cache)})"
         )

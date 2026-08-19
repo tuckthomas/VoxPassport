@@ -57,7 +57,42 @@
       margin: 0;
       padding: 0;
       font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(59, 130, 246, 0.28) transparent;
     }
+
+    /* ─── Modern Custom Scrollbar System ────────────────────────────────── */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+      border-radius: 10px;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: rgba(59, 130, 246, 0.25);
+      border-radius: 10px;
+      border: 1px solid rgba(59, 130, 246, 0.12);
+      transition: background 0.2s ease, border-color 0.2s ease;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(59, 130, 246, 0.45);
+      border-color: rgba(59, 130, 246, 0.35);
+    }
+
+    ::-webkit-scrollbar-thumb:active {
+      background: #2563eb;
+      border-color: #3b82f6;
+    }
+
+    ::-webkit-scrollbar-corner {
+      background: transparent;
+    }
+    /* ──────────────────────────────────────────────────────────────────────── */
 
     body {
       background: var(--bg-base);
@@ -268,6 +303,25 @@
       box-shadow: 0 0 0 0 transparent, inset 0 2px 4px rgba(0, 0, 0, 0.5);
     }
 
+    /* White Navigation LED Indicator */
+    .nav-btn-led {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+      flex-shrink: 0;
+      transition: all 0.15s ease;
+      margin-right: 2px;
+    }
+
+    .nav-studio-btn.active .nav-btn-led {
+      background: #ffffff;
+      border-color: #ffffff;
+      box-shadow: 0 0 7px 2px rgba(255, 255, 255, 0.9), 0 0 2px 1px #ffffff;
+    }
+
     /* Secondary Light/Sky Blue Button (e.g. Create Voice Profile) */
     .nav-studio-btn.secondary-blue {
       background: #0284c7;
@@ -290,15 +344,18 @@
 
     .input-field {
       width: 100%;
+      height: 42px;
+      min-height: 42px;
+      box-sizing: border-box;
       background: #0b0f19;
       border: 1px solid rgba(59, 130, 246, 0.35);
-      border-radius: 6px;
-      padding: 10px 14px;
+      border-radius: 8px;
+      padding: 0 14px;
       font-size: 13px;
       font-weight: 600;
       color: var(--text-heading);
       outline: none;
-      box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4);
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.2);
       transition: border-color 0.15s ease, box-shadow 0.15s ease;
     }
 
@@ -334,6 +391,9 @@
 
     .custom-dropdown-trigger {
       width: 100%;
+      height: 42px;
+      min-height: 42px;
+      box-sizing: border-box;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -341,7 +401,7 @@
       background: #0b0f19;
       border: 1px solid rgba(59, 130, 246, 0.35);
       border-radius: 8px;
-      padding: 10px 14px;
+      padding: 0 14px;
       font-family: inherit;
       font-size: 13px;
       font-weight: 700;
@@ -599,6 +659,11 @@
       gap: 10px;
     }
 
+    .profiles-scroll-list .profile-card {
+      height: auto;
+      flex-shrink: 0;
+    }
+
     .profile-card {
       background: var(--bg-input);
       border: 1px solid var(--border-subtle);
@@ -608,6 +673,12 @@
       flex-direction: column;
       gap: 8px;
       transition: all 0.15s ease;
+      box-sizing: border-box;
+    }
+
+    .hub-engine-grid .profile-card {
+      height: 100%;
+      justify-content: space-between;
     }
 
     .profile-card.active {
@@ -619,6 +690,7 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+      width: 100%;
     }
 
     .profile-card-title {
@@ -628,6 +700,17 @@
       display: flex;
       align-items: center;
       gap: 8px;
+      flex: 1;
+      min-width: 0;
+      width: 100%;
+    }
+
+    .profile-name-text {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex: 1;
+      min-width: 0;
     }
 
     .profile-led-indicator {
@@ -655,7 +738,67 @@
 
     .profile-led-indicator:hover {
       transform: scale(1.3);
-      filter: brightness(1.2);
+    }
+
+    .hw-summary-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 11px;
+      border-radius: var(--radius-pill);
+      background: rgba(59, 130, 246, 0.12);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      color: #93c5fd;
+      font-family: 'JetBrains Mono', monospace;
+      cursor: help;
+      transition: all 0.15s ease;
+    }
+    .hw-summary-pill:hover {
+      background: rgba(59, 130, 246, 0.2);
+      border-color: rgba(59, 130, 246, 0.5);
+    }
+
+    .hw-warn-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      cursor: help;
+      margin-left: 2px;
+      line-height: 1;
+    }
+
+    .hw-warn-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10.5px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: var(--radius-pill);
+      background: rgba(245, 158, 11, 0.15);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      color: #fbbf24;
+      cursor: help;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .hw-recommended-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10.5px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: var(--radius-pill);
+      background: rgba(59, 130, 246, 0.15);
+      border: 1px solid rgba(59, 130, 246, 0.35);
+      color: #93c5fd;
+      white-space: nowrap;
+      flex-shrink: 0;
     }
 
     .profile-card-meta {
@@ -664,12 +807,56 @@
       font-family: 'JetBrains Mono', monospace;
     }
 
+    .active-engine-status-tag {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: var(--radius-pill);
+      background: rgba(59, 130, 246, 0.12);
+      color: #60a5fa;
+      border: 1px solid rgba(59, 130, 246, 0.25);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .profile-model-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-surface-elevated);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+    }
+
+    .fixed-engine-box {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 100%;
+      height: 42px;
+      min-height: 42px;
+      box-sizing: border-box;
+      background: #0b0f19;
+      border: 1px solid rgba(59, 130, 246, 0.35);
+      border-radius: 8px;
+      padding: 0 14px;
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.2);
+    }
+
     .profile-btn-row {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
       gap: 6px;
       margin-top: 6px;
       align-items: center;
+    }
+
+    .hub-engine-grid .profile-btn-row {
+      margin-top: auto;
     }
 
     .btn-action-sm {
@@ -720,13 +907,135 @@
       box-shadow: 0 0 0 0 transparent, inset 0 2px 4px rgba(0, 0, 0, 0.5);
     }
 
-    .btn-action-sm.play:disabled {
-      opacity: 0.38 !important;
-      cursor: not-allowed !important;
-      pointer-events: none !important;
-      filter: grayscale(0.6) !important;
-      box-shadow: 0 1px 0 0 #064e3b !important;
-      transform: none !important;
+    /* ─── Uniform Engine Toggle Buttons ──────────────────────────────────── */
+    .btn-engine-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      height: 30px;
+      width: 100%;
+      padding: 0 10px;
+      text-align: center;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      white-space: nowrap;
+      background: #2563eb;
+      border: 1px solid #3b82f6;
+      color: #ffffff;
+      box-shadow: 0 3px 0 0 #1d4ed8, 0 4px 8px rgba(0, 0, 0, 0.35);
+      transform: translateY(0);
+      transition: all 0.08s ease;
+      box-sizing: border-box;
+    }
+
+    .btn-engine-toggle:hover {
+      filter: brightness(1.15);
+    }
+
+    .btn-engine-toggle.inactive {
+      background: #2563eb;
+      border: 1px solid #3b82f6;
+      color: #ffffff;
+      box-shadow: 0 3px 0 0 #1d4ed8, 0 4px 8px rgba(0, 0, 0, 0.35);
+      transform: translateY(0);
+    }
+
+    .btn-engine-toggle.active {
+      background: #1d4ed8 !important;
+      border: 1px solid #3b82f6 !important;
+      color: #ffffff !important;
+      transform: translateY(3px);
+      box-shadow: 0 0 0 0 transparent, inset 0 2px 4px rgba(0, 0, 0, 0.5) !important;
+    }
+
+    /* ─── Model Hub & Engine Config Styles ──────────────────────────────── */
+    .hub-section-title {
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #93c5fd;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .hub-engine-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 14px;
+      align-items: stretch;
+    }
+    .hf-models-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 14px;
+    }
+    .hf-model-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-lg);
+      padding: 16px 18px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 14px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+      transition: border-color 0.15s ease, transform 0.15s ease;
+    }
+    .hf-model-card:hover {
+      border-color: rgba(59, 130, 246, 0.45);
+      transform: translateY(-2px);
+    }
+    .hf-repo-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: #93c5fd;
+      background: rgba(59, 130, 246, 0.1);
+      border: 1px solid rgba(59, 130, 246, 0.25);
+      border-radius: 4px;
+      padding: 3px 8px;
+      text-decoration: none;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+      width: fit-content;
+      max-width: 100%;
+    }
+    .hf-repo-badge span {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+    }
+    .hf-filter-pill {
+      background: var(--bg-surface-elevated);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-pill);
+      padding: 5px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-dim);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .hf-filter-pill:hover {
+      color: var(--text-heading);
+      border-color: var(--border-focus);
+    }
+    .hf-filter-pill.active {
+      background: rgba(59, 130, 246, 0.2);
+      border-color: #3b82f6;
+      color: #93c5fd;
     }
 
     .btn-action-sm.is-active-state {
@@ -751,6 +1060,14 @@
     .btn-action-sm.edit:active:not(:disabled) {
       transform: translateY(3px);
       box-shadow: 0 0 0 0 #0369a1, 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+
+    .btn-action-sm.edit.is-editing-active {
+      background: #0369a1 !important;
+      border-color: #38bdf8 !important;
+      color: #ffffff !important;
+      transform: translateY(3px) !important;
+      box-shadow: 0 0 0 0 transparent, inset 0 2px 4px rgba(0, 0, 0, 0.5) !important;
     }
 
     .btn-action-sm.delete {
@@ -1285,6 +1602,155 @@
       to { transform: translateY(0); opacity: 1; }
     }
 
+    /* Model Activation Loading Overlay */
+    .activation-overlay {
+      position: fixed !important;
+      top: 0 !important;
+      left: 0 !important;
+      right: 0 !important;
+      bottom: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      background: rgba(5, 8, 14, 0.88) !important;
+      backdrop-filter: blur(16px) !important;
+      -webkit-backdrop-filter: blur(16px) !important;
+      z-index: 1000000 !important;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      animation: modalFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .activation-card {
+      width: 100%;
+      max-width: 460px;
+      background: #101622;
+      border: 1px solid #25334a;
+      border-radius: var(--radius-lg);
+      padding: 30px 26px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 16px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(59, 130, 246, 0.2);
+    }
+
+    .activation-spinner-wrap {
+      position: relative;
+      width: 68px;
+      height: 68px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 2px;
+    }
+
+    .activation-spinner-ring {
+      width: 64px;
+      height: 64px;
+      border: 3.5px solid rgba(59, 130, 246, 0.15);
+      border-top-color: #3b82f6;
+      border-right-color: #60a5fa;
+      border-radius: 50%;
+      animation: spinRing 0.75s linear infinite;
+    }
+
+    .activation-spinner-inner-glow {
+      position: absolute;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(59, 130, 246, 0.3) 0%, rgba(59, 130, 246, 0) 70%);
+      animation: pulseGlow 1.5s ease-in-out infinite alternate;
+    }
+
+    .activation-spinner-icon {
+      position: absolute;
+      color: #60a5fa;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    @keyframes spinRing {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    @keyframes pulseGlow {
+      0% { transform: scale(0.85); opacity: 0.4; }
+      100% { transform: scale(1.15); opacity: 0.9; }
+    }
+
+    .activation-title {
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--text-heading);
+      letter-spacing: -0.01em;
+    }
+
+    .activation-subtitle {
+      font-size: 12px;
+      color: var(--text-dim);
+      font-weight: 500;
+      margin-top: -10px;
+    }
+
+    .activation-status-box {
+      width: 100%;
+      background: #0b0f19;
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      text-align: left;
+    }
+
+    .activation-status-step {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+      color: var(--text-body);
+      font-weight: 600;
+    }
+
+    .activation-status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #3b82f6;
+      box-shadow: 0 0 8px #3b82f6;
+      flex-shrink: 0;
+      animation: pulseDot 0.9s infinite alternate;
+    }
+
+    @keyframes pulseDot {
+      0% { opacity: 0.4; transform: scale(0.8); }
+      100% { opacity: 1; transform: scale(1.2); }
+    }
+
+    .activation-progress-track {
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: var(--radius-pill);
+      overflow: hidden;
+      margin-top: 4px;
+    }
+
+    .activation-progress-fill {
+      height: 100%;
+      width: 15%;
+      background: linear-gradient(90deg, #3b82f6, #60a5fa);
+      border-radius: var(--radius-pill);
+      transition: width 0.3s ease, background 0.3s ease;
+    }
+
     /* Full Screen Recording Modal Overlay */
     .modal-overlay {
       position: fixed !important;
@@ -1643,19 +2109,26 @@
       <!-- Studio Navigation Section -->
       <div class="sidebar-section" style="display:flex; flex-direction:column; gap:8px;">
         <button class="nav-studio-btn active" id="btnNavTranslator" onclick="showTranslatorStudioView()" data-tooltip="Open Translator Studio (Live & Debug tabs)" data-tooltip-pos="right">
+          <span class="nav-btn-led"></span>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8l6 6M4 14l6-6 2-3M2 5h12M7 2h1M22 22l-5-10-5 10M14 18h6"/></svg>
           <span>Translator Studio</span>
         </button>
-        <button class="nav-studio-btn secondary-blue" id="btnNavVoiceStudio" onclick="showVoiceStudioView('create')" data-tooltip="Create a new 10-second neural voice profile" data-tooltip-pos="right">
+        <button class="nav-studio-btn" id="btnNavVoiceStudio" onclick="showVoiceStudioView('create')" data-tooltip="Create a new neural voice profile" data-tooltip-pos="right">
+          <span class="nav-btn-led"></span>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
           <span>Create Voice Profile</span>
+        </button>
+        <button class="nav-studio-btn" id="btnNavModelConfig" onclick="showModelConfigView()" data-tooltip="Configure active inference engines and discover Hugging Face models" data-tooltip-pos="right">
+          <span class="nav-btn-led"></span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+          <span>Model Settings</span>
         </button>
       </div>
 
       <!-- Enrolled Profiles List Section -->
       <div class="sidebar-section" style="padding-bottom:8px;">
         <div style="display:flex; justify-content:space-between; align-items:center;">
-          <span style="font-size:12px; font-weight:800; text-transform:uppercase; color:var(--text-muted);">Enrolled Profiles</span>
+          <span style="font-size:12px; font-weight:800; text-transform:uppercase; color:var(--text-muted);">Voice Profiles</span>
           <span class="profiles-count-badge" id="profilesCount">0 profiles</span>
         </div>
       </div>
@@ -1917,44 +2390,23 @@
           <div class="pane-body" style="gap: 16px; overflow-y: auto;">
             
             <!-- Profile Name Row -->
-            <div>
-              <div class="section-label" style="margin-bottom: 6px;">Profile Name</div>
-              <input type="text" class="input-field" id="studioProfileNameInput" value="" placeholder="e.g. Presentation Voice, Conference Studio..." style="width:100%;" oninput="handleStudioNameInput()">
+            <div class="studio-field-group">
+              <label class="studio-field-label">Profile Name</label>
+              <input type="text" class="input-field" id="studioProfileNameInput" value="" placeholder="e.g. Presentation Voice, Conference Studio..." oninput="handleStudioNameInput()">
             </div>
 
-            <!-- Configuration Row: Cloning Model & Reference Language -->
+            <!-- Configuration Row: Cloning Model (Fixed to Active Engine) & Reference Language -->
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
               <div class="studio-field-group">
-                <label class="studio-field-label" for="studioCloneModelSelect">
-                  Voice Cloning Model
-                </label>
-                <div class="custom-select-container" id="ddContainer_cloneModel">
-                  <button class="custom-dropdown-trigger" id="ddTrigger_cloneModel" onclick="toggleDropdown('cloneModel')" type="button">
-                    <span class="custom-dropdown-value" id="ddValue_cloneModel">OmniVoice Stock</span>
-                    <span class="custom-dropdown-chevron"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"></polyline></svg></span>
-                  </button>
-                  <div class="custom-dropdown-menu" id="ddMenu_cloneModel">
-                    <div class="custom-dropdown-item selected" data-value="higgs-tts-3" data-label="Higgs TTS 3 (Boson AI)" onclick="selectDropdownItem('cloneModel','higgs-tts-3','Higgs TTS 3 (Boson AI)')">
-                      <span>Higgs TTS 3 <span style="color:#60a5fa; font-weight:600; font-size:11px;">(Boson AI - 100+ Languages LLM)</span></span>
-                      <svg class="custom-dropdown-item-badge active-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                    </div>
-                    <div class="custom-dropdown-item" data-value="voxcpm-2" data-label="VoxCPM 2 (OpenBMB)" onclick="selectDropdownItem('cloneModel','voxcpm-2','VoxCPM 2 (OpenBMB)')">
-                      <span>VoxCPM 2 <span style="color:#34d399; font-weight:600; font-size:11px;">(OpenBMB - Tokenizer-Free Latent)</span></span>
-                    </div>
-                    <div class="custom-dropdown-item" data-value="moss-tts-1.5" data-label="MOSS-TTS v1.5 (OpenMOSS)" onclick="selectDropdownItem('cloneModel','moss-tts-1.5','MOSS-TTS v1.5 (OpenMOSS)')">
-                      <span>MOSS-TTS v1.5 <span style="color:#a78bfa; font-weight:600; font-size:11px;">(OpenMOSS - Autoregressive)</span></span>
-                    </div>
-                    <div class="custom-dropdown-item" data-value="omnivoice" data-label="OmniVoice Stock (k2-fsa)" onclick="selectDropdownItem('cloneModel','omnivoice','OmniVoice Stock (k2-fsa)')">
-                      <span>OmniVoice Stock <span style="color:#64748b; font-weight:500; font-size:11px;">(k2-fsa - Diffusion)</span></span>
-                    </div>
+                <label class="studio-field-label">Voice Cloning Model</label>
+                <div class="fixed-engine-box" id="studioFixedEngineBox" data-tooltip="Set using the Active TTS Model selector in the left panel" data-tooltip-pos="top">
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2.2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                    <span id="studioFixedEngineLabel" style="font-weight:700; color:#f8fafc; font-size:13px;">OmniVoice Stock (k2-fsa)</span>
                   </div>
-                  <select id="studioCloneModelSelect" style="display:none;" onchange="handleCloneModelChange()">
-                    <option value="higgs-tts-3" selected>Higgs TTS 3 (Boson AI)</option>
-                    <option value="voxcpm-2">VoxCPM 2 (OpenBMB)</option>
-                    <option value="moss-tts-1.5">MOSS-TTS v1.5 (OpenMOSS)</option>
-                    <option value="omnivoice">OmniVoice Stock (k2-fsa)</option>
-                  </select>
+                  <span class="pane-badge" id="studioFixedEngineBadge" style="background:rgba(59,130,246,0.12); color:#60a5fa; border:1px solid rgba(59,130,246,0.3); font-size:10px; padding:2px 6px;">ACTIVE</span>
                 </div>
+                <input type="hidden" id="studioCloneModelSelect" value="omnivoice" />
               </div>
 
               <div class="studio-field-group">
@@ -2131,6 +2583,127 @@
 
         </div>
 
+      </div> <!-- /#viewVoiceStudio -->
+
+      <!-- View 3: Model Configuration & Hugging Face Hub (Tabular Studio Layout) -->
+      <div class="editor-grid" id="viewModelConfig" style="display:none; grid-template-columns: 1fr; height: 100%; overflow: hidden; padding: 20px; box-sizing: border-box;">
+        
+        <div class="editor-pane" style="max-width: 1080px; margin: 0 auto; width: 100%; height: 100%; max-height: 100%; border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); background: var(--bg-surface); overflow: hidden; display: flex; flex-direction: column;">
+          
+          <!-- Tab Navigation Bar attached directly to the main card -->
+          <div class="studio-tab-bar" style="padding: 12px 18px 0 18px; background: #0c121e; border-bottom: 1px solid var(--border-subtle); flex-shrink: 0;">
+            <button class="studio-tab active" id="tabBtnEngines" onclick="switchModelHubTab('engines')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+              <span>Active Engines</span>
+            </button>
+            <button class="studio-tab" id="tabBtnHfHub" onclick="switchModelHubTab('hfhub')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              <span>Hugging Face Hub</span>
+            </button>
+          </div>
+
+          <!-- Pane Header with Context Title, Badge & Real-Time Hardware Summary -->
+          <div class="pane-header" style="background: var(--bg-surface); border-bottom: 1px solid var(--border-subtle); padding: 14px 20px; flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+            <div>
+              <div class="pane-title">
+                <span id="hubPaneTitle">Active Inference Pipelines</span>
+                <span class="pane-badge" id="hubPaneBadge">FULL DUPLEX ENGINE</span>
+              </div>
+              <span id="hubPaneSubtitle" style="font-size:11.5px; color:var(--text-dim); margin-top:2px; display:block;">Real-time hot-swappable TTS, ASR, NMT, and VAD neural slots</span>
+            </div>
+            <div id="hubHardwareSummary" class="hw-summary-pill" data-tooltip="Probing system hardware..." data-tooltip-pos="bottom">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+              <span>Hardware Loading...</span>
+            </div>
+          </div>
+
+          <!-- Body Container - Scrollable Inner Body -->
+          <div class="pane-body" style="background: var(--bg-surface); padding: 20px 22px 36px 22px; display:flex; flex-direction:column; gap:24px; overflow-y:auto; flex:1; min-height:0;">
+
+            <!-- Tab Content 1: Active Capability Engines -->
+            <div id="hubViewEngines" style="display:flex; flex-direction:column; gap:24px;">
+              
+              <!-- TTS Engine Section -->
+              <div>
+                <div class="hub-section-title">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path></svg>
+                  <span>1. Text-to-Speech (TTS) Voice Synthesis Engines</span>
+                </div>
+                <div class="hub-engine-grid" id="ttsModelsContainer">
+                  <!-- Dynamically populated TTS model widgets -->
+                </div>
+              </div>
+
+              <!-- ASR Engine Section -->
+              <div>
+                <div class="hub-section-title">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+                  <span>2. Automatic Speech Recognition (ASR) Pipelines</span>
+                </div>
+                <div class="hub-engine-grid" id="hubAsrModelsContainer">
+                  <!-- ASR widgets -->
+                </div>
+              </div>
+
+              <!-- Translation Engine Section -->
+              <div>
+                <div class="hub-section-title">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 8l6 6M4 14l6-6 2-3M2 5h12M7 2h1M22 22l-5-10-5 10M14 18h6"/></svg>
+                  <span>3. Neural Machine Translation (NMT) Engines</span>
+                </div>
+                <div class="hub-engine-grid" id="hubNmtModelsContainer">
+                  <!-- NMT widgets -->
+                </div>
+              </div>
+
+              <!-- VAD Engine Section -->
+              <div>
+                <div class="hub-section-title">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                  <span>4. Voice Activity Detection (VAD) Engine</span>
+                </div>
+                <div class="hub-engine-grid" id="hubVadModelsContainer">
+                  <!-- VAD widgets -->
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Tab Content 2: Hugging Face Model Discovery Hub -->
+            <div id="hubViewHfHub" style="display:none; flex-direction:column; gap:16px;">
+              
+              <!-- Search & Filter Controls with Recommended Default -->
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; background:#0b0f19; border:1px solid rgba(59,130,246,0.25); border-radius:var(--radius-lg); padding:12px 16px;">
+                <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:240px;">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2.2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                  <input type="text" id="hfSearchInput" class="input-field" placeholder="Search Hugging Face models by name, provider, or repo ID..." style="border:none; background:transparent; padding:0; height:32px; box-shadow:none;" oninput="filterHfCatalog()">
+                </div>
+                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                  <button class="hf-filter-pill active" id="hfPillRecommended" onclick="toggleHfRecommendedFilter()" data-tooltip="Toggle hardware-optimized models for your GPU/RAM">✨ Recommended for Your PC</button>
+                  <span style="width:1px; height:18px; background:rgba(255,255,255,0.15); margin:0 2px;"></span>
+                  <button class="hf-filter-pill hf-category-pill active" data-filter="ALL" onclick="setHfCategoryFilter('ALL')">All Models</button>
+                  <button class="hf-filter-pill hf-category-pill" data-filter="TTS" onclick="setHfCategoryFilter('TTS')">TTS</button>
+                  <button class="hf-filter-pill hf-category-pill" data-filter="ASR" onclick="setHfCategoryFilter('ASR')">ASR</button>
+                  <button class="hf-filter-pill hf-category-pill" data-filter="TRANSLATION" onclick="setHfCategoryFilter('TRANSLATION')">Translation</button>
+                  <button class="hf-filter-pill hf-category-pill" data-filter="VAD" onclick="setHfCategoryFilter('VAD')">VAD</button>
+                  <button class="btn-action-outline" id="btnTriggerDiscovery" onclick="triggerHfDiscovery()" style="padding:6px 14px; font-size:12px; display:inline-flex; align-items:center; gap:6px;">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                    <span>Scan Hugging Face</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Dynamic Models Grid -->
+              <div class="hf-models-grid" id="hfModelsGrid">
+                <!-- Dynamically populated -->
+              </div>
+
+            </div>
+
+          </div>
+
+        </div>
+
       </div>
 
       <!-- Bottom Meeting Activity Dock -->
@@ -2204,6 +2777,36 @@
       </div>
     </div>
   </div>
+  <!-- Model Activation Loading Overlay -->
+  <div class="activation-overlay" id="modelActivationOverlay">
+    <div class="activation-card" id="modelActivationCard">
+      <div class="activation-spinner-wrap" id="activationSpinnerWrap">
+        <div class="activation-spinner-ring" id="activationSpinnerRing"></div>
+        <div class="activation-spinner-inner-glow"></div>
+        <div class="activation-spinner-icon" id="activationSpinnerIcon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+        </div>
+      </div>
+      
+      <div class="activation-title" id="activationModelTitle">Activating Model...</div>
+      <div class="activation-subtitle" id="activationModelSubtitle">Hot-swapping inference engine & routing audio pipeline</div>
+
+      <div class="activation-status-box">
+        <div class="activation-status-step">
+          <span class="activation-status-dot" id="activationStatusDot"></span>
+          <span id="activationStatusText">Draining pipeline & unbinding previous slot...</span>
+        </div>
+        <div class="activation-progress-track">
+          <div class="activation-progress-fill" id="activationProgressFill"></div>
+        </div>
+      </div>
+
+      <button class="btn-action-outline" id="btnActivationDismiss" style="display:none; width:100%; margin-top:8px; padding:10px 18px; justify-content:center; font-size:12.5px; font-weight:700; border-color:rgba(239,68,68,0.4); color:#fca5a5; background:rgba(239,68,68,0.08);" onclick="closeActivationOverlay()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        <span>Dismiss</span>
+      </button>
+    </div>
+  </div>
 
   <script>
     const API_URL = "http://127.0.0.1:8766/api";
@@ -2243,6 +2846,8 @@
     }
 
     window.addEventListener('DOMContentLoaded', () => {
+      checkHardwareProfile();
+      renderTtsModelWidgets();
       loadProfiles();
       initWebSocketStream();
     });
@@ -2603,6 +3208,12 @@
             data.profiles.forEach(p => {
               if (p.is_active) activeName = p.profile_name || p.profile_id;
               const isPlaying = currentlyPlayingProfileId === p.profile_id;
+              const isEditingThis = (studioMode === 'edit' && editingProfileId === p.profile_id);
+              const langCode = (p.ref_lang || p.source_lang || 'en').toLowerCase();
+              const langNames = { en: 'English (US)', ro: 'Romanian (RO)', es: 'Spanish (ES)', fr: 'French (FR)', de: 'German (DE)', it: 'Italian (IT)' };
+              const langLabel = langNames[langCode] || langCode.toUpperCase();
+              const pitchMeta = p.pitch_hz ? `${p.pitch_hz}Hz` : '130Hz Pitch';
+
               const card = document.createElement('div');
               card.className = `profile-card ${p.is_active ? 'active' : ''}`;
               card.innerHTML = `
@@ -2612,17 +3223,22 @@
                           onclick="toggleActivateProfile('${p.profile_id}', ${p.is_active})" 
                           data-tooltip="${p.is_active ? 'Active Profile • Click to deactivate' : 'Inactive Profile • Click to activate'}"
                           data-tooltip-pos="top"></span>
-                    <span>${p.profile_name || p.profile_id}</span>
+                    <span class="profile-name-text">${p.profile_name || p.profile_id}</span>
                   </div>
-                  <span class="profile-card-meta">${p.pitch_hz || 130}Hz</span>
                 </div>
-                <div class="profile-card-meta">data/voice_profiles/${p.profile_id}/</div>
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin: 2px 0 4px 0;">
+                  <span class="profile-model-tag">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                    <span>${langLabel}</span>
+                  </span>
+                  <span class="profile-card-meta">${pitchMeta}</span>
+                </div>
                 <div class="profile-btn-row">
                   <button class="btn-action-sm play ${isPlaying ? 'is-playing' : ''}" id="btnPlay_${p.profile_id}" onclick="playProfile('${p.profile_id}')" data-tooltip="Listen to reference audio sample" data-tooltip-pos="top">
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
                     <span>Play</span>
                   </button>
-                  <button class="btn-action-sm edit" onclick="openEditModalForProfile('${p.profile_id}', '${p.profile_name || p.profile_id}')" data-tooltip="Edit voice profile settings" data-tooltip-pos="top">
+                  <button class="btn-action-sm edit ${isEditingThis ? 'is-editing-active' : ''}" id="btnEdit_${p.profile_id}" onclick="openEditModalForProfile('${p.profile_id}', '${p.profile_name || p.profile_id}')" data-tooltip="Edit voice profile settings" data-tooltip-pos="top">
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
                     <span>Edit</span>
                   </button>
@@ -2652,7 +3268,11 @@
           body: JSON.stringify({ profile_id: targetId })
         });
         if (res.ok) {
-          showToast(currentlyActive ? `Deactivated profile '${id}'` : `Active profile set to '${id}'`);
+          if (!currentlyActive) {
+            showToast(`Active voice profile set to '${id}'`);
+          } else {
+            showToast(`Deactivated profile '${id}'`);
+          }
           loadProfiles();
         }
       } catch(e) {}
@@ -2829,8 +3449,8 @@
 
     function getActivePromptPassage() {
       const lang = document.getElementById('studioRefLangSelect')?.value || 'en';
-      const model = document.getElementById('studioCloneModelSelect')?.value || 'higgs-tts-3';
-      const spec = MODEL_SPECS[model] || MODEL_SPECS['higgs-tts-3'];
+      const model = document.getElementById('studioCloneModelSelect')?.value || 'omnivoice';
+      const spec = MODEL_SPECS[model] || MODEL_SPECS['omnivoice'];
       const langSet = REFERENCE_PASSAGES[lang] || REFERENCE_PASSAGES.en;
       return (typeof langSet === 'string') ? langSet : (langSet[spec.tier] || langSet.extended);
     }
@@ -2841,8 +3461,8 @@
     }
 
     function handleCloneModelChange() {
-      const model = document.getElementById('studioCloneModelSelect')?.value || 'higgs-tts-3';
-      const spec = MODEL_SPECS[model] || MODEL_SPECS['higgs-tts-3'];
+      const model = document.getElementById('studioCloneModelSelect')?.value || 'omnivoice';
+      const spec = MODEL_SPECS[model] || MODEL_SPECS['omnivoice'];
       const badge = document.getElementById('studioHeaderBadge');
       if (badge && studioMode === 'create') {
         badge.textContent = spec.badge;
@@ -2900,6 +3520,10 @@
       }
     }
 
+    function openEditModalForProfile(id, name) {
+      showVoiceStudioView('edit', id, name);
+    }
+
     function showVoiceStudioView(mode = 'create', id = null, name = '') {
       if (isLiveStreamingMic) stopLiveStreamMic();
       if (isLiveMicActive) stopLiveMic();
@@ -2911,11 +3535,17 @@
       studioHasUnsavedChanges = false;
       initialEditingProfileName = name || id || "";
 
-      document.getElementById('btnNavVoiceStudio').classList.add('active');
+      if (mode === 'create') {
+        document.getElementById('btnNavVoiceStudio').classList.add('active');
+      } else {
+        document.getElementById('btnNavVoiceStudio').classList.remove('active');
+      }
       document.getElementById('btnNavTranslator').classList.remove('active');
+      document.getElementById('btnNavModelConfig')?.classList.remove('active');
 
       document.getElementById('viewTranslatorStudio').style.display = 'none';
       document.getElementById('viewVoiceStudio').style.display = 'grid';
+      document.getElementById('viewModelConfig').style.display = 'none';
 
       const statusTrack = document.getElementById('studioCloningStatusTrack');
       if (statusTrack) statusTrack.style.display = 'none';
@@ -2925,10 +3555,9 @@
 
       if (mode === 'create') {
         document.getElementById('studioHeaderTitle').textContent = "Create Voice Profile";
-        document.getElementById('studioHeaderBadge').textContent = "15S ENROLLMENT";
         document.getElementById('studioProfileNameInput').value = "";
         document.getElementById('studioRefLangSelect').value = 'en';
-        document.getElementById('studioCloneModelSelect').value = 'higgs-tts-3';
+        selectActiveTtsEngine(activeSystemTtsEngine, null, false, false);
         if (playCurrentBtn) {
           playCurrentBtn.style.display = 'none';
           playCurrentBtn.disabled = true;
@@ -2959,6 +3588,8 @@
         switchStudioSourceTab('mic');
       }
 
+      loadProfiles();
+
       document.getElementById('studioActiveRecordingSection').style.display = 'none';
       document.getElementById('studioRecordTimer').textContent = "00:00 / 00:15";
       document.getElementById('studioProgressFill').style.width = "0%";
@@ -2985,13 +3616,39 @@
     function showTranslatorStudioView() {
       if (isStudioRecording) stopStudioRecord(false);
 
+      studioMode = 'create';
+      editingProfileId = null;
+      loadProfiles();
+
       document.getElementById('btnNavTranslator').classList.add('active');
       document.getElementById('btnNavVoiceStudio').classList.remove('active');
+      document.getElementById('btnNavModelConfig')?.classList.remove('active');
 
       document.getElementById('viewTranslatorStudio').style.display = 'flex';
       document.getElementById('viewVoiceStudio').style.display = 'none';
+      document.getElementById('viewModelConfig').style.display = 'none';
 
       switchTranslatorTab(activeTranslatorTab);
+    }
+
+    function showModelConfigView() {
+      if (isStudioRecording) stopStudioRecord(false);
+      if (isLiveStreamingMic) stopLiveStreamMic();
+      if (isLiveMicActive) stopLiveMic();
+
+      studioMode = 'create';
+      editingProfileId = null;
+      loadProfiles();
+
+      document.getElementById('btnNavTranslator').classList.remove('active');
+      document.getElementById('btnNavVoiceStudio').classList.remove('active');
+      document.getElementById('btnNavModelConfig')?.classList.add('active');
+
+      document.getElementById('viewTranslatorStudio').style.display = 'none';
+      document.getElementById('viewVoiceStudio').style.display = 'none';
+      document.getElementById('viewModelConfig').style.display = 'grid';
+
+      loadModelHub();
     }
 
     function switchTranslatorTab(tab) {
@@ -3412,7 +4069,7 @@
         }
       }, 1000);
 
-      const cloneModel = document.getElementById('studioCloneModelSelect').value || 'higgs-tts-3';
+      const cloneModel = document.getElementById('studioCloneModelSelect')?.value || 'omnivoice';
       const formData = new FormData();
       formData.append("name", name);
       formData.append("transcript", promptText);
@@ -3431,35 +4088,74 @@
 
         if (res.ok) {
           const data = await res.json();
-          statusText.textContent = "✓ Voice Cloned & Ready for Preview";
-          statusPct.textContent = "100%";
-          statusFill.style.width = "100%";
-          statusFill.style.background = "#10b981";
+          if (data.has_preview && data.success) {
+            statusText.textContent = "✓ Voice Cloned & Ready for Preview";
+            statusPct.textContent = "100%";
+            statusFill.style.width = "100%";
+            statusFill.style.background = "#10b981";
 
-          document.getElementById('studioSampleBadge').textContent = "CLONED PREVIEW READY";
-          document.getElementById('studioSampleBadge').style.color = "#10b981";
-          document.getElementById('studioSampleBadge').style.borderColor = "rgba(16,185,129,0.3)";
+            document.getElementById('studioSampleBadge').textContent = "CLONED PREVIEW READY";
+            document.getElementById('studioSampleBadge').style.color = "#10b981";
+            document.getElementById('studioSampleBadge').style.borderColor = "rgba(16,185,129,0.3)";
 
-          // Transition PLAY SAMPLE button from inactive to active
-          playSampleBtn.disabled = false;
-          playSampleBtn.style.opacity = "1";
-          playSampleBtn.style.cursor = "pointer";
-          playSampleBtn.classList.remove('disabled');
+            // Transition PLAY SAMPLE button from inactive to active
+            playSampleBtn.disabled = false;
+            playSampleBtn.style.opacity = "1";
+            playSampleBtn.style.cursor = "pointer";
+            playSampleBtn.classList.remove('disabled');
 
-          if (playCurrentBtn) {
-            playCurrentBtn.style.display = "inline-flex";
-            playCurrentBtn.disabled = false;
+            if (playCurrentBtn) {
+              playCurrentBtn.style.display = "inline-flex";
+              playCurrentBtn.disabled = false;
+            }
+
+            showToast("Voice cloning complete! Click 'Play Sample' to test your cloned voice.", "success");
+          } else {
+            const errDetail = data.preview_error || "Voice synthesis backend unavailable";
+            statusText.textContent = `❌ Cloning failed: ${errDetail}`;
+            statusPct.textContent = "Failed";
+            statusFill.style.width = "100%";
+            statusFill.style.background = "#ef4444";
+
+            document.getElementById('studioSampleBadge').textContent = "CLONING FAILED";
+            document.getElementById('studioSampleBadge').style.color = "#ef4444";
+            document.getElementById('studioSampleBadge').style.borderColor = "rgba(239,68,68,0.3)";
+
+            playSampleBtn.disabled = true;
+            playSampleBtn.style.opacity = "0.35";
+            playSampleBtn.style.cursor = "not-allowed";
+            playSampleBtn.classList.add('disabled');
+
+            showToast(`Voice cloning failed: ${errDetail}`, "error");
           }
-
-          showToast("Voice cloning complete! Click 'Play Sample' to test your cloned voice.");
         } else {
-          statusText.textContent = "⚠️ Staging failed to synthesize";
+          const errData = await res.json().catch(() => ({}));
+          const errDetail = errData.error || errData.preview_error || "Staging failed to synthesize";
+          statusText.textContent = `❌ Cloning failed: ${errDetail}`;
           statusPct.textContent = "Error";
+          statusFill.style.width = "100%";
+          statusFill.style.background = "#ef4444";
+
+          document.getElementById('studioSampleBadge').textContent = "CLONING FAILED";
+          document.getElementById('studioSampleBadge').style.color = "#ef4444";
+          document.getElementById('studioSampleBadge').style.borderColor = "rgba(239,68,68,0.3)";
+
+          playSampleBtn.disabled = true;
+          playSampleBtn.style.opacity = "0.35";
+          playSampleBtn.style.cursor = "not-allowed";
+          playSampleBtn.classList.add('disabled');
+
+          showToast(`Error: ${errDetail}`, "error");
         }
       } catch(e) {
         clearInterval(progressTimer);
         statusText.textContent = "⚠️ Network error staging recording";
         statusPct.textContent = "Error";
+        statusFill.style.width = "100%";
+        statusFill.style.background = "#ef4444";
+        document.getElementById('studioSampleBadge').textContent = "NETWORK ERROR";
+        document.getElementById('studioSampleBadge').style.color = "#ef4444";
+        showToast(`Network error staging voice: ${e.message}`, "error");
       }
     }
 
@@ -3503,37 +4199,9 @@
         }
       } catch(e) {}
 
-      // 2. Direct synthesis fallback
-      const lang = document.getElementById('studioSampleOutputLangSelect').value;
-      const textToSynthesize = REFERENCE_PASSAGES[lang] || REFERENCE_PASSAGES.ro;
-
-      try {
-        const res = await fetch(`${API_URL}/synthesize`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: textToSynthesize, target: lang })
-        });
-
-        if (res.ok) {
-          const blob = await res.blob();
-          const audioUrl = URL.createObjectURL(blob);
-          player.src = audioUrl;
-          player.play();
-
-          player.onended = () => {
-            isStudioSamplePlaying = false;
-            playBtn.classList.remove('is-playing');
-          };
-          player.onerror = () => {
-            isStudioSamplePlaying = false;
-            playBtn.classList.remove('is-playing');
-          };
-          return;
-        }
-      } catch(e) {}
-
       isStudioSamplePlaying = false;
       playBtn.classList.remove('is-playing');
+      showToast("No valid staged preview audio found. Please re-record to generate preview.", "error");
     }
 
     async function handleStudioAction() {
@@ -3758,8 +4426,8 @@
         isStudioRecording = true;
         studioSeconds = 0;
 
-        const model = document.getElementById('studioCloneModelSelect')?.value || 'higgs-tts-3';
-        const targetSeconds = MODEL_SPECS[model]?.targetSeconds || 15;
+        const model = document.getElementById('studioCloneModelSelect')?.value || 'omnivoice';
+        const targetSeconds = MODEL_SPECS[model]?.targetSeconds || 10;
         
         document.getElementById('studioActiveRecordingSection').style.display = 'flex';
         document.getElementById('btnStudioAction').classList.add('recording');
@@ -3868,11 +4536,836 @@
       } catch(e) {}
     }
 
+    // ─── TTS Models Config & State ─────────────────────────────────────────────
+    const MODEL_DISPLAY_NAMES = {
+      'omnivoice': 'OmniVoice Stock (k2-fsa)',
+      'higgs-tts-3': 'Higgs TTS 3 (Boson AI)',
+      'voxcpm-2': 'VoxCPM 2 (OpenBMB)',
+      'moss-tts-1.5': 'MOSS-TTS v1.5 (OpenMOSS)',
+    };
+
+    const MODEL_TAG_STATUS = {
+      'omnivoice': 'On-Device',
+      'higgs-tts-3': 'SGLang :8095',
+      'voxcpm-2': 'Worker :8097',
+      'moss-tts-1.5': 'SGLang :8096',
+    };
+
+    let activeSystemTtsEngine = 'omnivoice';
+
+    async function toggleActiveTtsEngine(modelKey, label) {
+      if (activeSystemTtsEngine === modelKey) {
+        // Deactivate model
+        activeSystemTtsEngine = "";
+        renderTtsModelWidgets();
+        const tagEl = document.getElementById('sidebarEngineTag');
+        if (tagEl) tagEl.textContent = 'Standby';
+        const fixedLabel = document.getElementById('studioFixedEngineLabel');
+        if (fixedLabel) fixedLabel.textContent = 'None (Disabled)';
+        const hiddenInput = document.getElementById('studioCloneModelSelect');
+        if (hiddenInput) hiddenInput.value = '';
+        showToast(`Disabled ${MODEL_DISPLAY_NAMES[modelKey] || modelKey}`);
+        fetch(`${API_URL}/models/active`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ capability: "TTS", model_id: "" })
+        }).catch(() => {});
+        return;
+      }
+
+      await selectActiveTtsEngine(modelKey, label, true, true);
+    }
+
+    async function selectActiveTtsEngine(modelKey, label, notify = true, showOverlay = true) {
+      if (activeSystemTtsEngine === modelKey) {
+        if (notify) {
+          showToast(`${MODEL_DISPLAY_NAMES[modelKey] || modelKey} is already active.`);
+        }
+        renderTtsModelWidgets();
+        return;
+      }
+
+      const displayLabel = label || MODEL_DISPLAY_NAMES[modelKey] || modelKey;
+      const overlay = document.getElementById('modelActivationOverlay');
+      const titleEl = document.getElementById('activationModelTitle');
+      const subEl = document.getElementById('activationModelSubtitle');
+      const statusText = document.getElementById('activationStatusText');
+      const fill = document.getElementById('activationProgressFill');
+      const ring = document.getElementById('activationSpinnerRing');
+      const dot = document.getElementById('activationStatusDot');
+      const dismissBtn = document.getElementById('btnActivationDismiss');
+      const spinnerIcon = document.getElementById('activationSpinnerIcon');
+
+      // If silent sync without overlay
+      if (!showOverlay) {
+        activeSystemTtsEngine = modelKey;
+        renderTtsModelWidgets();
+        const tagEl = document.getElementById('sidebarEngineTag');
+        if (tagEl) tagEl.textContent = MODEL_TAG_STATUS[modelKey] || 'Active';
+        const fixedLabel = document.getElementById('studioFixedEngineLabel');
+        if (fixedLabel) fixedLabel.textContent = displayLabel;
+        const hiddenInput = document.getElementById('studioCloneModelSelect');
+        if (hiddenInput) hiddenInput.value = modelKey;
+        handleCloneModelChange();
+        fetch(`${API_URL}/models/active`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ capability: "TTS", model_id: modelKey })
+        }).catch(() => {});
+        return;
+      }
+
+      // Reset overlay state and show
+      if (overlay) {
+        titleEl.textContent = `Activating ${displayLabel}`;
+        subEl.textContent = "Hot-swapping inference engine & routing audio pipeline";
+        statusText.textContent = "Unbinding active slot & draining audio queue...";
+        fill.style.width = "20%";
+        fill.style.background = "linear-gradient(90deg, #3b82f6, #60a5fa)";
+        ring.style.display = "block";
+        ring.style.borderTopColor = "#3b82f6";
+        ring.style.borderRightColor = "#60a5fa";
+        dot.style.background = "#3b82f6";
+        dismissBtn.style.display = "none";
+        spinnerIcon.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>`;
+        overlay.style.display = "flex";
+      }
+
+      const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+      try {
+        await sleep(250);
+        if (statusText) statusText.textContent = `Checking ${displayLabel} worker & verifying backend...`;
+        if (fill) fill.style.width = "45%";
+
+        await sleep(350);
+        if (statusText) statusText.textContent = `Initializing acoustic vocoder & memory buffers...`;
+        if (fill) fill.style.width = "70%";
+
+        const res = await fetch(`${API_URL}/models/active`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ capability: "TTS", model_id: modelKey })
+        });
+
+        await sleep(300);
+
+        if (res.ok) {
+          activeSystemTtsEngine = modelKey;
+
+          // Re-render model cards to update active styling and LED
+          renderTtsModelWidgets();
+
+          // Update status tag in sidebar
+          const tagEl = document.getElementById('sidebarEngineTag');
+          if (tagEl) tagEl.textContent = MODEL_TAG_STATUS[modelKey] || 'Active';
+
+          // Update fixed box in Voice Studio form
+          const fixedLabel = document.getElementById('studioFixedEngineLabel');
+          if (fixedLabel) fixedLabel.textContent = displayLabel;
+
+          const hiddenInput = document.getElementById('studioCloneModelSelect');
+          if (hiddenInput) hiddenInput.value = modelKey;
+
+          // Update prompt text and target timer in Voice Studio based on active model spec
+          handleCloneModelChange();
+
+          // Complete progress
+          if (fill) {
+            fill.style.width = "100%";
+            fill.style.background = "#10b981";
+          }
+          if (dot) dot.style.background = "#10b981";
+          if (statusText) statusText.textContent = `✓ ${displayLabel} activated successfully!`;
+          if (spinnerIcon) spinnerIcon.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+          if (ring) {
+            ring.style.borderTopColor = "#10b981";
+            ring.style.borderRightColor = "#10b981";
+          }
+
+          await sleep(650);
+          closeActivationOverlay();
+
+          if (notify) {
+            showToast(`Active TTS model set to: ${displayLabel}`, "success");
+          }
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          const errMsg = errData.error || `Failed to activate ${displayLabel}`;
+          if (fill) {
+            fill.style.width = "100%";
+            fill.style.background = "#ef4444";
+          }
+          if (dot) dot.style.background = "#ef4444";
+          if (ring) ring.style.display = "none";
+          if (spinnerIcon) spinnerIcon.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
+          if (statusText) statusText.textContent = `❌ ${errMsg}`;
+          if (dismissBtn) dismissBtn.style.display = "block";
+          showToast(`Error activating model: ${errMsg}`, "error");
+        }
+      } catch (err) {
+        if (fill) {
+          fill.style.width = "100%";
+          fill.style.background = "#ef4444";
+        }
+        if (dot) dot.style.background = "#ef4444";
+        if (ring) ring.style.display = "none";
+        if (spinnerIcon) spinnerIcon.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>`;
+        if (statusText) statusText.textContent = `❌ Network Error: ${err.message}`;
+        if (dismissBtn) dismissBtn.style.display = "block";
+        showToast(`Network error: ${err.message}`, "error");
+      }
+    }
+
+    function closeActivationOverlay() {
+      const overlay = document.getElementById('modelActivationOverlay');
+      if (overlay) overlay.style.display = "none";
+    }
+
+    // ─── Model Hub & Hugging Face Discovery Hub Controller ────────────────────
+    let activeModelHubTab = 'engines'; // 'engines' | 'hfhub'
+    let hfCatalogModels = [];
+    let hfRecommendedOnly = true; // Composable Hardware Filter (Default: ON)
+    let hfCategoryFilter = 'ALL'; // Composable Category Filter (Default: ALL)
+    let activeAsrEngine = 'nvidia-parakeet-tdt-0.6b-v3';
+    let activeNmtEngine = 'xiaomi-milmmt-46-1b';
+    let activeVadEngine = 'silero-vad-v4';
+
+    let systemHardwareProfile = {
+      cuda_available: true,
+      gpu_name: 'NVIDIA GeForce RTX 2070',
+      total_vram_gb: 8.0,
+      available_vram_gb: 8.0,
+      cpu_cores: 16,
+      total_ram_gb: 31.91,
+      tier: 'balanced',
+      max_recommended_slot_vram_gb: 3.5
+    };
+
+    async function checkHardwareProfile() {
+      try {
+        const res = await fetch(`${API_URL}/hardware/profile`);
+        if (res.ok) {
+          systemHardwareProfile = await res.json();
+        }
+      } catch (e) {}
+      updateHardwareSummaryUI();
+    }
+
+    function updateHardwareSummaryUI() {
+      const pill = document.getElementById('hubHardwareSummary');
+      if (!pill || !systemHardwareProfile) return;
+      
+      const gpuShort = (systemHardwareProfile.gpu_name || 'GPU')
+        .replace('NVIDIA GeForce ', '')
+        .replace('NVIDIA ', '');
+      const vramStr = systemHardwareProfile.total_vram_gb ? `${systemHardwareProfile.total_vram_gb} GB VRAM` : 'CPU Mode';
+      
+      let cpuRaw = systemHardwareProfile.cpu_name || '';
+      let cpuShort = cpuRaw
+        .replace('AMD ', '')
+        .replace('Intel(R) Core(TM) ', '')
+        .replace(' 8-Core Processor', '')
+        .replace(' 6-Core Processor', '')
+        .replace(' Processor', '')
+        .trim();
+      if (!cpuShort) {
+        cpuShort = `${systemHardwareProfile.cpu_cores || 8}-Core CPU`;
+      }
+      
+      const ramStr = `${Math.round(systemHardwareProfile.total_ram_gb || 16)} GB RAM`;
+      
+      pill.innerHTML = `
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+        <span>${gpuShort} (${vramStr}) · ${cpuShort} · ${ramStr}</span>
+      `;
+      pill.setAttribute('data-tooltip', `Host Hardware: ${systemHardwareProfile.gpu_name} (${vramStr}) · ${systemHardwareProfile.cpu_name || 'CPU'} (${systemHardwareProfile.cpu_cores} Threads) · ${ramStr}`);
+    }
+
+    function getHardwareWarningIcon(vramGb) {
+      if (!systemHardwareProfile) return '';
+      const limit = systemHardwareProfile.max_recommended_slot_vram_gb || 3.5;
+      const hostTotal = systemHardwareProfile.total_vram_gb || 8.0;
+
+      if (vramGb > limit || vramGb >= hostTotal) {
+        return `<span class="hw-warn-icon" data-tooltip="⚠️ Performance Notice: Model requires ~${vramGb} GB VRAM (Host: ${hostTotal} GB). May cause inference latency when all pipelines are active." data-tooltip-pos="top">⚠️</span>`;
+      }
+      return '';
+    }
+
+    let TTS_MODEL_SPECS = [
+      {
+        id: 'omnivoice',
+        name: 'OmniVoice Stock (k2-fsa)',
+        shortName: 'OmniVoice Stock',
+        meta: '24kHz • 2.45 GB',
+        vramGb: 2.45,
+        desc: 'Diffusion Acoustic Model',
+      },
+      {
+        id: 'higgs-tts-3',
+        name: 'Higgs TTS 3 (Boson AI)',
+        shortName: 'Higgs TTS 3',
+        meta: '24kHz • 9.31 GB',
+        vramGb: 8.2,
+        desc: '4.0B Speech LLM',
+      }
+    ];
+
+    let ASR_MODEL_SPECS = [
+      {
+        id: 'nvidia-parakeet-tdt-0.6b-v3',
+        name: 'NVIDIA Parakeet TDT 0.6B v3',
+        shortName: 'Parakeet TDT 0.6B',
+        meta: '16kHz • 2.50 GB',
+        vramGb: 1.2,
+        desc: 'FastConformer RNNT',
+      }
+    ];
+
+    let NMT_MODEL_SPECS = [
+      {
+        id: 'xiaomi-milmmt-46-1b',
+        name: 'Xiaomi MiLM-MT 1B',
+        shortName: 'MiLM-MT 1B',
+        meta: '46-Lang MoE • 2.00 GB',
+        vramGb: 2.0,
+        desc: 'Multilingual Neural NMT',
+      }
+    ];
+
+    let VAD_MODEL_SPECS = [
+      {
+        id: 'silero-vad-v4',
+        name: 'Silero VAD v4',
+        shortName: 'Silero VAD v4',
+        meta: '30ms Chunk • 10 MB',
+        vramGb: 0.05,
+        desc: 'TorchScript Neural VAD',
+      }
+    ];
+
+    function renderTtsModelWidgets() {
+      const container = document.getElementById('ttsModelsContainer');
+      if (!container) return;
+      container.innerHTML = TTS_MODEL_SPECS.map(m => {
+        const isActive = activeSystemTtsEngine === m.id;
+        const warnIcon = getHardwareWarningIcon(m.vramGb || 2.45);
+        return `
+          <div class="profile-card ${isActive ? 'active' : ''}">
+            <div class="profile-card-header">
+              <div class="profile-card-title">
+                <span class="profile-led-indicator ${isActive ? 'active' : 'inactive'}" 
+                      onclick="toggleActiveTtsEngine('${m.id}', '${m.name}')" 
+                      data-tooltip="${isActive ? `${m.shortName} is active • Click to disable` : `Click to enable ${m.shortName}`}" 
+                      data-tooltip-pos="top"></span>
+                <span class="profile-name-text">${m.shortName}</span>
+                ${warnIcon}
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin: 2px 0 4px 0;">
+              <span class="profile-model-tag">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path></svg>
+                <span>${m.desc}</span>
+              </span>
+              <span class="profile-card-meta">${m.meta}</span>
+            </div>
+            <div class="profile-btn-row" style="grid-template-columns: 1fr; margin-top:auto;">
+              <button class="btn-engine-toggle ${isActive ? 'active' : 'inactive'}" onclick="toggleActiveTtsEngine('${m.id}', '${m.name}')" data-tooltip="${isActive ? `${m.shortName} is active • Click to disable` : `Click to enable ${m.shortName}`}">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <span>ENABLE</span>
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderAsrModelWidgets() {
+      const container = document.getElementById('hubAsrModelsContainer');
+      if (!container) return;
+      container.innerHTML = ASR_MODEL_SPECS.map(m => {
+        const isActive = activeAsrEngine === m.id;
+        const warnIcon = getHardwareWarningIcon(m.vramGb || 1.2);
+        return `
+          <div class="profile-card ${isActive ? 'active' : ''}">
+            <div class="profile-card-header">
+              <div class="profile-card-title">
+                <span class="profile-led-indicator ${isActive ? 'active' : 'inactive'}" 
+                      onclick="selectActiveAsrEngine('${m.id}', '${m.name}')" 
+                      data-tooltip="${isActive ? `${m.shortName} is active` : `Enable ${m.shortName}`}" 
+                      data-tooltip-pos="top"></span>
+                <span class="profile-name-text">${m.shortName}</span>
+                ${warnIcon}
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin: 2px 0 4px 0;">
+              <span class="profile-model-tag">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path></svg>
+                <span>${m.desc}</span>
+              </span>
+              <span class="profile-card-meta">${m.meta}</span>
+            </div>
+            <div class="profile-btn-row" style="grid-template-columns: 1fr; margin-top:auto;">
+              <button class="btn-engine-toggle ${isActive ? 'active' : 'inactive'}" onclick="selectActiveAsrEngine('${m.id}', '${m.name}')" data-tooltip="${isActive ? `${m.shortName} is enabled` : `Enable ${m.shortName}`}">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <span>ENABLE</span>
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderNmtModelWidgets() {
+      const container = document.getElementById('hubNmtModelsContainer');
+      if (!container) return;
+      container.innerHTML = NMT_MODEL_SPECS.map(m => {
+        const isActive = activeNmtEngine === m.id;
+        const warnIcon = getHardwareWarningIcon(m.vramGb || 2.0);
+        return `
+          <div class="profile-card ${isActive ? 'active' : ''}">
+            <div class="profile-card-header">
+              <div class="profile-card-title">
+                <span class="profile-led-indicator ${isActive ? 'active' : 'inactive'}" 
+                      onclick="selectActiveNmtEngine('${m.id}', '${m.name}')" 
+                      data-tooltip="${isActive ? `${m.shortName} is active` : `Enable ${m.shortName}`}" 
+                      data-tooltip-pos="top"></span>
+                <span class="profile-name-text">${m.shortName}</span>
+                ${warnIcon}
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin: 2px 0 4px 0;">
+              <span class="profile-model-tag">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 8l6 6M4 14l6-6 2-3M2 5h12M7 2h1M22 22l-5-10-5 10M14 18h6"/></svg>
+                <span>${m.desc}</span>
+              </span>
+              <span class="profile-card-meta">${m.meta}</span>
+            </div>
+            <div class="profile-btn-row" style="grid-template-columns: 1fr; margin-top:auto;">
+              <button class="btn-engine-toggle ${isActive ? 'active' : 'inactive'}" onclick="selectActiveNmtEngine('${m.id}', '${m.name}')" data-tooltip="${isActive ? `${m.shortName} is enabled` : `Enable ${m.shortName}`}">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <span>ENABLE</span>
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderVadModelWidgets() {
+      const container = document.getElementById('hubVadModelsContainer');
+      if (!container) return;
+      container.innerHTML = VAD_MODEL_SPECS.map(m => {
+        const isActive = activeVadEngine === m.id;
+        const warnIcon = getHardwareWarningIcon(m.vramGb || 0.05);
+        return `
+          <div class="profile-card ${isActive ? 'active' : ''}">
+            <div class="profile-card-header">
+              <div class="profile-card-title">
+                <span class="profile-led-indicator ${isActive ? 'active' : 'inactive'}" 
+                      onclick="selectActiveVadEngine('${m.id}', '${m.name}')"
+                      data-tooltip="${isActive ? `${m.shortName} is active` : `Enable ${m.shortName}`}" 
+                      data-tooltip-pos="top"></span>
+                <span class="profile-name-text">${m.shortName}</span>
+                ${warnIcon}
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin: 2px 0 4px 0;">
+              <span class="profile-model-tag">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                <span>${m.desc}</span>
+              </span>
+              <span class="profile-card-meta">${m.meta}</span>
+            </div>
+            <div class="profile-btn-row" style="grid-template-columns: 1fr; margin-top:auto;">
+              <button class="btn-engine-toggle ${isActive ? 'active' : 'inactive'}" onclick="selectActiveVadEngine('${m.id}', '${m.name}')" data-tooltip="${isActive ? `${m.shortName} is enabled` : `Enable ${m.shortName}`}">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <span>ENABLE</span>
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function selectActiveVadEngine(id, name) {
+      activeVadEngine = id;
+      renderVadModelWidgets();
+      showToast(`Active VAD engine set to: ${name}`);
+      fetch(`${API_URL}/models/active`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ capability: "VAD", model_id: id })
+      }).catch(() => {});
+    }
+
+    async function loadModelHub() {
+      await checkHardwareProfile();
+      try {
+        const res = await fetch(`${API_URL}/status`);
+        if (res.ok) {
+          const statusData = await res.json();
+          if (statusData.active_slots) {
+            if (statusData.active_slots.TTS) activeSystemTtsEngine = statusData.active_slots.TTS;
+            if (statusData.active_slots.ASR) activeAsrEngine = statusData.active_slots.ASR;
+            if (statusData.active_slots.NMT) activeNmtEngine = statusData.active_slots.NMT;
+            if (statusData.active_slots.VAD) activeVadEngine = statusData.active_slots.VAD;
+          }
+        }
+      } catch (e) {
+        console.warn("Could not query live server active slots:", e);
+      }
+      renderTtsModelWidgets();
+      renderAsrModelWidgets();
+      renderNmtModelWidgets();
+      renderVadModelWidgets();
+      await loadHfCatalog();
+    }
+
+    async function loadHfCatalog() {
+      try {
+        const res = await fetch(`${API_URL}/models/available`);
+        if (res.ok) {
+          hfCatalogModels = await res.json();
+        } else {
+          // Fallback static catalog with explicit VRAM specifications
+          hfCatalogModels = [
+            {
+              model_id: "snakers4-silero-vad",
+              name: "Silero VAD v4",
+              upstream_id: "snakers4/silero-vad",
+              capability: "VAD",
+              provider: "snakers4",
+              license: "MIT",
+              estimated_download_size_gb: 0.01,
+              vram_required_gb: 0.05,
+              recommendation_state: "RECOMMENDED_FOR_LOCAL_BENCHMARK",
+              is_installed: true,
+              is_active: true
+            },
+            {
+              model_id: "nvidia-parakeet-tdt-0.6b-v3",
+              name: "NVIDIA Parakeet TDT 0.6B v3",
+              upstream_id: "nvidia/parakeet-tdt-0.6b-v3",
+              capability: "ASR",
+              provider: "nvidia",
+              license: "CC-BY-4.0",
+              estimated_download_size_gb: 1.2,
+              vram_required_gb: 1.2,
+              recommendation_state: "RECOMMENDED_FOR_LOCAL_BENCHMARK",
+              is_installed: true,
+              is_active: true
+            },
+            {
+              model_id: "k2-fsa-omnivoice",
+              name: "OmniVoice Stock (k2-fsa)",
+              upstream_id: "k2-fsa/OmniVoice",
+              capability: "TTS",
+              provider: "k2-fsa",
+              license: "Apache-2.0",
+              estimated_download_size_gb: 2.45,
+              vram_required_gb: 2.45,
+              recommendation_state: "RECOMMENDED_FOR_LOCAL_BENCHMARK",
+              is_installed: true,
+              is_active: true
+            },
+            {
+              model_id: "xiaomimilm-milmmt-46-1b-v1.0",
+              name: "Xiaomi MiLM-MT 46 1B v1.0",
+              upstream_id: "xiaomimilm/milmmt-46-1b-v1.0",
+              capability: "TRANSLATION",
+              provider: "xiaomi",
+              license: "Apache-2.0",
+              estimated_download_size_gb: 2.1,
+              vram_required_gb: 2.0,
+              recommendation_state: "RECOMMENDED_FOR_LOCAL_BENCHMARK",
+              is_installed: true,
+              is_active: true
+            },
+            {
+              model_id: "openai-whisper-large-v3-turbo",
+              name: "Whisper Large-v3 Turbo",
+              upstream_id: "openai/whisper-large-v3-turbo",
+              capability: "ASR",
+              provider: "openai",
+              license: "MIT",
+              estimated_download_size_gb: 1.6,
+              vram_required_gb: 1.6,
+              recommendation_state: "RECOMMENDED_FOR_LOCAL_BENCHMARK",
+              is_installed: false,
+              is_active: false
+            },
+            {
+              model_id: "meta-nllb-200-distilled-600m",
+              name: "NLLB-200 Distilled 600M",
+              upstream_id: "facebook/nllb-200-distilled-600M",
+              capability: "TRANSLATION",
+              provider: "meta",
+              license: "CC-BY-NC-4.0",
+              estimated_download_size_gb: 2.4,
+              vram_required_gb: 2.4,
+              recommendation_state: "RECOMMENDED_FOR_LOCAL_BENCHMARK",
+              is_installed: false,
+              is_active: false
+            },
+            {
+              model_id: "nvidia-nemotron-3.5-asr-streaming-0.6b",
+              name: "NVIDIA Nemotron 3.5 ASR Streaming 0.6B",
+              upstream_id: "nvidia/nemotron-3.5-asr-streaming-0.6b",
+              capability: "ASR",
+              provider: "nvidia",
+              license: "OpenMDW-1.1",
+              estimated_download_size_gb: 1.2,
+              vram_required_gb: 1.2,
+              recommendation_state: "RECOMMENDED_FOR_LOCAL_BENCHMARK",
+              is_installed: false,
+              is_active: false
+            },
+            {
+              model_id: "xiaomimilm-milmmt-46-4b-v1.0",
+              name: "Xiaomi MiLM-MT 46 4B v1.0",
+              upstream_id: "xiaomimilm/milmmt-46-4b-v1.0",
+              capability: "TRANSLATION",
+              provider: "xiaomi",
+              license: "Apache-2.0",
+              estimated_download_size_gb: 8.4,
+              vram_required_gb: 8.4,
+              recommendation_state: "HIGH_RESOURCE_REQUIRED",
+              is_installed: false,
+              is_active: false
+            },
+            {
+              model_id: "bosonai-higgs-tts-3-4b",
+              name: "Higgs TTS 3 (Boson AI)",
+              upstream_id: "bosonai/higgs-tts-3-4b",
+              capability: "TTS",
+              provider: "bosonai",
+              license: "Apache-2.0",
+              estimated_download_size_gb: 9.31,
+              vram_required_gb: 8.2,
+              recommendation_state: "HIGH_RESOURCE_REQUIRED",
+              is_installed: true,
+              is_active: false
+            },
+            {
+              model_id: "openbmb-voxcpm2",
+              name: "VoxCPM 2 (OpenBMB)",
+              upstream_id: "openbmb/VoxCPM2",
+              capability: "TTS",
+              provider: "openbmb",
+              license: "Apache-2.0",
+              estimated_download_size_gb: 4.8,
+              vram_required_gb: 4.8,
+              recommendation_state: "HIGH_RESOURCE_REQUIRED",
+              is_installed: false,
+              is_active: false
+            },
+            {
+              model_id: "openmoss-moss-tts-1.5",
+              name: "MOSS-TTS v1.5 (OpenMOSS)",
+              upstream_id: "OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5",
+              capability: "TTS",
+              provider: "openmoss",
+              license: "Apache-2.0",
+              estimated_download_size_gb: 6.5,
+              vram_required_gb: 6.5,
+              recommendation_state: "HIGH_RESOURCE_REQUIRED",
+              is_installed: false,
+              is_active: false
+            }
+          ];
+        }
+      } catch (e) {
+        console.warn("Could not fetch available models:", e);
+      }
+      renderHfCatalog();
+    }
+
+    function toggleHfRecommendedFilter() {
+      hfRecommendedOnly = !hfRecommendedOnly;
+      updateHfFilterPillsUI();
+      renderHfCatalog();
+    }
+
+    function setHfCategoryFilter(category) {
+      hfCategoryFilter = category;
+      updateHfFilterPillsUI();
+      renderHfCatalog();
+    }
+
+    function updateHfFilterPillsUI() {
+      const recPill = document.getElementById('hfPillRecommended');
+      if (recPill) {
+        recPill.classList.toggle('active', hfRecommendedOnly);
+      }
+      document.querySelectorAll('.hf-category-pill').forEach(pill => {
+        pill.classList.toggle('active', pill.dataset.filter === hfCategoryFilter);
+      });
+    }
+
+    function filterHfCatalog() {
+      renderHfCatalog();
+    }
+
+    function formatCapabilityLabel(raw) {
+      if (!raw) return 'MODEL';
+      const clean = String(raw).replace(/_/g, ' ').trim();
+      const upper = clean.toUpperCase();
+      if (['TTS', 'ASR', 'VAD', 'NMT'].includes(upper)) {
+        return upper;
+      }
+      return clean.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+    }
+
+    function renderHfCatalog() {
+      const container = document.getElementById('hfModelsGrid');
+      if (!container) return;
+
+      const searchTerm = (document.getElementById('hfSearchInput')?.value || '').toLowerCase().trim();
+      const limitVram = systemHardwareProfile.max_recommended_slot_vram_gb || 3.5;
+
+      const filtered = hfCatalogModels.filter(m => {
+        const cap = (m.capability || '').toUpperCase();
+        const vramRequired = m.vram_required_gb || m.estimated_download_size_gb || 2.0;
+        
+        // 1. Recommended for PC constraint
+        if (hfRecommendedOnly && vramRequired > limitVram) {
+          return false;
+        }
+
+        // 2. Category filter constraint
+        if (hfCategoryFilter !== 'ALL') {
+          if (hfCategoryFilter === 'TRANSLATION') {
+            if (!cap.includes('TRANSLATION') && !cap.includes('NMT')) return false;
+          } else if (cap !== hfCategoryFilter) {
+            return false;
+          }
+        }
+
+        // 3. Search text constraint
+        if (searchTerm) {
+          const matchName = (m.name || '').toLowerCase().includes(searchTerm);
+          const matchUpstream = (m.upstream_id || '').toLowerCase().includes(searchTerm);
+          const matchProvider = (m.provider || '').toLowerCase().includes(searchTerm);
+          const matchId = (m.model_id || '').toLowerCase().includes(searchTerm);
+          if (!matchName && !matchUpstream && !matchProvider && !matchId) return false;
+        }
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        container.innerHTML = `
+          <div style="grid-column: 1 / -1; padding: 40px; text-align:center; color:var(--text-dim);">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="margin-bottom:8px; opacity:0.5;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <div style="font-size:14px; font-weight:600; color:var(--text-body);">No Hugging Face models found matching current filter.</div>
+            <div style="font-size:12px; margin-top:4px;">Click "All Models" to view all available candidates.</div>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = filtered.map(m => {
+        const upstream = m.upstream_id || 'huggingface.co';
+        const hfUrl = `https://huggingface.co/${upstream}`;
+        const sizeGb = m.estimated_download_size_gb ? `${m.estimated_download_size_gb} GB` : 'On-Demand';
+        const vramRequired = m.vram_required_gb || m.estimated_download_size_gb || 2.0;
+        const license = m.license || 'Open-Source';
+        const isInstalled = m.is_installed || m.installed || false;
+        const capLabel = formatCapabilityLabel(m.capability);
+
+        const isHeavy = vramRequired > limitVram;
+        const hwNotice = isHeavy ? `
+          <span class="hw-warn-tag" data-tooltip="⚠️ High VRAM: May cause inference latency on an 8.0 GB GPU." data-tooltip-pos="top">
+            ⚠️ High VRAM
+          </span>
+        ` : `
+          <span class="hw-recommended-tag">✨ Recommended</span>
+        `;
+
+        return `
+          <div class="hf-model-card">
+            <div style="display:flex; flex-direction:column; gap:8px;">
+              <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+                <span style="font-size:14px; font-weight:800; color:var(--text-heading); line-height:1.3;">${m.name || m.model_id}</span>
+                <span class="pane-badge" style="font-size:10px; flex-shrink:0;">${capLabel}</span>
+              </div>
+              
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:2px;">
+                <a class="hf-repo-badge" href="${hfUrl}" target="_blank" data-tooltip="Open ${upstream} on Hugging Face" data-tooltip-pos="top">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9v-2h2v2zm0-4H9V7h2v5zm4 4h-2v-2h2v2zm0-4h-2V7h2v5z"/></svg>
+                  <span>${upstream}</span>
+                </a>
+                ${hwNotice}
+              </div>
+
+              <div style="display:flex; gap:12px; font-size:11.5px; color:var(--text-dim); margin-top:4px;">
+                <span>📦 ${sizeGb}</span>
+                <span>⚖️ ${license}</span>
+                <span>🏢 ${(m.provider || 'community').toUpperCase()}</span>
+              </div>
+            </div>
+
+            <div style="display:flex; justify-content:space-between; align-items:center; border-top: 1px solid var(--border-subtle); padding-top:10px; margin-top:4px;">
+              <span style="font-size:11px; font-weight:700; color:${isInstalled ? '#10b981' : 'var(--text-dim)'};">
+                ${isInstalled ? '● INSTALLED' : '○ READY TO DOWNLOAD'}
+              </span>
+              
+              <div style="display:flex; gap:6px;">
+                ${isInstalled ? `
+                  <button class="btn-action-sm play is-playing" style="cursor:default;" disabled data-tooltip="Model is installed on local system">
+                    <span>Installed</span>
+                  </button>
+                ` : `
+                  <button class="btn-action-sm edit" onclick="installHfModel('${m.model_id}', '${upstream}')" data-tooltip="Download weights from Hugging Face">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                    <span>Download</span>
+                  </button>
+                `}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function switchModelHubTab(tab) {
+      activeModelHubTab = tab;
+      const tabEngines = document.getElementById('tabBtnEngines');
+      const tabHf = document.getElementById('tabBtnHfHub');
+      const viewEngines = document.getElementById('hubViewEngines');
+      const viewHf = document.getElementById('hubViewHfHub');
+
+      const titleEl = document.getElementById('hubPaneTitle');
+      const badgeEl = document.getElementById('hubPaneBadge');
+      const subEl = document.getElementById('hubPaneSubtitle');
+
+      if (tab === 'engines') {
+        if (tabEngines) tabEngines.classList.add('active');
+        if (tabHf) tabHf.classList.remove('active');
+        if (viewEngines) viewEngines.style.display = 'flex';
+        if (viewHf) viewHf.style.display = 'none';
+        if (titleEl) titleEl.textContent = "Active Inference Pipelines";
+        if (badgeEl) badgeEl.textContent = "FULL DUPLEX ENGINE";
+        if (subEl) subEl.textContent = "Real-time hot-swappable TTS, ASR, NMT, and VAD neural slots";
+      } else {
+        if (tabEngines) tabEngines.classList.remove('active');
+        if (tabHf) tabHf.classList.add('active');
+        if (viewEngines) viewEngines.style.display = 'none';
+        if (viewHf) viewHf.style.display = 'flex';
+        if (titleEl) titleEl.textContent = "Hugging Face Model Discovery Hub";
+        if (badgeEl) badgeEl.textContent = "HUGGING FACE REPOSITORY";
+        if (subEl) subEl.textContent = "Download, benchmark, and register open-weights models directly from Hugging Face";
+        if (hfCatalogModels.length === 0) {
+          loadHfCatalog();
+        }
+      }
+    }
+
     // ─── Custom Dropdown Controller ────────────────────────────────────────────
     const DD_SELECT_MAP = {
-      cloneModel:  'studioCloneModelSelect',
-      refLang:     'studioRefLangSelect',
-      outputLang:  'studioSampleOutputLangSelect',
+      refLang:       'studioRefLangSelect',
+      outputLang:    'studioSampleOutputLangSelect',
     };
 
     function toggleDropdown(id) {

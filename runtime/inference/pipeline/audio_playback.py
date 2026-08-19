@@ -90,6 +90,18 @@ class AudioPlaybackEngine:
                 duration_s = n_samples / max(1, self.sample_rate_hz)
                 await asyncio.sleep(duration_s * 0.8)
 
+    def _convert_to_s16le(self, data: bytes, fmt: SampleFormat) -> bytes:
+        """Convert raw PCM data to PCM_S16LE at the engine's sample rate."""
+        chunk = TtsAudioChunk(
+            utterance_id="",
+            segment_id="",
+            sequence=0,
+            sample_rate_hz=self.sample_rate_hz,
+            sample_format=fmt,
+            data=data,
+        )
+        return self._convert_and_resample(chunk)
+
     def _convert_and_resample(self, chunk: TtsAudioChunk) -> bytes:
         """Convert the declared chunk format and sample rate to output S16LE PCM."""
         if chunk.sample_format == SampleFormat.PCM_S16LE:

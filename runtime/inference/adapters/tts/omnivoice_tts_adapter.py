@@ -42,6 +42,7 @@ class OmniVoiceTtsAdapter(TtsAdapter):
         self._loaded = True
 
     async def _ensure_omnivoice_loaded(self) -> None:
+        self._loaded = True
         if self._model is not None:
             return
         loop = asyncio.get_running_loop()
@@ -263,8 +264,6 @@ class OmniVoiceTtsAdapter(TtsAdapter):
     ) -> bytes:
         import soundfile as sf
         from omnivoice import OmniVoiceGenerationConfig
-        if not self._loaded:
-            raise RuntimeError("OmniVoice adapter is not active.")
         await self._ensure_omnivoice_loaded()
         if not text or not text.strip():
             raise ValueError("Target TTS text must not be empty.")

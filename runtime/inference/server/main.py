@@ -15,10 +15,10 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 PACKAGES_DIR = PROJECT_ROOT / "packages"
-if str(PACKAGES_DIR) not in sys.path:
-    sys.path.insert(0, str(PACKAGES_DIR))
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+if str(PACKAGES_DIR) not in sys.path:
+    sys.path.append(str(PACKAGES_DIR))
 
 from agents.model_discovery_agent import ModelDiscoveryAgent
 from runtime.inference.adapters.translation.milmmt46_translation_adapter import MiLMMT46TranslationAdapter
@@ -170,15 +170,106 @@ class LiveTranslatorApp:
             model_id = data.get("model_id")
             language = data.get("language")
             language_pair = data.get("language_pair")
-            self.model_manager.set_active_model(
-                capability,
-                model_id,
-                language=language,
-                language_pair=language_pair,
-            )
+
+            if capability.upper() == "TTS" and model_id:
+                mid = model_id.lower()
+                if "higgs" in mid:
+                    adapter = self.tts_higgs
+                elif "moss" in mid:
+                    adapter = self.tts_moss
+                elif "voxcpm" in mid:
+                    adapter = self.tts_voxcpm
+                else:
+                    adapter = self.tts_omnivoice
+                self.orchestrator.tts_adapter_ro = adapter
+                self.orchestrator.tts_adapter_en = adapter
+
+            try:
+                self.model_manager.set_active_model(
+                    capability,
+                    model_id,
+                    language=language,
+                    language_pair=language_pair,
+                )
+            except Exception as exc:
+                logger.info("Registry set_active_model note for %r: %s", model_id, exc)
+
             return web.json_response(
                 {"success": True, "active_slots": self.model_manager.get_active_slots()}
             )
+
+        async def api_hardware_profile(request):
+            import psutil
+            import torch
+            import platform
+            cuda_avail = torch.cuda.is_available()
+            gpu_name = torch.cuda.get_device_name(0) if cuda_avail else "CPU Only"
+            total_vram_gb = round(torch.cuda.get_device_properties(0).total_memory / (1024**3), 2) if cuda_avail else 0.0
+            avail_vram_gb = round(total_vram_gb - (torch.cuda.memory_allocated(0) / (1024**3)), 2) if cuda_avail else 0.0
+            
+            cpu_name = platform.processor() or "CPU"
+            try:
+                import winreg
+                key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r'HARDWARE\DESCRIPTION\System\CentralProcessor\0')
+                cpu_name = winreg.QueryValueEx(key, 'ProcessorNameString')[0].strip()
+            except Exception:
+                pass
+            
+            cpu_cores = psutil.cpu_count(logical=True) or 4
+            cpu_physical_cores = psutil.cpu_count(logical=False) or cpu_cores
+            total_ram_gb = round(psutil.virtual_memory().total / (1024**3), 2)
+            tier = "high" if total_vram_gb >= 15.5 else ("balanced" if total_vram_gb >= 7.5 else "low")
+            
+            return web.json_response({
+                "cuda_available": cuda_avail,
+                "gpu_name": gpu_name,
+                "total_vram_gb": total_vram_gb,
+                "available_vram_gb": avail_vram_gb,
+                "cpu_name": cpu_name,
+                "cpu_cores": cpu_cores,
+                "cpu_physical_cores": cpu_physical_cores,
+                "total_ram_gb": total_ram_gb,
+                "tier": tier,
+                "max_recommended_slot_vram_gb": 3.5 if tier == "balanced" else (8.0 if tier == "high" else 1.5)
+            })
+
+        async def api_models_install(request):
+            data = await request.json()
+            model_id = data.get("model_id")
+            upstream_id = data.get("upstream_id")
+            revision = data.get("revision")
+            try:
+                success = await self.model_manager.install_model(
+                    model_id=model_id,
+                    upstream_id=upstream_id,
+                    revision=revision,
+                )
+                return web.json_response({"success": success, "model_id": model_id})
+            except Exception as exc:
+                logger.error("Failed to install model %s: %s", model_id, exc)
+                return web.json_response({"error": str(exc)}, status=400)
+
+        async def api_models_uninstall(request):
+            data = await request.json()
+            model_id = data.get("model_id")
+            try:
+                success = self.model_manager.uninstall_model(model_id)
+                return web.json_response({"success": success, "model_id": model_id})
+            except Exception as exc:
+                logger.error("Failed to uninstall model %s: %s", model_id, exc)
+                return web.json_response({"error": str(exc)}, status=400)
+
+        async def api_models_discover(request):
+            try:
+                candidates = await self.discovery_agent.run_discovery_pass()
+                return web.json_response({
+                    "success": True,
+                    "count": len(candidates),
+                    "models": self.model_manager.list_available(),
+                })
+            except Exception as exc:
+                logger.error("Model discovery pass failed: %s", exc)
+                return web.json_response({"error": str(exc)}, status=500)
 
         async def api_set_mode(request):
             data = await request.json()
@@ -421,9 +512,16 @@ class LiveTranslatorApp:
             has_preview = False
             engine_name = None
             preview_error = None
+            if preview_wav_path.exists():
+                try:
+                    preview_wav_path.unlink()
+                except Exception:
+                    pass
+
             if wav_path.exists():
                 tts_engine, engine_name = self._tts_engine_for_model(clone_model)
                 try:
+                    await tts_engine.load()
                     logger.info(
                         "Synthesizing staged voice preview with %s (%s) for '%s'...",
                         engine_name,
@@ -451,7 +549,7 @@ class LiveTranslatorApp:
 
             return web.json_response(
                 {
-                    "success": True,
+                    "success": has_preview,
                     "profile_id": clean_id,
                     "profile_name": raw_name,
                     "pitch_hz": pitch_hz,
@@ -459,7 +557,7 @@ class LiveTranslatorApp:
                     "engine_name": engine_name,
                     "has_preview": has_preview,
                     "preview_error": preview_error,
-                    "preview_url": "/api/voice/staging/preview",
+                    "preview_url": "/api/voice/staging/preview" if has_preview else None,
                     "reference_url": "/api/voice/staging/reference",
                 }
             )
@@ -869,9 +967,13 @@ class LiveTranslatorApp:
                 )
 
         app.router.add_get("/api/status", api_status)
+        app.router.add_get("/api/hardware/profile", api_hardware_profile)
         app.router.add_get("/api/models/available", api_models_available)
         app.router.add_get("/api/models/installed", api_models_installed)
         app.router.add_post("/api/models/active", api_models_active)
+        app.router.add_post("/api/models/install", api_models_install)
+        app.router.add_post("/api/models/uninstall", api_models_uninstall)
+        app.router.add_post("/api/models/discover", api_models_discover)
         app.router.add_post("/api/mode", api_set_mode)
         app.router.add_post("/api/tts-mode", api_set_tts_mode)
         app.router.add_post("/api/translate", api_translate)

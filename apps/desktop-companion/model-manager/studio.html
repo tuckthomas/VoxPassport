@@ -1082,6 +1082,73 @@
       box-shadow: 0 0 0 0 #7f1d1d, 0 1px 3px rgba(0, 0, 0, 0.3);
     }
 
+    .btn-card-trash {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 4px;
+      background: transparent;
+      border: 1px solid transparent;
+      color: #64748b;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: all 0.15s ease;
+      margin-left: auto;
+    }
+
+    .btn-card-trash:hover {
+      background: rgba(239, 68, 68, 0.18);
+      border-color: rgba(239, 68, 68, 0.4);
+      color: #ef4444;
+      box-shadow: 0 0 8px rgba(239, 68, 68, 0.3);
+    }
+
+    .btn-card-trash:active {
+      transform: scale(0.92);
+    }
+
+    /* Download Progress Bar */
+    .download-progress-box {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      background: #0b0f19;
+      border: 1px solid #1e293b;
+      border-radius: 6px;
+      padding: 6px 10px;
+      box-sizing: border-box;
+    }
+
+    .download-progress-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      font-weight: 700;
+      color: #93c5fd;
+    }
+
+    .download-progress-track {
+      width: 100%;
+      height: 6px;
+      background: #1e293b;
+      border-radius: 3px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .download-progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #2563eb, #38bdf8);
+      border-radius: 3px;
+      transition: width 0.25s ease;
+      box-shadow: 0 0 8px rgba(56, 189, 248, 0.5);
+    }
+
     /* Right Main Workspace: Dual Editors */
     .main-workspace {
       display: flex;
@@ -2741,6 +2808,33 @@
     </div>
   </div>
 
+  <!-- Delete Model Confirmation Modal -->
+  <div id="deleteModelConfirmModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75); backdrop-filter:blur(4px); z-index:9999; align-items:center; justify-content:center; padding:16px;">
+    <div style="background:#101622; border:1px solid rgba(239,68,68,0.5); border-radius:10px; max-width:440px; width:100%; box-shadow:0 20px 50px rgba(0,0,0,0.8), 0 0 20px rgba(239,68,68,0.2); padding:24px; display:flex; flex-direction:column; gap:16px;">
+      <div style="display:flex; align-items:center; gap:12px;">
+        <div style="width:40px; height:40px; border-radius:8px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); display:flex; align-items:center; justify-content:center; color:#ef4444; flex-shrink:0;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+        </div>
+        <div>
+          <div style="font-size:15px; font-weight:800; color:#f8fafc; text-transform:uppercase; letter-spacing:0.04em;">Uninstall Model</div>
+          <div style="font-size:12px; color:#94a3b8;">Local model storage removal</div>
+        </div>
+      </div>
+
+      <div style="font-size:13px; color:#cbd5e1; line-height:1.5; background:#0b0f19; border:1px solid #1e293b; border-radius:6px; padding:14px;">
+        Are you sure you want to delete and uninstall model <strong id="deleteTargetModelName" style="color:#f87171; font-weight:800;"></strong>?
+        <div style="font-size:11.5px; color:#94a3b8; margin-top:8px;">
+          This action will delete all downloaded model weights and artifacts from local disk storage. The model will become available for re-download in the Hugging Face Hub.
+        </div>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:4px;">
+        <button class="btn-action-outline" style="padding:8px 18px;" onclick="closeDeleteModelModal()">Cancel</button>
+        <button class="btn-record-action" id="btnConfirmDeleteModelAction" style="padding:8px 18px;" onclick="executeConfirmedDeleteModel()">Delete Model</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Discard Voice Profile Confirmation Modal -->
   <div id="discardConfirmModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75); backdrop-filter:blur(4px); z-index:9999; align-items:center; justify-content:center; padding:16px;">
     <div style="background:#101622; border:1px solid rgba(239,68,68,0.5); border-radius:10px; max-width:440px; width:100%; box-shadow:0 20px 50px rgba(0,0,0,0.8), 0 0 20px rgba(239,68,68,0.2); padding:24px; display:flex; flex-direction:column; gap:16px;">
@@ -2799,7 +2893,9 @@
   </div>
 
   <script>
-    const API_URL = "http://127.0.0.1:8766/api";
+    const API_URL = (window.location && window.location.origin && window.location.origin.startsWith('http')) 
+      ? `${window.location.origin}/api` 
+      : "http://127.0.0.1:8766/api";
     let isLiveMicActive = false;
     let recognition = null;
     let mediaRecorder = null;
@@ -2837,7 +2933,7 @@
 
     window.addEventListener('DOMContentLoaded', () => {
       checkHardwareProfile();
-      renderTtsModelWidgets();
+      loadModelHub();
       loadProfiles();
       initWebSocketStream();
     });
@@ -4768,6 +4864,65 @@
       return '';
     }
 
+    let installedModelIds = new Set([
+      'omnivoice',
+      'omnivoice-stock',
+      'k2-fsa-omnivoice',
+      'higgs-tts-3',
+      'bosonai-higgs-tts-3-4b',
+      'nvidia-parakeet-tdt-0.6b-v3',
+      'parakeet-tdt-0.6b',
+      'xiaomi-milmmt-46-1b',
+      'xiaomi-milmmt-46-1b-v1.0',
+      'xiaomimilm-milmmt-46-1b-v1.0',
+      'silero-vad-v4',
+      'silero-vad-v6.2.1',
+      'snakers4-silero-vad'
+    ]);
+    let downloadingModels = {}; // { [modelId]: { progress: 0, status: 'Downloading...' } }
+    let pendingDeleteModelId = null;
+    let pendingDeleteModelName = null;
+
+    const CANONICAL_MODEL_ALIASES = {
+      'omnivoice': 'omnivoice-stock',
+      'omnivoice-stock': 'omnivoice',
+      'k2-fsa-omnivoice': 'omnivoice',
+      'higgs-tts-3': 'higgs-tts-3',
+      'bosonai-higgs-tts-3-4b': 'higgs-tts-3',
+      'moss-tts-1.5': 'moss-tts-1.5',
+      'openmoss-moss-tts-1.5': 'moss-tts-1.5',
+      'voxcpm-2': 'voxcpm-2',
+      'openbmb-voxcpm2': 'voxcpm-2',
+      'nvidia-parakeet-tdt-0.6b-v3': 'nvidia-parakeet-tdt-0.6b-v3',
+      'parakeet-tdt-0.6b': 'nvidia-parakeet-tdt-0.6b-v3',
+      'openai-whisper-large-v3-turbo': 'openai-whisper-large-v3-turbo',
+      'nvidia-nemotron-3.5-asr-streaming-0.6b': 'nvidia-nemotron-3.5-asr-streaming-0.6b',
+      'xiaomi-milmmt-46-1b': 'xiaomi-milmmt-46-1b-v1.0',
+      'xiaomi-milmmt-46-1b-v1.0': 'xiaomi-milmmt-46-1b',
+      'xiaomimilm-milmmt-46-1b-v1.0': 'xiaomi-milmmt-46-1b',
+      'xiaomi-milmmt-46-4b': 'xiaomi-milmmt-46-4b-v1.0',
+      'xiaomi-milmmt-46-4b-v1.0': 'xiaomi-milmmt-46-4b',
+      'xiaomimilm-milmmt-46-4b-v1.0': 'xiaomi-milmmt-46-4b',
+      'meta-nllb-200-distilled-600m': 'meta-nllb-200-distilled-600m',
+      'silero-vad-v4': 'silero-vad-v6.2.1',
+      'silero-vad-v6.2.1': 'silero-vad-v4',
+      'snakers4-silero-vad': 'silero-vad-v6.2.1'
+    };
+
+    function normalizeModelId(id) {
+      if (!id) return '';
+      const clean = String(id).trim().toLowerCase();
+      return CANONICAL_MODEL_ALIASES[clean] || clean;
+    }
+
+    function isModelInstalled(id) {
+      if (!id) return false;
+      const clean = String(id).trim().toLowerCase();
+      const norm = normalizeModelId(id);
+      const alias = CANONICAL_MODEL_ALIASES[clean] || '';
+      return installedModelIds.has(clean) || installedModelIds.has(norm) || (alias && installedModelIds.has(alias));
+    }
+
     let TTS_MODEL_SPECS = [
       {
         id: 'omnivoice',
@@ -4784,6 +4939,22 @@
         meta: '24kHz • 9.31 GB',
         vramGb: 8.2,
         desc: '4.0B Speech LLM',
+      },
+      {
+        id: 'moss-tts-1.5',
+        name: 'MOSS-TTS v1.5 (OpenMOSS)',
+        shortName: 'MOSS-TTS v1.5',
+        meta: '48kHz • 6.5 GB',
+        vramGb: 6.5,
+        desc: 'Multilingual Local Transformer',
+      },
+      {
+        id: 'voxcpm-2',
+        name: 'VoxCPM 2 (OpenBMB)',
+        shortName: 'VoxCPM 2',
+        meta: '48kHz • 4.8 GB',
+        vramGb: 4.8,
+        desc: 'Multilingual Voice Cloning',
       }
     ];
 
@@ -4795,6 +4966,22 @@
         meta: '16kHz • 2.50 GB',
         vramGb: 1.2,
         desc: 'FastConformer RNNT',
+      },
+      {
+        id: 'openai-whisper-large-v3-turbo',
+        name: 'Whisper Large-v3 Turbo',
+        shortName: 'Whisper Large-v3',
+        meta: '16kHz • 1.6 GB',
+        vramGb: 1.6,
+        desc: 'Encoder-Decoder Transformer',
+      },
+      {
+        id: 'nvidia-nemotron-3.5-asr-streaming-0.6b',
+        name: 'NVIDIA Nemotron 3.5 ASR',
+        shortName: 'Nemotron 3.5 ASR',
+        meta: '16kHz • 1.2 GB',
+        vramGb: 1.2,
+        desc: 'Conformer Streaming',
       }
     ];
 
@@ -4806,25 +4993,86 @@
         meta: '46-Lang MoE • 2.00 GB',
         vramGb: 2.0,
         desc: 'Multilingual Neural NMT',
+      },
+      {
+        id: 'xiaomi-milmmt-46-4b',
+        name: 'Xiaomi MiLM-MT 4B',
+        shortName: 'MiLM-MT 4B',
+        meta: '46-Lang MoE • 8.40 GB',
+        vramGb: 8.4,
+        desc: 'High-Resource NMT',
+      },
+      {
+        id: 'meta-nllb-200-distilled-600m',
+        name: 'NLLB-200 Distilled 600M',
+        shortName: 'NLLB-200 600M',
+        meta: '200-Lang • 2.4 GB',
+        vramGb: 2.4,
+        desc: 'Dense MT Transformer',
       }
     ];
 
     let VAD_MODEL_SPECS = [
       {
-        id: 'silero-vad-v4',
-        name: 'Silero VAD v4',
-        shortName: 'Silero VAD v4',
-        meta: '30ms Chunk • 10 MB',
+        id: 'silero-vad-v6.2.1',
+        name: 'Silero VAD v6.2.1',
+        shortName: 'Silero VAD v6.2.1',
+        meta: '32ms • pinned official v6.2.1',
         vramGb: 0.05,
-        desc: 'TorchScript Neural VAD',
+        desc: 'Neural Voice Activity Detection',
       }
     ];
+
+    function promptDeleteModel(id, name) {
+      pendingDeleteModelId = id;
+      pendingDeleteModelName = name || id;
+      const targetEl = document.getElementById('deleteTargetModelName');
+      if (targetEl) targetEl.textContent = `'${pendingDeleteModelName}'`;
+      const modal = document.getElementById('deleteModelConfirmModal');
+      if (modal) modal.style.display = 'flex';
+    }
+
+    function closeDeleteModelModal() {
+      pendingDeleteModelId = null;
+      pendingDeleteModelName = null;
+      const modal = document.getElementById('deleteModelConfirmModal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    async function executeConfirmedDeleteModel() {
+      if (!pendingDeleteModelId) return;
+      const id = pendingDeleteModelId;
+      const name = pendingDeleteModelName || id;
+      closeDeleteModelModal();
+
+      try {
+        const res = await fetch(`${API_URL}/models/uninstall`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model_id: id })
+        });
+        const data = await res.json();
+        if (res.ok && data.success !== false) {
+          showToast(`Uninstalled model '${name}'`);
+          await loadModelHub();
+        } else {
+          showToast(`Could not uninstall: ${data.error || 'Server error'}`);
+        }
+      } catch (e) {
+        showToast(`Uninstall error: ${e.message}`);
+      }
+    }
 
     function renderTtsModelWidgets() {
       const container = document.getElementById('ttsModelsContainer');
       if (!container) return;
-      container.innerHTML = TTS_MODEL_SPECS.map(m => {
-        const isActive = activeSystemTtsEngine === m.id;
+      const visible = TTS_MODEL_SPECS.filter(m => isModelInstalled(m.id));
+      if (visible.length === 0) {
+        container.innerHTML = `<div style="font-size:12px; color:var(--text-muted); padding:12px 4px; grid-column: 1 / -1;">No downloaded TTS models installed. Download models from the Hugging Face Hub.</div>`;
+        return;
+      }
+      container.innerHTML = visible.map(m => {
+        const isActive = activeSystemTtsEngine === m.id || activeSystemTtsEngine === normalizeModelId(m.id);
         const warnIcon = getHardwareWarningIcon(m.vramGb || 2.45);
         return `
           <div class="profile-card ${isActive ? 'active' : ''}">
@@ -4836,6 +5084,9 @@
                       data-tooltip-pos="top"></span>
                 <span class="profile-name-text">${m.shortName}</span>
                 ${warnIcon}
+                <button class="btn-card-trash" onclick="event.stopPropagation(); promptDeleteModel('${m.id}', '${m.name || m.shortName}')" data-tooltip="Uninstall and delete ${m.shortName}" data-tooltip-pos="top">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                </button>
               </div>
             </div>
             <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin: 2px 0 4px 0;">
@@ -4859,8 +5110,13 @@
     function renderAsrModelWidgets() {
       const container = document.getElementById('hubAsrModelsContainer');
       if (!container) return;
-      container.innerHTML = ASR_MODEL_SPECS.map(m => {
-        const isActive = activeAsrEngine === m.id;
+      const visible = ASR_MODEL_SPECS.filter(m => isModelInstalled(m.id));
+      if (visible.length === 0) {
+        container.innerHTML = `<div style="font-size:12px; color:var(--text-muted); padding:12px 4px; grid-column: 1 / -1;">No downloaded ASR models installed. Download models from the Hugging Face Hub.</div>`;
+        return;
+      }
+      container.innerHTML = visible.map(m => {
+        const isActive = activeAsrEngine === m.id || activeAsrEngine === normalizeModelId(m.id);
         const warnIcon = getHardwareWarningIcon(m.vramGb || 1.2);
         return `
           <div class="profile-card ${isActive ? 'active' : ''}">
@@ -4872,6 +5128,9 @@
                       data-tooltip-pos="top"></span>
                 <span class="profile-name-text">${m.shortName}</span>
                 ${warnIcon}
+                <button class="btn-card-trash" onclick="event.stopPropagation(); promptDeleteModel('${m.id}', '${m.name || m.shortName}')" data-tooltip="Uninstall and delete ${m.shortName}" data-tooltip-pos="top">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                </button>
               </div>
             </div>
             <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin: 2px 0 4px 0;">
@@ -4895,8 +5154,13 @@
     function renderNmtModelWidgets() {
       const container = document.getElementById('hubNmtModelsContainer');
       if (!container) return;
-      container.innerHTML = NMT_MODEL_SPECS.map(m => {
-        const isActive = activeNmtEngine === m.id;
+      const visible = NMT_MODEL_SPECS.filter(m => isModelInstalled(m.id));
+      if (visible.length === 0) {
+        container.innerHTML = `<div style="font-size:12px; color:var(--text-muted); padding:12px 4px; grid-column: 1 / -1;">No downloaded translation models installed. Download models from the Hugging Face Hub.</div>`;
+        return;
+      }
+      container.innerHTML = visible.map(m => {
+        const isActive = activeNmtEngine === m.id || activeNmtEngine === normalizeModelId(m.id);
         const warnIcon = getHardwareWarningIcon(m.vramGb || 2.0);
         return `
           <div class="profile-card ${isActive ? 'active' : ''}">
@@ -4908,6 +5172,9 @@
                       data-tooltip-pos="top"></span>
                 <span class="profile-name-text">${m.shortName}</span>
                 ${warnIcon}
+                <button class="btn-card-trash" onclick="event.stopPropagation(); promptDeleteModel('${m.id}', '${m.name || m.shortName}')" data-tooltip="Uninstall and delete ${m.shortName}" data-tooltip-pos="top">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                </button>
               </div>
             </div>
             <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin: 2px 0 4px 0;">
@@ -4931,8 +5198,13 @@
     function renderVadModelWidgets() {
       const container = document.getElementById('hubVadModelsContainer');
       if (!container) return;
-      container.innerHTML = VAD_MODEL_SPECS.map(m => {
-        const isActive = activeVadEngine === m.id;
+      const visible = VAD_MODEL_SPECS.filter(m => isModelInstalled(m.id));
+      if (visible.length === 0) {
+        container.innerHTML = `<div style="font-size:12px; color:var(--text-muted); padding:12px 4px; grid-column: 1 / -1;">No downloaded VAD models installed. Download models from the Hugging Face Hub.</div>`;
+        return;
+      }
+      container.innerHTML = visible.map(m => {
+        const isActive = activeVadEngine === m.id || activeVadEngine === normalizeModelId(m.id);
         const warnIcon = getHardwareWarningIcon(m.vramGb || 0.05);
         return `
           <div class="profile-card ${isActive ? 'active' : ''}">
@@ -4944,6 +5216,9 @@
                       data-tooltip-pos="top"></span>
                 <span class="profile-name-text">${m.shortName}</span>
                 ${warnIcon}
+                <button class="btn-card-trash" onclick="event.stopPropagation(); promptDeleteModel('${m.id}', '${m.name || m.shortName}')" data-tooltip="Uninstall and delete ${m.shortName}" data-tooltip-pos="top">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                </button>
               </div>
             </div>
             <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin: 2px 0 4px 0;">
@@ -4978,6 +5253,29 @@
     async function loadModelHub() {
       await checkHardwareProfile();
       try {
+        // 1. Fetch live installed models
+        const instRes = await fetch(`${API_URL}/models/installed`);
+        if (instRes.ok) {
+          const instData = await instRes.json();
+          if (Array.isArray(instData) && instData.length > 0) {
+            installedModelIds.clear();
+            instData.forEach(item => {
+              if (item.model_id) {
+                const idLower = String(item.model_id).trim().toLowerCase();
+                installedModelIds.add(idLower);
+                installedModelIds.add(normalizeModelId(idLower));
+                if (CANONICAL_MODEL_ALIASES[idLower]) {
+                  installedModelIds.add(CANONICAL_MODEL_ALIASES[idLower]);
+                }
+              }
+            });
+          }
+        }
+      } catch (e) {
+        console.warn("Could not query installed models:", e);
+      }
+
+      try {
         const res = await fetch(`${API_URL}/status`);
         if (res.ok) {
           const statusData = await res.json();
@@ -4991,6 +5289,7 @@
       } catch (e) {
         console.warn("Could not query live server active slots:", e);
       }
+
       renderTtsModelWidgets();
       renderAsrModelWidgets();
       renderNmtModelWidgets();
@@ -5193,6 +5492,85 @@
       return clean.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
     }
 
+    async function installHfModel(modelId, upstreamId) {
+      if (downloadingModels[modelId]) return;
+      downloadingModels[modelId] = { progress: 5, status: 'Starting download...' };
+      renderHfCatalog();
+
+      // Smooth progress animation increment
+      const progressTimer = setInterval(async () => {
+        if (!downloadingModels[modelId]) {
+          clearInterval(progressTimer);
+          return;
+        }
+
+        // Poll backend progress
+        try {
+          const pollRes = await fetch(`${API_URL}/models/progress?model_id=${encodeURIComponent(modelId)}`);
+          if (pollRes.ok) {
+            const pData = await pollRes.json();
+            if (pData && pData.percent !== undefined && pData.percent > 0) {
+              downloadingModels[modelId].progress = Math.max(downloadingModels[modelId].progress, Math.round(pData.percent));
+              downloadingModels[modelId].status = pData.phase ? `${pData.phase.toUpperCase()}...` : 'Downloading...';
+            }
+          }
+        } catch (err) {}
+
+        if (downloadingModels[modelId].progress < 92) {
+          downloadingModels[modelId].progress += Math.floor(Math.random() * 8) + 3;
+          if (downloadingModels[modelId].progress > 92) downloadingModels[modelId].progress = 92;
+          downloadingModels[modelId].status = 'Downloading weights...';
+        }
+
+        const fillEl = document.getElementById(`dlFill_${modelId}`);
+        const pctEl = document.getElementById(`dlPct_${modelId}`);
+        const statusEl = document.getElementById(`dlStatus_${modelId}`);
+        if (fillEl) fillEl.style.width = `${downloadingModels[modelId].progress}%`;
+        if (pctEl) pctEl.textContent = `${downloadingModels[modelId].progress}%`;
+        if (statusEl) statusEl.textContent = downloadingModels[modelId].status;
+      }, 400);
+
+      try {
+        const res = await fetch(`${API_URL}/models/install`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model_id: modelId, upstream_id: upstreamId })
+        });
+        const data = await res.json();
+        clearInterval(progressTimer);
+
+        if (res.ok && data.success !== false) {
+          downloadingModels[modelId].progress = 100;
+          downloadingModels[modelId].status = '✓ Installed';
+          const fillEl = document.getElementById(`dlFill_${modelId}`);
+          const pctEl = document.getElementById(`dlPct_${modelId}`);
+          const statusEl = document.getElementById(`dlStatus_${modelId}`);
+          if (fillEl) fillEl.style.width = '100%';
+          if (pctEl) pctEl.textContent = '100%';
+          if (statusEl) statusEl.textContent = '✓ Installed';
+
+          showToast(`Model '${modelId}' downloaded and installed successfully`);
+          installedModelIds.add(String(modelId).trim().toLowerCase());
+          installedModelIds.add(normalizeModelId(modelId));
+
+          setTimeout(() => {
+            delete downloadingModels[modelId];
+            loadModelHub();
+          }, 1200);
+        } else {
+          clearInterval(progressTimer);
+          delete downloadingModels[modelId];
+          showToast(`Download failed: ${data.error || 'Server error'}`);
+          renderHfCatalog();
+        }
+      } catch (e) {
+        clearInterval(progressTimer);
+        delete downloadingModels[modelId];
+        showToast(`Download error: ${e.message}`);
+        renderHfCatalog();
+      }
+    }
+
     function renderHfCatalog() {
       const container = document.getElementById('hfModelsGrid');
       if (!container) return;
@@ -5201,6 +5579,7 @@
       const limitVram = systemHardwareProfile.max_recommended_slot_vram_gb || 3.5;
 
       const filtered = hfCatalogModels.filter(m => {
+        const isInstalled = isModelInstalled(m.model_id);
         const cap = (m.capability || '').toUpperCase();
         const vramRequired = m.vram_required_gb || m.estimated_download_size_gb || 2.0;
         
@@ -5233,8 +5612,8 @@
         container.innerHTML = `
           <div style="grid-column: 1 / -1; padding: 40px; text-align:center; color:var(--text-dim);">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="margin-bottom:8px; opacity:0.5;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-            <div style="font-size:14px; font-weight:600; color:var(--text-body);">No Hugging Face models found matching current filter.</div>
-            <div style="font-size:12px; margin-top:4px;">Click "All Models" to view all available candidates.</div>
+            <div style="font-size:14px; font-weight:600; color:var(--text-body);">No downloadable Hugging Face models found matching current filter.</div>
+            <div style="font-size:12px; margin-top:4px;">All downloaded models are available under the "Active Engines" tab.</div>
           </div>
         `;
         return;
@@ -5246,8 +5625,9 @@
         const sizeGb = m.estimated_download_size_gb ? `${m.estimated_download_size_gb} GB` : 'On-Demand';
         const vramRequired = m.vram_required_gb || m.estimated_download_size_gb || 2.0;
         const license = m.license || 'Open-Source';
-        const isInstalled = m.is_installed || m.installed || false;
         const capLabel = formatCapabilityLabel(m.capability);
+        const dlState = downloadingModels[m.model_id];
+        const isInstalled = isModelInstalled(m.model_id);
 
         const isHeavy = vramRequired > limitVram;
         const hwNotice = isHeavy ? `
@@ -5281,23 +5661,35 @@
               </div>
             </div>
 
-            <div style="display:flex; justify-content:space-between; align-items:center; border-top: 1px solid var(--border-subtle); padding-top:10px; margin-top:4px;">
-              <span style="font-size:11px; font-weight:700; color:${isInstalled ? '#10b981' : 'var(--text-dim)'};">
-                ${isInstalled ? '● INSTALLED' : '○ READY TO DOWNLOAD'}
-              </span>
-              
-              <div style="display:flex; gap:6px;">
-                ${isInstalled ? `
-                  <button class="btn-action-sm play is-playing" style="cursor:default;" disabled data-tooltip="Model is installed on local system">
-                    <span>Installed</span>
-                  </button>
-                ` : `
-                  <button class="btn-action-sm edit" onclick="installHfModel('${m.model_id}', '${upstream}')" data-tooltip="Download weights from Hugging Face">
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                    <span>Download</span>
-                  </button>
-                `}
-              </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; border-top: 1px solid var(--border-subtle); padding-top:10px; margin-top:4px; min-height:36px;">
+              ${dlState ? `
+                <div class="download-progress-box" id="dlBox_${m.model_id}">
+                  <div class="download-progress-header">
+                    <span id="dlStatus_${m.model_id}">${dlState.status || 'Downloading...'}</span>
+                    <span id="dlPct_${m.model_id}">${dlState.progress || 0}%</span>
+                  </div>
+                  <div class="download-progress-track">
+                    <div class="download-progress-fill" id="dlFill_${m.model_id}" style="width: ${dlState.progress || 0}%;"></div>
+                  </div>
+                </div>
+              ` : `
+                <span style="font-size:11px; font-weight:700; color:${isInstalled ? '#10b981' : 'var(--text-dim)'};">
+                  ${isInstalled ? '● INSTALLED' : '○ READY TO DOWNLOAD'}
+                </span>
+                
+                <div style="display:flex; gap:6px;">
+                  ${isInstalled ? `
+                    <button class="btn-action-sm play is-playing" style="cursor:default;" disabled data-tooltip="Model is installed on local system">
+                      <span>Installed</span>
+                    </button>
+                  ` : `
+                    <button class="btn-action-sm edit" onclick="installHfModel('${m.model_id}', '${upstream}')" data-tooltip="Download weights from Hugging Face">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                      <span>Download</span>
+                    </button>
+                  `}
+                </div>
+              `}
             </div>
           </div>
         `;

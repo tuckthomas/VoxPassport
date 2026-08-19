@@ -436,6 +436,22 @@ class LiveTranslatorApp:
             except Exception as exc:
                 return web.json_response({"success": False, "error": str(exc)}, status=400)
 
+        async def api_models_progress(request):
+            model_id = request.query.get("model_id", "").strip()
+            if not model_id:
+                return web.json_response({"error": "model_id required"}, status=400)
+            prog = self.model_manager.get_install_progress(model_id)
+            if prog is None:
+                try:
+                    canonical = self.model_manager.canonical_model_id(model_id)
+                    entry = self.model_manager.registry.get_entry(canonical)
+                    if entry and entry.installation_status == InstallationStatus.INSTALLED:
+                        return web.json_response({"model_id": model_id, "phase": "done", "percent": 100.0})
+                except Exception:
+                    pass
+                return web.json_response({"model_id": model_id, "phase": "idle", "percent": 0.0})
+            return web.json_response(prog)
+
         async def api_models_uninstall(request):
             data = await request.json()
             try:
@@ -858,6 +874,7 @@ class LiveTranslatorApp:
         app.router.add_get("/api/hardware/profile", api_hardware_profile)
         app.router.add_get("/api/models/available", api_models_available)
         app.router.add_get("/api/models/installed", api_models_installed)
+        app.router.add_get("/api/models/progress", api_models_progress)
         app.router.add_post("/api/models/active", api_models_active)
         app.router.add_post("/api/models/install", api_models_install)
         app.router.add_post("/api/models/uninstall", api_models_uninstall)

@@ -1,9 +1,10 @@
 """Streaming adapter for NVIDIA Parakeet TDT 0.6B v3.
 
-The Hugging Face/Transformers checkpoint is used locally.  Audio is accumulated
-per stream and re-decoded at short intervals so the rest of VoxPassport receives
-revisionable partial hypotheses.  VAD endpoints request one final decode and
-reset the rolling utterance buffer.
+The Hugging Face/Transformers checkpoint is used locally. Audio is accumulated
+per stream and re-decoded at short intervals so VoxPassport receives revisionable
+partial hypotheses. Parakeet internally handles its supported multilingual input,
+but the public checkpoint does not reliably expose the detected language label;
+that distinction is represented explicitly in TranscriptEvent.metadata.
 """
 
 from __future__ import annotations
@@ -128,14 +129,20 @@ class ParakeetTdtV3AsrAdapter(AsrAdapter):
                 state.last_inferred_bytes = len(state.pcm)
                 state.infer_task = asyncio.create_task(self._decode_state(state, final=False))
 
-    def _transcribe_blocking(self, pcm: bytes, sample_rate: int) -> str:
+    def _transcribe_result_blocking(self, pcm: bytes, sample_rate: int) -> tuple[str, str | None]:
         if self._pipe is None or not pcm:
-            return ""
+            return "", None
         audio = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
         result = self._pipe({"array": audio, "sampling_rate": int(sample_rate)})
         if isinstance(result, dict):
-            return str(result.get("text", "")).strip()
-        return str(result or "").strip()
+            text = str(result.get("text", "")).strip()
+            detected = result.get("language") or result.get("lang")
+            return text, (str(detected).lower().strip() if detected else None)
+        return str(result or "").strip(), None
+
+    def _transcribe_blocking(self, pcm: bytes, sample_rate: int) -> str:
+        """Compatibility helper used by verification tools."""
+        return self._transcribe_result_blocking(pcm, sample_rate)[0]
 
     async def _decode_state(self, state: _ParakeetStreamState, final: bool) -> None:
         async with state.lock:
@@ -148,15 +155,22 @@ class ParakeetTdtV3AsrAdapter(AsrAdapter):
             state.revision += 1
             revision = state.revision
 
-        text = await asyncio.get_running_loop().run_in_executor(
-            None, self._transcribe_blocking, pcm, state.config.sample_rate_hz
+        text, model_reported_language = await asyncio.get_running_loop().run_in_executor(
+            None, self._transcribe_result_blocking, pcm, state.config.sample_rate_hz
         )
         if not text and not final:
             return
-        try:
-            language = LanguageCode(state.config.language)
-        except ValueError:
-            language = LanguageCode.EN
+
+        configured = str(state.config.language or "en").lower().split("-")[0]
+        language = LanguageCode(configured) if configured else LanguageCode.EN
+        detection_mode = "implicit_not_exposed"
+        if model_reported_language:
+            try:
+                language = LanguageCode(model_reported_language)
+                detection_mode = "model_reported"
+            except ValueError:
+                logger.debug("Parakeet returned unknown language label %r", model_reported_language)
+
         await state.event_queue.put(
             TranscriptEvent(
                 utterance_id=utterance_id,
@@ -164,6 +178,12 @@ class ParakeetTdtV3AsrAdapter(AsrAdapter):
                 source_language=language,
                 text=text,
                 state=TranscriptState.FINAL if final else TranscriptState.PARTIAL,
+                metadata={
+                    "asr_model": _UPSTREAM_MODEL_ID,
+                    "configured_language": configured,
+                    "detected_language": model_reported_language,
+                    "language_detection": detection_mode,
+                },
             )
         )
 

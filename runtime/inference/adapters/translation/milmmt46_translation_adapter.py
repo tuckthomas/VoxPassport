@@ -79,7 +79,7 @@ class MiLMMT46TranslationAdapter:
 
             self._tokenizer = AutoTokenizer.from_pretrained(model_target, trust_remote_code=False)
             use_cuda = torch.cuda.is_available() and self._device != "cpu"
-            dtype = torch.float16 if use_cuda else torch.float32
+            dtype = torch.bfloat16 if use_cuda else torch.float32
             self._model = AutoModelForCausalLM.from_pretrained(
                 model_target,
                 torch_dtype=dtype,
@@ -127,7 +127,7 @@ class MiLMMT46TranslationAdapter:
             f"{src_name}: {text}\n"
             f"{tgt_name}:"
         )
-        inputs = self._tokenizer(prompt, add_special_tokens=False, return_tensors="pt")
+        inputs = self._tokenizer(prompt, add_special_tokens=True, return_tensors="pt")
         try:
             model_device = next(self._model.parameters()).device
             inputs = {k: v.to(model_device) for k, v in inputs.items()}
@@ -139,7 +139,8 @@ class MiLMMT46TranslationAdapter:
                 **inputs,
                 do_sample=False,
                 max_new_tokens=self._max_new_tokens,
-                pad_token_id=self._tokenizer.eos_token_id,
+                eos_token_id=self._tokenizer.eos_token_id,
+                pad_token_id=self._tokenizer.pad_token_id if self._tokenizer.pad_token_id is not None else 0,
             )
         prompt_len = inputs["input_ids"].shape[-1]
         generated = outputs[0][prompt_len:]

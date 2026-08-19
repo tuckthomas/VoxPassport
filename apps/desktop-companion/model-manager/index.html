@@ -2383,30 +2383,17 @@
               <span id="studioHeaderTitle">Voice Profile Studio</span>
               <span class="pane-badge" id="studioHeaderBadge">ENROLLMENT</span>
             </div>
-            <span style="font-size:11px; color:var(--text-dim);">OmniVoice Neural Cloner</span>
+            <span style="font-size:11px; color:var(--text-dim);">Universal Reference Audio & Speaker Timbre</span>
           </div>
 
           <!-- Pane Body -->
           <div class="pane-body" style="gap: 16px; overflow-y: auto;">
             
-            <!-- Profile Name Row -->
-            <div class="studio-field-group">
-              <label class="studio-field-label">Profile Name</label>
-              <input type="text" class="input-field" id="studioProfileNameInput" value="" placeholder="e.g. Presentation Voice, Conference Studio..." oninput="handleStudioNameInput()">
-            </div>
-
-            <!-- Configuration Row: Cloning Model (Fixed to Active Engine) & Reference Language -->
+            <!-- Configuration Row: Profile Name & Reference Language -->
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
               <div class="studio-field-group">
-                <label class="studio-field-label">Voice Cloning Model</label>
-                <div class="fixed-engine-box" id="studioFixedEngineBox" data-tooltip="Set using the Active TTS Model selector in the left panel" data-tooltip-pos="top">
-                  <div style="display:flex; align-items:center; gap:8px;">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2.2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-                    <span id="studioFixedEngineLabel" style="font-weight:700; color:#f8fafc; font-size:13px;">OmniVoice Stock (k2-fsa)</span>
-                  </div>
-                  <span class="pane-badge" id="studioFixedEngineBadge" style="background:rgba(59,130,246,0.12); color:#60a5fa; border:1px solid rgba(59,130,246,0.3); font-size:10px; padding:2px 6px;">ACTIVE</span>
-                </div>
-                <input type="hidden" id="studioCloneModelSelect" value="omnivoice" />
+                <label class="studio-field-label">Profile Name</label>
+                <input type="text" class="input-field" id="studioProfileNameInput" value="" placeholder="e.g. Presentation Voice, Conference Studio..." oninput="handleStudioNameInput()">
               </div>
 
               <div class="studio-field-group">
@@ -3449,10 +3436,8 @@
 
     function getActivePromptPassage() {
       const lang = document.getElementById('studioRefLangSelect')?.value || 'en';
-      const model = document.getElementById('studioCloneModelSelect')?.value || 'omnivoice';
-      const spec = MODEL_SPECS[model] || MODEL_SPECS['omnivoice'];
       const langSet = REFERENCE_PASSAGES[lang] || REFERENCE_PASSAGES.en;
-      return (typeof langSet === 'string') ? langSet : (langSet[spec.tier] || langSet.extended);
+      return (typeof langSet === 'string') ? langSet : (langSet.extended || langSet.short);
     }
 
     function handleRefLanguageChange() {
@@ -3461,15 +3446,13 @@
     }
 
     function handleCloneModelChange() {
-      const model = document.getElementById('studioCloneModelSelect')?.value || 'omnivoice';
-      const spec = MODEL_SPECS[model] || MODEL_SPECS['omnivoice'];
       const badge = document.getElementById('studioHeaderBadge');
       if (badge && studioMode === 'create') {
-        badge.textContent = spec.badge;
+        badge.textContent = "ENROLLMENT";
       }
       const timerBadge = document.getElementById('studioRecordTimer');
       if (timerBadge && !isStudioRecording) {
-        timerBadge.textContent = `00:00 / 00:${spec.targetSeconds < 10 ? '0' : ''}${spec.targetSeconds}`;
+        timerBadge.textContent = `00:00 / 00:15`;
       }
       handleRefLanguageChange();
     }
@@ -3557,7 +3540,6 @@
         document.getElementById('studioHeaderTitle').textContent = "Create Voice Profile";
         document.getElementById('studioProfileNameInput').value = "";
         document.getElementById('studioRefLangSelect').value = 'en';
-        selectActiveTtsEngine(activeSystemTtsEngine, null, false, false);
         if (playCurrentBtn) {
           playCurrentBtn.style.display = 'none';
           playCurrentBtn.disabled = true;
@@ -4655,20 +4637,6 @@
 
           // Re-render model cards to update active styling and LED
           renderTtsModelWidgets();
-
-          // Update status tag in sidebar
-          const tagEl = document.getElementById('sidebarEngineTag');
-          if (tagEl) tagEl.textContent = MODEL_TAG_STATUS[modelKey] || 'Active';
-
-          // Update fixed box in Voice Studio form
-          const fixedLabel = document.getElementById('studioFixedEngineLabel');
-          if (fixedLabel) fixedLabel.textContent = displayLabel;
-
-          const hiddenInput = document.getElementById('studioCloneModelSelect');
-          if (hiddenInput) hiddenInput.value = modelKey;
-
-          // Update prompt text and target timer in Voice Studio based on active model spec
-          handleCloneModelChange();
 
           // Complete progress
           if (fill) {

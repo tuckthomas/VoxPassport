@@ -13,8 +13,11 @@ accelerate>=0.27.0
 safetensors>=0.4.0
 huggingface-hub>=0.20.0
 
-# NVIDIA NeMo remains optional for native NeMo streaming experiments:
-#   pip install nemo_toolkit[asr]
+# NVIDIA NeMo is intentionally optional because the default Parakeet -> MiLMMT
+# path does not need it. The optional Streaming Sortformer diarization sidecar
+# requires NeMo ASR after its weights are downloaded from the Model Hub:
+#   pip install Cython packaging
+#   pip install "nemo_toolkit[asr]"
 
 # Audio I/O and DSP
 soundfile>=0.12.0

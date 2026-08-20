@@ -87,16 +87,20 @@ def test_studio_preview_requests_are_cached_by_the_server():
     assert "preview: true" in studio
 
 
-def test_active_and_hugging_face_model_cards_show_registry_license_status():
+def test_active_and_hugging_face_model_cards_link_license_icons():
     studio = (
         _repo_root() / "apps" / "desktop-companion" / "model-manager" / "studio.html"
     ).read_text(encoding="utf-8")
     assert "modelMetadataById" in studio
     assert "rememberModelMetadata(instData)" in studio
-    assert "renderModelLicenseBadge(m)" in studio
-    assert "renderLicenseBadge(m.license, m.commercial_use)" in studio
-    assert "NONCOMMERCIAL" in studio
-    assert "VERIFY TERMS" in studio
+    assert "renderModelLicenseIcon(m)" in studio
+    assert "renderLicenseIcon(m.license, m.commercial_use, m.upstream_id, m.license_url)" in studio
+    assert 'class="model-license-link ${classification}"' in studio
+    assert 'target="_blank"' in studio
+    assert "licenseUrlFor" in studio
+    assert "profile-card-actions" in studio
+    assert "pointer-events: none" in studio
+    assert "color: #ef4444" in studio
 
 
 def test_omnivoice_no_longer_dispatches_other_engines_from_profile_metadata():

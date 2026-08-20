@@ -991,42 +991,39 @@
       border-color: rgba(59, 130, 246, 0.45);
       transform: translateY(-2px);
     }
-    .model-license-row {
-      display: flex;
-      align-items: center;
-      min-height: 22px;
-      margin: 1px 0 6px;
-    }
-    .model-license-badge {
+    .model-license-link {
       display: inline-flex;
       align-items: center;
-      max-width: 100%;
-      padding: 3px 7px;
-      border: 1px solid rgba(148, 163, 184, 0.32);
-      border-radius: 4px;
-      background: rgba(148, 163, 184, 0.09);
+      justify-content: center;
+      width: 15px;
+      height: 15px;
+      flex: 0 0 15px;
       color: #cbd5e1;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 10.5px;
-      font-weight: 800;
-      line-height: 1.25;
-      letter-spacing: 0.025em;
-      white-space: normal;
+      text-decoration: none;
+      transition: color 0.15s ease, transform 0.15s ease;
     }
-    .model-license-badge.commercial {
-      border-color: rgba(16, 185, 129, 0.38);
-      background: rgba(16, 185, 129, 0.1);
+    .model-license-link:hover {
+      transform: scale(1.08);
+    }
+    .model-license-link svg {
+      display: block;
+      pointer-events: none;
+    }
+    .model-license-link.commercial {
       color: #6ee7b7;
     }
-    .model-license-badge.noncommercial {
-      border-color: rgba(245, 158, 11, 0.48);
-      background: rgba(245, 158, 11, 0.12);
+    .model-license-link.noncommercial {
       color: #fcd34d;
     }
-    .model-license-badge.verify {
-      border-color: rgba(249, 115, 22, 0.45);
-      background: rgba(249, 115, 22, 0.1);
+    .model-license-link.verify {
       color: #fdba74;
+    }
+    .profile-card-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      flex-shrink: 0;
+      margin-left: auto;
     }
     .hf-repo-badge {
       display: inline-flex;
@@ -1128,11 +1125,11 @@
       border-radius: 4px;
       background: transparent;
       border: 1px solid transparent;
-      color: #64748b;
+      color: #ef4444;
       cursor: pointer;
       flex-shrink: 0;
       transition: all 0.15s ease;
-      margin-left: auto;
+      margin-left: 0;
     }
 
     .btn-card-trash:hover {
@@ -5050,7 +5047,27 @@
       return value.length > 34 ? `${value.slice(0, 31)}...` : value;
     }
 
-    function renderLicenseBadge(license, commercialUse = 'verify') {
+    function huggingFaceModelUrl(upstreamId) {
+      const upstream = String(upstreamId || '').trim();
+      if (!upstream || upstream.startsWith('local://') || upstream === 'huggingface.co') return '';
+      if (/^https:\/\//i.test(upstream)) return upstream;
+      return `https://huggingface.co/${upstream.split('/').map(encodeURIComponent).join('/')}`;
+    }
+
+    function licenseUrlFor(license, upstreamId = '', explicitUrl = '') {
+      const supplied = String(explicitUrl || '').trim();
+      if (/^https:\/\//i.test(supplied)) return supplied;
+      const lower = String(license || '').trim().toLowerCase();
+      if (lower.includes('gemma')) return 'https://ai.google.dev/gemma/terms';
+      if (lower.includes('nvidia-open-model-license')) return 'https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/';
+      if (lower.includes('cc-by-nc')) return 'https://creativecommons.org/licenses/by-nc/4.0/';
+      if (lower.includes('cc-by-4') || lower.includes('cc by 4')) return 'https://creativecommons.org/licenses/by/4.0/';
+      if (lower.includes('apache-2.0') || lower.includes('apache 2.0')) return 'https://www.apache.org/licenses/LICENSE-2.0';
+      if (lower === 'mit' || lower.includes('mit license')) return 'https://opensource.org/license/mit';
+      return huggingFaceModelUrl(upstreamId) || 'https://huggingface.co/docs/hub/repositories-licenses';
+    }
+
+    function renderLicenseIcon(license, commercialUse = 'verify', upstreamId = '', explicitUrl = '') {
       const rawLicense = String(license || 'verify').trim();
       const normalizedLicense = rawLicense.toLowerCase();
       const normalizedCommercial = String(commercialUse || 'verify').trim().toLowerCase();
@@ -5061,24 +5078,23 @@
       const classification = isNoncommercial
         ? 'noncommercial'
         : (normalizedCommercial === 'yes' ? 'commercial' : 'verify');
-      const suffix = classification === 'noncommercial'
-        ? ' · NONCOMMERCIAL'
-        : (classification === 'verify' ? ' · VERIFY TERMS' : '');
       const statusText = classification === 'noncommercial'
-        ? 'Commercial use is not permitted by the recorded model terms.'
-        : (classification === 'commercial'
-          ? 'Commercial use is recorded as permitted; upstream conditions still apply.'
-          : 'Commercial-use status has not been verified; review the upstream model terms.');
-      const visibleLabel = escapeModelMetadata(compactLicenseLabel(rawLicense));
-      const tooltip = escapeModelMetadata(`Model/checkpoint license: ${rawLicense}. ${statusText}`);
-      return `<span class="model-license-badge ${classification}" data-tooltip="${tooltip}" data-tooltip-pos="top">LICENSE · ${visibleLabel}${suffix}</span>`;
+        ? 'noncommercial'
+        : (classification === 'verify' ? 'terms require verification' : 'commercial use recorded as permitted');
+      const licenseName = compactLicenseLabel(rawLicense);
+      const tooltip = escapeModelMetadata(`License: ${licenseName} (${statusText}) · Click to open terms`);
+      const ariaLabel = escapeModelMetadata(`Open license terms for ${licenseName}`);
+      const licenseUrl = escapeModelMetadata(licenseUrlFor(rawLicense, upstreamId, explicitUrl));
+      return `<a class="model-license-link ${classification}" href="${licenseUrl}" target="_blank" rel="noopener noreferrer" aria-label="${ariaLabel}" data-tooltip="${tooltip}" data-tooltip-pos="top" onclick="event.stopPropagation()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18"></path><path d="M5 7h14"></path><path d="M7 7 3.5 14h7L7 7Z"></path><path d="m17 7-3.5 7h7L17 7Z"></path><path d="M8 21h8"></path></svg></a>`;
     }
 
-    function renderModelLicenseBadge(modelSpec) {
+    function renderModelLicenseIcon(modelSpec) {
       const registryModel = modelMetadataFor(modelSpec.id);
-      return renderLicenseBadge(
+      return renderLicenseIcon(
         registryModel.license || modelSpec.license || 'verify',
-        registryModel.commercial_use || modelSpec.commercialUse || 'verify'
+        registryModel.commercial_use || modelSpec.commercialUse || 'verify',
+        registryModel.upstream_id || modelSpec.upstreamId || '',
+        modelSpec.licenseUrl || ''
       );
     }
 
@@ -5102,6 +5118,7 @@
         desc: '4.0B Speech LLM',
         license: 'UNKNOWN',
         commercialUse: 'verify',
+        upstreamId: 'bosonai/higgs-tts-3-4b',
       },
       {
         id: 'higgs-tts-3-q4_k_m',
@@ -5112,6 +5129,7 @@
         desc: 'Compiled audiocpp CUDA voice cloning',
         license: 'See Higgs-Audio-v3-Studio and model terms',
         commercialUse: 'verify',
+        licenseUrl: 'https://huggingface.co/drbaph/Higgs-Audio-v3-Studio',
       },
       {
         id: 'moss-tts-1.5',
@@ -5263,9 +5281,12 @@
                       data-tooltip-pos="top"></span>
                 <span class="profile-name-text">${m.shortName}</span>
                 ${warnIcon}
-                <button class="btn-card-trash" onclick="event.stopPropagation(); promptDeleteModel('${m.id}', '${m.name || m.shortName}')" data-tooltip="Uninstall and delete ${m.shortName}" data-tooltip-pos="top">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                </button>
+                <span class="profile-card-actions">
+                  ${renderModelLicenseIcon(m)}
+                  <button class="btn-card-trash" onclick="event.stopPropagation(); promptDeleteModel('${m.id}', '${m.name || m.shortName}')" data-tooltip="Uninstall and delete ${m.shortName}" data-tooltip-pos="top">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                  </button>
+                </span>
               </div>
             </div>
             <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin: 2px 0 4px 0;">
@@ -5275,7 +5296,6 @@
               </span>
               <span class="profile-card-meta">${m.meta}</span>
             </div>
-            <div class="model-license-row">${renderModelLicenseBadge(m)}</div>
             <div class="profile-btn-row" style="grid-template-columns: 1fr; margin-top:auto;">
               <button class="btn-engine-toggle ${isActive ? 'active' : 'inactive'}" onclick="toggleActiveTtsEngine('${m.id}', '${m.name}')" data-tooltip="${isActive ? `${m.shortName} is active • Click to disable` : `Click to enable ${m.shortName}`}">
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -5308,9 +5328,12 @@
                       data-tooltip-pos="top"></span>
                 <span class="profile-name-text">${m.shortName}</span>
                 ${warnIcon}
-                <button class="btn-card-trash" onclick="event.stopPropagation(); promptDeleteModel('${m.id}', '${m.name || m.shortName}')" data-tooltip="Uninstall and delete ${m.shortName}" data-tooltip-pos="top">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                </button>
+                <span class="profile-card-actions">
+                  ${renderModelLicenseIcon(m)}
+                  <button class="btn-card-trash" onclick="event.stopPropagation(); promptDeleteModel('${m.id}', '${m.name || m.shortName}')" data-tooltip="Uninstall and delete ${m.shortName}" data-tooltip-pos="top">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                  </button>
+                </span>
               </div>
             </div>
             <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin: 2px 0 4px 0;">
@@ -5320,7 +5343,6 @@
               </span>
               <span class="profile-card-meta">${m.meta}</span>
             </div>
-            <div class="model-license-row">${renderModelLicenseBadge(m)}</div>
             <div class="profile-btn-row" style="grid-template-columns: 1fr; margin-top:auto;">
               <button class="btn-engine-toggle ${isActive ? 'active' : 'inactive'}" onclick="selectActiveAsrEngine('${m.id}', '${m.name}')" data-tooltip="${isActive ? `${m.shortName} is enabled` : `Enable ${m.shortName}`}">
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -5353,9 +5375,12 @@
                       data-tooltip-pos="top"></span>
                 <span class="profile-name-text">${m.shortName}</span>
                 ${warnIcon}
-                <button class="btn-card-trash" onclick="event.stopPropagation(); promptDeleteModel('${m.id}', '${m.name || m.shortName}')" data-tooltip="Uninstall and delete ${m.shortName}" data-tooltip-pos="top">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                </button>
+                <span class="profile-card-actions">
+                  ${renderModelLicenseIcon(m)}
+                  <button class="btn-card-trash" onclick="event.stopPropagation(); promptDeleteModel('${m.id}', '${m.name || m.shortName}')" data-tooltip="Uninstall and delete ${m.shortName}" data-tooltip-pos="top">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                  </button>
+                </span>
               </div>
             </div>
             <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin: 2px 0 4px 0;">
@@ -5365,7 +5390,6 @@
               </span>
               <span class="profile-card-meta">${m.meta}</span>
             </div>
-            <div class="model-license-row">${renderModelLicenseBadge(m)}</div>
             <div class="profile-btn-row" style="grid-template-columns: 1fr; margin-top:auto;">
               <button class="btn-engine-toggle ${isActive ? 'active' : 'inactive'}" onclick="selectActiveNmtEngine('${m.id}', '${m.name}')" data-tooltip="${isActive ? `${m.shortName} is enabled` : `Enable ${m.shortName}`}">
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -5398,9 +5422,12 @@
                       data-tooltip-pos="top"></span>
                 <span class="profile-name-text">${m.shortName}</span>
                 ${warnIcon}
-                <button class="btn-card-trash" onclick="event.stopPropagation(); promptDeleteModel('${m.id}', '${m.name || m.shortName}')" data-tooltip="Uninstall and delete ${m.shortName}" data-tooltip-pos="top">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                </button>
+                <span class="profile-card-actions">
+                  ${renderModelLicenseIcon(m)}
+                  <button class="btn-card-trash" onclick="event.stopPropagation(); promptDeleteModel('${m.id}', '${m.name || m.shortName}')" data-tooltip="Uninstall and delete ${m.shortName}" data-tooltip-pos="top">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                  </button>
+                </span>
               </div>
             </div>
             <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin: 2px 0 4px 0;">
@@ -5410,7 +5437,6 @@
               </span>
               <span class="profile-card-meta">${m.meta}</span>
             </div>
-            <div class="model-license-row">${renderModelLicenseBadge(m)}</div>
             <div class="profile-btn-row" style="grid-template-columns: 1fr; margin-top:auto;">
               <button class="btn-engine-toggle ${isActive ? 'active' : 'inactive'}" onclick="selectActiveVadEngine('${m.id}', '${m.name}')" data-tooltip="${isActive ? `${m.shortName} is enabled` : `Enable ${m.shortName}`}">
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -5842,11 +5868,11 @@
                 ${hwNotice}
               </div>
 
-              <div style="display:flex; gap:12px; font-size:11.5px; color:var(--text-dim); margin-top:4px;">
+              <div style="display:flex; align-items:center; flex-wrap:wrap; gap:12px; font-size:11.5px; color:var(--text-dim); margin-top:4px;">
                 <span>📦 ${sizeGb}</span>
                 <span>🏢 ${(m.provider || 'community').toUpperCase()}</span>
+                ${renderLicenseIcon(m.license, m.commercial_use, m.upstream_id, m.license_url)}
               </div>
-              <div class="model-license-row" style="margin-bottom:0;">${renderLicenseBadge(m.license, m.commercial_use)}</div>
             </div>
 
             <div style="display:flex; justify-content:space-between; align-items:center; border-top: 1px solid var(--border-subtle); padding-top:10px; margin-top:4px; min-height:36px;">

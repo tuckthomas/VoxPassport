@@ -103,7 +103,14 @@ def test_active_and_hugging_face_model_cards_link_license_icons():
     assert "target.contains(e.relatedTarget)" in studio
     assert "color: #ef4444" in studio
     assert '<svg class="hw-warn-icon"' in studio
-    assert "cursor: default" in studio
+    assert "targetCenterX" in studio
+    assert "targetCenterY" in studio
+    assert "--tooltip-arrow-x" in studio
+    assert "--tooltip-arrow-y" in studio
+    assert "const HOVER_DELAY_MS = 500" in studio
+    assert "scheduleTooltip(target, text, pos)" in studio
+    assert "target.matches(':hover')" in studio
+    assert "cursor: default" not in studio
     assert "Live Caption Stream" not in studio
     assert 'class="activity-dock"' not in studio
 

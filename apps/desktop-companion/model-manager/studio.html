@@ -765,7 +765,7 @@
       height: 13px;
       flex: 0 0 13px;
       color: #f59e0b;
-      cursor: default;
+      cursor: pointer;
       margin-left: 2px;
     }
 
@@ -998,6 +998,7 @@
       color: #cbd5e1;
       text-decoration: none;
       line-height: 0;
+      cursor: pointer;
       transition: color 0.15s ease, transform 0.15s ease;
     }
     .model-license-link:hover {
@@ -2000,28 +2001,28 @@
 
     .studio-tooltip[data-pos="top"] .studio-tooltip-arrow {
       bottom: -5px;
-      left: calc(50% - 4px);
+      left: calc(var(--tooltip-arrow-x, 50%) - 4px);
       border-top: none;
       border-left: none;
     }
 
     .studio-tooltip[data-pos="bottom"] .studio-tooltip-arrow {
       top: -5px;
-      left: calc(50% - 4px);
+      left: calc(var(--tooltip-arrow-x, 50%) - 4px);
       border-bottom: none;
       border-right: none;
     }
 
     .studio-tooltip[data-pos="left"] .studio-tooltip-arrow {
       right: -5px;
-      top: calc(50% - 4px);
+      top: calc(var(--tooltip-arrow-y, 50%) - 4px);
       border-bottom: none;
       border-left: none;
     }
 
     .studio-tooltip[data-pos="right"] .studio-tooltip-arrow {
       left: -5px;
-      top: calc(50% - 4px);
+      top: calc(var(--tooltip-arrow-y, 50%) - 4px);
       border-top: none;
       border-right: none;
     }
@@ -5957,9 +5958,16 @@
 
     // Global Modern Tooltip System
     (function initGlobalTooltip() {
+      const HOVER_DELAY_MS = 500;
       let tooltipEl = null;
       let arrowEl = null;
+      let showTimeout = null;
       let hideTimeout = null;
+
+      function cancelPendingTooltip() {
+        if (showTimeout) clearTimeout(showTimeout);
+        showTimeout = null;
+      }
 
       function createTooltipElement() {
         if (tooltipEl) return;
@@ -6017,6 +6025,14 @@
         left = Math.max(8, Math.min(window.innerWidth - tipRect.width - 8, left));
         top = Math.max(8, Math.min(window.innerHeight - tipRect.height - 8, top));
 
+        const targetCenterX = rect.left + (rect.width / 2);
+        const targetCenterY = rect.top + (rect.height / 2);
+        const arrowInset = 9;
+        const arrowX = Math.max(arrowInset, Math.min(tipRect.width - arrowInset, targetCenterX - left));
+        const arrowY = Math.max(arrowInset, Math.min(tipRect.height - arrowInset, targetCenterY - top));
+        tooltipEl.style.setProperty('--tooltip-arrow-x', `${arrowX}px`);
+        tooltipEl.style.setProperty('--tooltip-arrow-y', `${arrowY}px`);
+
         tooltipEl.style.top = `${top}px`;
         tooltipEl.style.left = `${left}px`;
         tooltipEl.style.visibility = 'visible';
@@ -6026,7 +6042,18 @@
         });
       }
 
+      function scheduleTooltip(target, text, pos = 'top') {
+        cancelPendingTooltip();
+        if (!text || !target) return;
+        showTimeout = setTimeout(() => {
+          showTimeout = null;
+          if (!target.isConnected || !target.matches(':hover')) return;
+          showTooltip(target, text, pos);
+        }, HOVER_DELAY_MS);
+      }
+
       function hideTooltip() {
+        cancelPendingTooltip();
         if (!tooltipEl) return;
         tooltipEl.classList.remove('visible');
         hideTimeout = setTimeout(() => {
@@ -6049,7 +6076,7 @@
 
         const text = target.getAttribute('data-tooltip');
         const pos = target.getAttribute('data-tooltip-pos') || 'top';
-        showTooltip(target, text, pos);
+        scheduleTooltip(target, text, pos);
       }, true);
 
       document.addEventListener('mouseout', (e) => {
@@ -6069,7 +6096,7 @@
       }, true);
 
       document.addEventListener('focusout', () => hideTooltip(), true);
-      window.addEventListener('scroll', () => hideTooltip(), true);
+      window.addEventListener('scroll', hideTooltip, true);
     })();
   </script>
 </body>

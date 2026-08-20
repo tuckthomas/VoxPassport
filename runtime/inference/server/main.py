@@ -21,7 +21,7 @@ if str(PROJECT_ROOT) not in sys.path:
 if str(PACKAGES_DIR) not in sys.path:
     sys.path.append(str(PACKAGES_DIR))
 
-from agents.model_discovery_agent import ModelDiscoveryAgent
+from runtime.inference.model_discovery_agent import ModelDiscoveryAgent
 from runtime.inference.adapters.asr.parakeet_tdt_v3_asr_adapter import ParakeetTdtV3AsrAdapter
 from runtime.inference.adapters.translation.milmmt46_translation_adapter import MiLMMT46TranslationAdapter
 from runtime.inference.adapters.tts import HiggsNativeTtsAdapter, HiggsTtsAdapter, MossTtsAdapter, OmniVoiceTtsAdapter, VoxCpmTtsAdapter
@@ -42,6 +42,7 @@ from runtime.inference.protocol import (
 from runtime.inference.scheduler.degraded_mode_scheduler import DegradedModeScheduler
 from runtime.inference.server.caption_server import CaptionServer
 from runtime.inference.server.model_manager_api import ModelManagerController
+from runtime.inference.server.resource_monitor import ResourceSnapshotCollector
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("VoxPassportDaemon")
@@ -112,6 +113,7 @@ class LiveTranslatorApp:
             model_store_dir=PROJECT_ROOT / "models",
             staging_dir=PROJECT_ROOT / "models" / ".staging",
         )
+        self.resource_monitor = ResourceSnapshotCollector()
         self._http_runner = None
 
     @staticmethod
@@ -446,6 +448,10 @@ class LiveTranslatorApp:
                 return web.json_response({"success": ok, "model_id": data.get("model_id")})
             except Exception as exc:
                 return web.json_response({"success": False, "error": str(exc)}, status=400)
+
+        async def api_resources(request):
+            snapshot = await asyncio.to_thread(self.resource_monitor.snapshot)
+            return web.json_response(snapshot)
 
         async def api_models_progress(request):
             model_id = request.query.get("model_id", "").strip()
@@ -914,6 +920,7 @@ class LiveTranslatorApp:
 
         app.router.add_get("/api/status", api_status)
         app.router.add_get("/api/hardware/profile", api_hardware_profile)
+        app.router.add_get("/api/resources", api_resources)
         app.router.add_get("/api/models/available", api_models_available)
         app.router.add_get("/api/models/installed", api_models_installed)
         app.router.add_get("/api/models/progress", api_models_progress)
@@ -941,8 +948,11 @@ class LiveTranslatorApp:
         app.router.add_post("/api/verify", api_verify)
 
         companion_dir = PROJECT_ROOT / "apps" / "desktop-companion"
+        assets_dir = companion_dir / "assets"
         manager_dir = companion_dir / "model-manager"
         overlay_dir = companion_dir / "overlay"
+        if assets_dir.exists():
+            app.router.add_static("/assets", path=str(assets_dir), show_index=False)
         if manager_dir.exists():
             app.router.add_static("/manager", path=str(manager_dir), show_index=True)
         if overlay_dir.exists():

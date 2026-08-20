@@ -46,7 +46,6 @@ def _candidate_dlls(project_root: Path) -> list[Path]:
     candidates = [Path(configured)] if configured else []
     candidates.extend([
         project_root / "native" / "audiocpp_engine.dll",
-        project_root / "temp_higgs_test" / "audiocpp_engine.dll",
         project_root.parent / "Higgs-Audio-v3-Studio" / "build" / "windows-cuda-release" / "bin" / "audiocpp_engine.dll",
     ])
     return [path for path in candidates if path and path.exists()]

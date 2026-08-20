@@ -1,8 +1,14 @@
 {
   "manifest_version": 3,
-  "name": "LiveTranslator — Google Meet Caption Companion",
+  "name": "VoxPassport — Google Meet Caption Companion",
   "version": "1.0.0",
   "description": "Displays live bidirectional English ↔ Romanian translated captions directly inside Google Meet.",
+  "icons": {
+    "16": "icons/VoxPassport_icon_16.png",
+    "32": "icons/VoxPassport_icon_32.png",
+    "48": "icons/VoxPassport_icon_48.png",
+    "128": "icons/VoxPassport_icon_128.png"
+  },
   "permissions": [
     "storage"
   ],
@@ -21,6 +27,12 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "LiveTranslator Controls"
+    "default_title": "VoxPassport Controls",
+    "default_icon": {
+      "16": "icons/VoxPassport_icon_16.png",
+      "32": "icons/VoxPassport_icon_32.png",
+      "48": "icons/VoxPassport_icon_48.png",
+      "128": "icons/VoxPassport_icon_128.png"
+    }
   }
 }

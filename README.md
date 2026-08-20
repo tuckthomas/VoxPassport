@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="apps/desktop-companion/assets/VoxPassport_icon_256.png" alt="VoxPassport icon" width="160" />
+
 # VoxPassport
 ### Local-First Multilingual Voice Translation for Live Conversations
 
@@ -214,7 +216,7 @@ VoxPassport is organized as a local inference runtime with thin UI and conferenc
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
-│                         VoxPassport Studio                      │
+│                            VoxPassport                          │
 │ Voice Profiles • Live Studio • Debug • Model Hub • Configuration│
 └──────────────────────────────┬──────────────────────────────────┘
                                │ localhost HTTP / WebSocket
@@ -255,16 +257,18 @@ VoxPassport/
 ├── apps/
 │   ├── browser-extension/              # Chrome MV3 Google Meet caption companion
 │   └── desktop-companion/
-│       ├── model-manager/              # VoxPassport Studio + Model Hub UI
+│       ├── assets/                     # Shared VoxPassport application branding
+│       ├── model-manager/              # VoxPassport UI + Model Hub
 │       └── overlay/                    # Local caption overlay
 ├── runtime/inference/
 │   ├── adapters/                       # VAD, ASR, MT, TTS, diarization adapters
+│   ├── model_discovery_agent.py        # Scheduled model discovery/research runtime
 │   ├── model_registry/                 # Catalog, install state, active models, hot-swap
 │   ├── pipeline/                       # Full-duplex audio/translation orchestration
 │   ├── scheduler/                      # Runtime/degraded-mode scheduling
 │   ├── metrics/                        # Latency and runtime metrics
 │   └── server/                         # Unified local API + inference daemon
-├── agents/                             # Model discovery/research automation
+├── .agents/plans/                      # Future implementation plans for coding agents
 ├── crates/
 │   ├── audio-core/                     # Native audio abstractions
 │   ├── audio-windows/                  # Windows audio implementation
@@ -350,7 +354,7 @@ VoxPassport supports two Higgs TTS paths:
 - **Full Higgs TTS 3** uses the existing SGLang/Omni worker and the standard `higgs-tts-3` model. This remains the broadest path for longer reference conditioning and higher-memory GPUs.
 - **Native Q4_K_M Higgs** uses a locally compiled or compatible prebuilt `audiocpp_engine.dll` with the `higgs-tts-3-q4_k_m` GGUF package. It supports native reference-audio voice cloning through `audiocpp_generate_voice_clone_stream`, including the multilingual targets exposed by the Studio and live pipeline. On 8 GB GPUs, VoxPassport creates a reusable five-second conditioning reference, persists the DLL's processed-speaker `.hspkcache`, generates deterministic short clauses, and streams decoded audio as it becomes available. The saved reference recording is never shortened or overwritten.
 
-The repository currently includes the validated Windows engine at `temp_higgs_test/audiocpp_engine.dll`. It contains native `sm_75` cubins and embedded `sm_75` PTX, so an RTX 2070 user who clones the repository does not need to compile the CUDA engine again. The PTX may be JIT-compiled by a compatible NVIDIA driver for newer GPUs, but this artifact is not yet validated as a universal cross-generation release binary. For predictable distribution across GPU generations, publish a fat binary containing the intended architectures (for example `sm_75`, `sm_86`, and `sm_89`) or provide architecture-specific release assets. A user only needs to compile from source when the bundled/prebuilt engine is incompatible with their GPU, CUDA driver, or Windows runtime.
+The repository currently includes the validated Windows engine at `native/audiocpp_engine.dll`. It contains native `sm_75` cubins and embedded `sm_75` PTX, so an RTX 2070 user who clones the repository does not need to compile the CUDA engine again. The PTX may be JIT-compiled by a compatible NVIDIA driver for newer GPUs, but this artifact is not yet validated as a universal cross-generation release binary. For predictable distribution across GPU generations, publish a fat binary containing the intended architectures (for example `sm_75`, `sm_86`, and `sm_89`) or provide architecture-specific release assets. A user only needs to compile from source when the bundled/prebuilt engine is incompatible with their GPU, CUDA driver, or Windows runtime.
 
 The 4 GB-class GGUF model weights are intentionally excluded from Git. Each user must download the Q4_K_M model package into `models/higgs-tts-3-q4_k_m/`. At startup, VoxPassport automatically detects the bundled DLL plus `q4_k_m.gguf` and registers the native engine. An alternate engine can be placed at `native/audiocpp_engine.dll` or selected with `VOXPASSPORT_HIGGS_NATIVE_DLL`; the loader also honors `CUDA_PATH` for CUDA runtime dependencies.
 

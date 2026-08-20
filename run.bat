@@ -1,6 +1,6 @@
 @echo off
 echo ===================================================
-echo   Starting LiveTranslator Conference Runtime
+echo   Starting VoxPassport Conference Runtime
 echo ===================================================
 echo.
 
@@ -15,5 +15,5 @@ echo Opening Desktop Caption Overlay...
 start "" "apps\desktop-companion\overlay\index.html"
 
 echo.
-echo LiveTranslator is active. Press Ctrl+C in this terminal to stop.
+echo VoxPassport is active. Press Ctrl+C in this terminal to stop.
 pause

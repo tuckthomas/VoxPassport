@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LiveTranslator Subtitle Overlay</title>
+  <title>VoxPassport Subtitle Overlay</title>
+  <link rel="icon" href="../assets/VoxPassport_icon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
@@ -65,6 +66,19 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+    }
+
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand-icon {
+      display: block;
+      width: 30px;
+      height: 30px;
+      flex: 0 0 30px;
     }
 
     .brand-title {
@@ -226,7 +240,10 @@
   <div class="app-container">
     
     <div class="top-bar">
-      <div class="brand-title">LiveTranslator Subtitle Stream</div>
+      <div class="brand-group">
+        <img class="brand-icon" src="../assets/VoxPassport_icon.svg" alt="" aria-hidden="true">
+        <div class="brand-title">VoxPassport Subtitle Stream</div>
+      </div>
       <div class="status-badge" data-tooltip="Live WebSocket status connection" data-tooltip-pos="bottom">
         <span class="status-dot"></span>
         <span id="connStatus">Connected</span>

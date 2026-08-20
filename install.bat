@@ -1,6 +1,6 @@
 @echo off
 echo ===================================================
-echo   LiveTranslator — Automated Setup & Installation
+echo   VoxPassport — Automated Setup & Installation
 echo ===================================================
 echo.
 

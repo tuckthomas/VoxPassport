@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LiveTranslator Studio</title>
+  <title>VoxPassport</title>
+  <link rel="icon" href="../assets/VoxPassport_icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./resource-monitor.css?v=1.1">
+  <script src="./resource-monitor.js?v=1.1" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -123,11 +126,10 @@
     }
 
     .brand-mark {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      background: var(--accent-primary);
-      box-shadow: 0 0 10px rgba(59, 130, 246, 0.6);
+      display: block;
+      width: 30px;
+      height: 30px;
+      flex: 0 0 30px;
     }
 
     .brand-title {
@@ -2150,8 +2152,8 @@
   <!-- Top Studio Header -->
   <header class="studio-header">
     <div class="brand-group">
-      <div class="brand-mark"></div>
-      <span class="brand-title">LiveTranslator Studio</span>
+      <img class="brand-mark" src="../assets/VoxPassport_icon.svg" alt="" aria-hidden="true">
+      <span class="brand-title">VoxPassport</span>
     </div>
 
     <div class="header-actions">

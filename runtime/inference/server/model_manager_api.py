@@ -77,7 +77,6 @@ class ModelManagerController:
         dll_candidates = [Path(configured)] if configured else []
         dll_candidates.extend([
             project_root / "native" / "audiocpp_engine.dll",
-            project_root / "temp_higgs_test" / "audiocpp_engine.dll",
             project_root.parent / "Higgs-Audio-v3-Studio" / "build" / "windows-cuda-release" / "bin" / "audiocpp_engine.dll",
         ])
         dll_path = next((path for path in dll_candidates if path and path.exists()), None)

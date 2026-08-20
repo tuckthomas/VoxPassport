@@ -25,7 +25,7 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from agents.model_discovery_agent import ModelDiscoveryAgent
+from runtime.inference.model_discovery_agent import ModelDiscoveryAgent
 from runtime.inference.adapters.asr.nemotron35_streaming_asr_adapter import Nemotron35StreamingAsrAdapter
 from runtime.inference.adapters.translation.milmmt46_translation_adapter import MiLMMT46TranslationAdapter
 from runtime.inference.adapters.tts.omnivoice_tts_adapter import OmniVoiceTtsAdapter

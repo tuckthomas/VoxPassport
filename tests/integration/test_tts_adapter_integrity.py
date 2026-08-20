@@ -99,8 +99,13 @@ def test_active_and_hugging_face_model_cards_link_license_icons():
     assert 'target="_blank"' in studio
     assert "licenseUrlFor" in studio
     assert "profile-card-actions" in studio
-    assert "pointer-events: none" in studio
+    assert 'aria-hidden="true" data-tooltip="${tooltip}"' in studio
+    assert "target.contains(e.relatedTarget)" in studio
     assert "color: #ef4444" in studio
+    assert '<svg class="hw-warn-icon"' in studio
+    assert "cursor: default" in studio
+    assert "Live Caption Stream" not in studio
+    assert 'class="activity-dock"' not in studio
 
 
 def test_omnivoice_no_longer_dispatches_other_engines_from_profile_metadata():

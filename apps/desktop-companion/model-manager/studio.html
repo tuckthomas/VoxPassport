@@ -760,13 +760,13 @@
     }
 
     .hw-warn-icon {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 11px;
-      cursor: help;
+      display: block;
+      width: 13px;
+      height: 13px;
+      flex: 0 0 13px;
+      color: #f59e0b;
+      cursor: default;
       margin-left: 2px;
-      line-height: 1;
     }
 
     .hw-warn-tag {
@@ -995,11 +995,9 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 15px;
-      height: 15px;
-      flex: 0 0 15px;
       color: #cbd5e1;
       text-decoration: none;
+      line-height: 0;
       transition: color 0.15s ease, transform 0.15s ease;
     }
     .model-license-link:hover {
@@ -1007,7 +1005,6 @@
     }
     .model-license-link svg {
       display: block;
-      pointer-events: none;
     }
     .model-license-link.commercial {
       color: #6ee7b7;
@@ -1120,23 +1117,26 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 22px;
-      height: 22px;
-      border-radius: 4px;
-      background: transparent;
-      border: 1px solid transparent;
+      width: 12px;
+      height: 12px;
+      padding: 0;
+      border: 0;
+      background: none;
       color: #ef4444;
       cursor: pointer;
       flex-shrink: 0;
-      transition: all 0.15s ease;
+      line-height: 0;
+      transition: color 0.15s ease, transform 0.15s ease;
       margin-left: 0;
     }
 
     .btn-card-trash:hover {
-      background: rgba(239, 68, 68, 0.18);
-      border-color: rgba(239, 68, 68, 0.4);
-      color: #ef4444;
-      box-shadow: 0 0 8px rgba(239, 68, 68, 0.3);
+      color: #f87171;
+      transform: scale(1.08);
+    }
+
+    .btn-card-trash svg {
+      display: block;
     }
 
     .btn-card-trash:active {
@@ -1633,45 +1633,6 @@
       padding: 3px 10px;
       border-radius: 4px;
       font-family: 'JetBrains Mono', monospace;
-    }
-
-    /* Bottom Meeting Feed Dock */
-    .activity-dock {
-      height: 110px;
-      background: var(--bg-surface);
-      border-top: 1px solid var(--border-subtle);
-      padding: 10px 20px;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      flex-shrink: 0;
-    }
-
-    .dock-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .dock-title {
-      font-size: 11px;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--text-muted);
-    }
-
-    .dock-feed {
-      flex: 1;
-      background: var(--bg-input);
-      border: 1px solid var(--border-subtle);
-      border-radius: 4px;
-      padding: 8px 12px;
-      overflow-y: auto;
-      font-size: 12px;
-      font-family: 'JetBrains Mono', monospace;
-      color: var(--text-muted);
-      line-height: 1.5;
     }
 
     /* Toast */
@@ -2797,17 +2758,6 @@
 
       </div>
 
-      <!-- Bottom Meeting Activity Dock -->
-      <footer class="activity-dock">
-        <div class="dock-header">
-          <span class="dock-title">Live Caption Stream</span>
-          <span style="font-size:11px; color:var(--target-mint);" id="dockStatus">WebSocket Connected</span>
-        </div>
-        <div class="dock-feed" id="dockFeed">
-          [LiveTranslator] System online. Subtitle stream active.
-        </div>
-      </footer>
-
     </section>
 
   </main>
@@ -2969,7 +2919,6 @@
       checkHardwareProfile();
       loadModelHub();
       loadProfiles();
-      initWebSocketStream();
     });
 
     function switchSourceTab(tab, btn) {
@@ -4683,28 +4632,6 @@
       }
     }
 
-    // WebSocket Stream for Meeting Feed
-    function initWebSocketStream() {
-      const dockFeed = document.getElementById('dockFeed');
-      try {
-        const ws = new WebSocket("ws://127.0.0.1:8765/ws/captions");
-        ws.onopen = () => {
-          document.getElementById('dockStatus').textContent = "Live Stream Connected";
-        };
-        ws.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            if (data.source_text || data.translated_text) {
-              const line = document.createElement('div');
-              line.textContent = `[${new Date().toLocaleTimeString()}] EN: "${data.source_text || '...'}" -> RO: "${data.translated_text || '...'}" (${data.latency_ms || 40}ms)`;
-              dockFeed.appendChild(line);
-              dockFeed.scrollTop = dockFeed.scrollHeight;
-            }
-          } catch(e) {}
-        };
-      } catch(e) {}
-    }
-
     // ─── TTS Models Config & State ─────────────────────────────────────────────
     const MODEL_DISPLAY_NAMES = {
       'omnivoice': 'OmniVoice Stock (k2-fsa)',
@@ -4945,7 +4872,7 @@
       const hostTotal = systemHardwareProfile.total_vram_gb || 8.0;
 
       if (vramGb > limit || vramGb >= hostTotal) {
-        return `<span class="hw-warn-icon" data-tooltip="⚠️ Performance Notice: Model requires ~${vramGb} GB VRAM (Host: ${hostTotal} GB). May cause inference latency when all pipelines are active." data-tooltip-pos="top">⚠️</span>`;
+        return `<svg class="hw-warn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-tooltip="Performance notice: model requires ~${vramGb} GB VRAM (host: ${hostTotal} GB). May cause inference latency when all pipelines are active." data-tooltip-pos="top"><path d="M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>`;
       }
       return '';
     }
@@ -5085,7 +5012,7 @@
       const tooltip = escapeModelMetadata(`License: ${licenseName} (${statusText}) · Click to open terms`);
       const ariaLabel = escapeModelMetadata(`Open license terms for ${licenseName}`);
       const licenseUrl = escapeModelMetadata(licenseUrlFor(rawLicense, upstreamId, explicitUrl));
-      return `<a class="model-license-link ${classification}" href="${licenseUrl}" target="_blank" rel="noopener noreferrer" aria-label="${ariaLabel}" data-tooltip="${tooltip}" data-tooltip-pos="top" onclick="event.stopPropagation()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18"></path><path d="M5 7h14"></path><path d="M7 7 3.5 14h7L7 7Z"></path><path d="m17 7-3.5 7h7L17 7Z"></path><path d="M8 21h8"></path></svg></a>`;
+      return `<a class="model-license-link ${classification}" href="${licenseUrl}" target="_blank" rel="noopener noreferrer" aria-label="${ariaLabel}" onclick="event.stopPropagation()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-tooltip="${tooltip}" data-tooltip-pos="top"><path d="M12 3v18"></path><path d="M5 7h14"></path><path d="M7 7 3.5 14h7L7 7Z"></path><path d="m17 7-3.5 7h7L17 7Z"></path><path d="M8 21h8"></path></svg></a>`;
     }
 
     function renderModelLicenseIcon(modelSpec) {
@@ -5283,8 +5210,8 @@
                 ${warnIcon}
                 <span class="profile-card-actions">
                   ${renderModelLicenseIcon(m)}
-                  <button class="btn-card-trash" onclick="event.stopPropagation(); promptDeleteModel('${m.id}', '${m.name || m.shortName}')" data-tooltip="Uninstall and delete ${m.shortName}" data-tooltip-pos="top">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                  <button class="btn-card-trash" aria-label="Uninstall and delete ${m.shortName}" onclick="event.stopPropagation(); promptDeleteModel('${m.id}', '${m.name || m.shortName}')">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" data-tooltip="Uninstall and delete ${m.shortName}" data-tooltip-pos="top"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                   </button>
                 </span>
               </div>
@@ -5330,8 +5257,8 @@
                 ${warnIcon}
                 <span class="profile-card-actions">
                   ${renderModelLicenseIcon(m)}
-                  <button class="btn-card-trash" onclick="event.stopPropagation(); promptDeleteModel('${m.id}', '${m.name || m.shortName}')" data-tooltip="Uninstall and delete ${m.shortName}" data-tooltip-pos="top">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                  <button class="btn-card-trash" aria-label="Uninstall and delete ${m.shortName}" onclick="event.stopPropagation(); promptDeleteModel('${m.id}', '${m.name || m.shortName}')">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" data-tooltip="Uninstall and delete ${m.shortName}" data-tooltip-pos="top"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                   </button>
                 </span>
               </div>
@@ -5377,8 +5304,8 @@
                 ${warnIcon}
                 <span class="profile-card-actions">
                   ${renderModelLicenseIcon(m)}
-                  <button class="btn-card-trash" onclick="event.stopPropagation(); promptDeleteModel('${m.id}', '${m.name || m.shortName}')" data-tooltip="Uninstall and delete ${m.shortName}" data-tooltip-pos="top">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                  <button class="btn-card-trash" aria-label="Uninstall and delete ${m.shortName}" onclick="event.stopPropagation(); promptDeleteModel('${m.id}', '${m.name || m.shortName}')">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" data-tooltip="Uninstall and delete ${m.shortName}" data-tooltip-pos="top"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                   </button>
                 </span>
               </div>
@@ -5424,8 +5351,8 @@
                 ${warnIcon}
                 <span class="profile-card-actions">
                   ${renderModelLicenseIcon(m)}
-                  <button class="btn-card-trash" onclick="event.stopPropagation(); promptDeleteModel('${m.id}', '${m.name || m.shortName}')" data-tooltip="Uninstall and delete ${m.shortName}" data-tooltip-pos="top">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                  <button class="btn-card-trash" aria-label="Uninstall and delete ${m.shortName}" onclick="event.stopPropagation(); promptDeleteModel('${m.id}', '${m.name || m.shortName}')">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" data-tooltip="Uninstall and delete ${m.shortName}" data-tooltip-pos="top"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                   </button>
                 </span>
               </div>
@@ -6113,6 +6040,7 @@
       document.addEventListener('mouseover', (e) => {
         const target = e.target.closest('[data-tooltip], [title]');
         if (!target) return;
+        if (e.relatedTarget && target.contains(e.relatedTarget)) return;
 
         if (target.hasAttribute('title') && target.getAttribute('title')) {
           target.setAttribute('data-tooltip', target.getAttribute('title'));
@@ -6126,7 +6054,9 @@
 
       document.addEventListener('mouseout', (e) => {
         const target = e.target.closest('[data-tooltip], [title]');
-        if (target) hideTooltip();
+        if (!target) return;
+        if (e.relatedTarget && target.contains(e.relatedTarget)) return;
+        hideTooltip();
       }, true);
 
       document.addEventListener('focusin', (e) => {

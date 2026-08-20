@@ -31,6 +31,35 @@ VoxPassport began as a way for me to have natural conversations with family memb
 
 VoxPassport also treats **voice identity as a first-class part of translation**. A user can enroll a reusable, engine-agnostic voice profile and have translated speech synthesized in that voice using a compatible cloning model. The objective is not merely to translate *what* a person said, but—when the selected model supports it—to preserve *who sounds like they are speaking* across languages.
 
+## Product Interface
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/images/translator-studio-live.png" alt="VoxPassport Live Translator Studio" />
+    </td>
+    <td width="50%">
+      <img src="docs/images/voice-profile-studio.png" alt="VoxPassport Voice Profile Studio" />
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Live Translator Studio</strong><br />Full-duplex speech, captions, and cloned-audio monitoring.</td>
+    <td align="center"><strong>Voice Profile Studio</strong><br />Reference recording, enrollment, and cross-lingual preview.</td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/images/model-settings-active-engines.png" alt="VoxPassport active inference engines" />
+    </td>
+    <td width="50%">
+      <img src="docs/images/model-hub.png" alt="VoxPassport Hugging Face model hub" />
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Active Inference Engines</strong><br />Hot-swappable TTS, ASR, translation, and VAD slots.</td>
+    <td align="center"><strong>Model Discovery Hub</strong><br />Hardware-aware model discovery, licensing, and installation.</td>
+  </tr>
+</table>
+
 ---
 
 # Key Features

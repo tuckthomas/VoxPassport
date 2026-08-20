@@ -78,6 +78,27 @@ def test_external_tts_engines_resolve_common_active_profile():
         assert "resolve_profile_reference(" in _adapter_source(filename)
 
 
+def test_studio_preview_requests_are_cached_by_the_server():
+    server = _server_source()
+    studio = (
+        _repo_root() / "apps" / "desktop-companion" / "model-manager" / "studio.html"
+    ).read_text(encoding="utf-8")
+    assert '"X-VoxPassport-Preview-Cache": "HIT"' in server
+    assert "preview: true" in studio
+
+
+def test_active_and_hugging_face_model_cards_show_registry_license_status():
+    studio = (
+        _repo_root() / "apps" / "desktop-companion" / "model-manager" / "studio.html"
+    ).read_text(encoding="utf-8")
+    assert "modelMetadataById" in studio
+    assert "rememberModelMetadata(instData)" in studio
+    assert "renderModelLicenseBadge(m)" in studio
+    assert "renderLicenseBadge(m.license, m.commercial_use)" in studio
+    assert "NONCOMMERCIAL" in studio
+    assert "VERIFY TERMS" in studio
+
+
 def test_omnivoice_no_longer_dispatches_other_engines_from_profile_metadata():
     source = _adapter_source("omnivoice_tts_adapter.py")
     stream_body = source[source.index("async def synthesize_stream"):]

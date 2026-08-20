@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import io
 import json
 import logging
@@ -23,7 +24,7 @@ if str(PACKAGES_DIR) not in sys.path:
 from agents.model_discovery_agent import ModelDiscoveryAgent
 from runtime.inference.adapters.asr.parakeet_tdt_v3_asr_adapter import ParakeetTdtV3AsrAdapter
 from runtime.inference.adapters.translation.milmmt46_translation_adapter import MiLMMT46TranslationAdapter
-from runtime.inference.adapters.tts import HiggsTtsAdapter, MossTtsAdapter, OmniVoiceTtsAdapter, VoxCpmTtsAdapter
+from runtime.inference.adapters.tts import HiggsNativeTtsAdapter, HiggsTtsAdapter, MossTtsAdapter, OmniVoiceTtsAdapter, VoxCpmTtsAdapter
 from runtime.inference.adapters.vad.silero_vad_adapter import SileroVadAdapter
 from runtime.inference.metrics.latency_metrics import PipelineMetrics
 from runtime.inference.model_registry.catalog import get_builtin_catalog
@@ -82,6 +83,9 @@ class LiveTranslatorApp:
         self.tts_omnivoice = OmniVoiceTtsAdapter()
         self.tts_omnivoice._profiles_root = self.profiles_dir
         self.tts_higgs = HiggsTtsAdapter(profiles_root=self.profiles_dir)
+        self.tts_higgs_native = HiggsNativeTtsAdapter(
+            model_dir=PROJECT_ROOT / "models" / "higgs-tts-3-q4_k_m",
+        )
         self.tts_moss = MossTtsAdapter(profiles_root=self.profiles_dir)
         self.tts_voxcpm = VoxCpmTtsAdapter()
         self._selected_tts_model = "omnivoice"
@@ -96,7 +100,7 @@ class LiveTranslatorApp:
             tts_adapter_ro=self.tts_omnivoice,
             tts_adapter_en=self.tts_omnivoice,
             caption_callback=self.caption_server.broadcast_caption,
-            mode=PipelineMode.FULL_DUPLEX,
+            mode=PipelineMode.CAPTIONS_ONLY,
             tts_mode=TtsMode.STOCK,
             user_language=LanguageCode.EN,
             remote_language=LanguageCode.RO,
@@ -113,6 +117,8 @@ class LiveTranslatorApp:
     @staticmethod
     def _normalize_clone_model(model_name: str | None) -> str:
         model = str(model_name or "omnivoice").strip().lower()
+        if model in {"higgs-tts-3-q4_k_m", "higgs-q4", "higgs-native", "higgs-native-q4"}:
+            return "higgs-tts-3-q4_k_m"
         if any(k in model for k in ("higgs", "boson")):
             return "higgs-tts-3"
         if any(k in model for k in ("moss", "openmoss")):
@@ -134,6 +140,8 @@ class LiveTranslatorApp:
 
     def _tts_engine_for_model(self, model_name: str | None):
         model = self._normalize_clone_model(model_name)
+        if model == "higgs-tts-3-q4_k_m":
+            return self.tts_higgs_native, "Higgs TTS 3 Q4_K_M (Native CUDA)"
         if model == "higgs-tts-3":
             return self.tts_higgs, "Higgs TTS 3"
         if model == "moss-tts-1.5":
@@ -194,11 +202,14 @@ class LiveTranslatorApp:
             ("omnivoice-stock", "TTS"),
             ("silero-vad-v4", "VAD"),
         ]
+        active_keys = {"ASR": "ASR", "TRANSLATION": "NMT", "TTS": "TTS", "VAD": "VAD"}
         for model_id, capability in defaults:
             if not self.registry.get_entry(model_id):
                 continue
             try:
                 self.registry.update_installation_status(model_id, InstallationStatus.INSTALLED)
+                if self.model_manager.get_active_slots().get(active_keys[capability]):
+                    continue
                 self.model_manager.set_active_model(capability, model_id)
             except Exception as exc:
                 logger.warning("Could not bootstrap active %s model %s: %s", capability, model_id, exc)
@@ -782,6 +793,31 @@ class LiveTranslatorApp:
                     "error": "This reference profile has no transcript; the selected TTS backend requires one",
                     "engine": engine_name,
                 }, status=422)
+            preview_cache_path = None
+            if bool(data.get("preview", False)):
+                cache_material = json.dumps({
+                    "version": 3,
+                    "model": selected_model,
+                    "target": target,
+                    "text": text,
+                    "reference_size": wav.stat().st_size,
+                    "reference_mtime_ns": wav.stat().st_mtime_ns,
+                    "reference_text": ref_text,
+                }, ensure_ascii=False, sort_keys=True).encode("utf-8")
+                cache_key = hashlib.sha256(cache_material).hexdigest()[:24]
+                preview_cache_dir = directory / ".preview_cache"
+                preview_cache_dir.mkdir(parents=True, exist_ok=True)
+                preview_cache_path = preview_cache_dir / f"{cache_key}.wav"
+                if preview_cache_path.exists() and preview_cache_path.stat().st_size > 500:
+                    return web.Response(
+                        body=preview_cache_path.read_bytes(),
+                        content_type="audio/wav",
+                        headers={
+                            "X-VoxPassport-TTS-Engine": engine_name,
+                            "X-VoxPassport-Clone-Model": selected_model,
+                            "X-VoxPassport-Preview-Cache": "HIT",
+                        },
+                    )
             try:
                 await engine.load()
                 audio = await asyncio.wait_for(
@@ -796,10 +832,16 @@ class LiveTranslatorApp:
                 )
                 if not audio or len(audio) <= 500:
                     raise RuntimeError("TTS backend returned no usable audio")
+                if preview_cache_path is not None:
+                    preview_cache_path.write_bytes(audio)
                 return web.Response(
                     body=audio,
                     content_type="audio/wav",
-                    headers={"X-VoxPassport-TTS-Engine": engine_name, "X-VoxPassport-Clone-Model": selected_model},
+                    headers={
+                        "X-VoxPassport-TTS-Engine": engine_name,
+                        "X-VoxPassport-Clone-Model": selected_model,
+                        "X-VoxPassport-Preview-Cache": "MISS" if preview_cache_path else "BYPASS",
+                    },
                 )
             except Exception as exc:
                 logger.exception("%s synthesis failed", engine_name)
@@ -919,6 +961,15 @@ class LiveTranslatorApp:
 
     async def start(self) -> None:
         logger.info("Initializing VoxPassport daemon")
+        self.model_manager.ensure_native_higgs_registered()
+        persisted_tts = self._normalize_clone_model(
+            self.model_manager.get_active_slots().get("TTS") or self._selected_tts_model
+        )
+        persisted_tts_engine, _ = self._tts_engine_for_model(persisted_tts)
+        self.orchestrator.tts_adapter_ro = persisted_tts_engine
+        self.orchestrator.tts_adapter_en = persisted_tts_engine
+        self._selected_tts_model = persisted_tts
+        logger.info("Restored persisted TTS engine before pipeline startup: %s", persisted_tts)
         await self.caption_server.start()
         await self.orchestrator.start()
         await self._mark_default_runtime_models()

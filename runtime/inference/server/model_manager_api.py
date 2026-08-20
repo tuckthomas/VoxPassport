@@ -7,6 +7,7 @@ runtime slots used by both the REST API and desktop Model Hub.
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class ModelManagerController:
+    NATIVE_HIGGS_MODEL_ID = "higgs-tts-3-q4_k_m"
     _ALIASES = {
         "omnivoice": "omnivoice-stock",
         "k2-fsa-omnivoice": "omnivoice-stock",
@@ -64,6 +66,70 @@ class ModelManagerController:
         self._staging_dir = Path(staging_dir) if staging_dir else self._model_store_dir / ".staging"
         self._external_on_progress = on_progress
         self._download_manager = DownloadManager(on_progress=self._handle_download_progress)
+
+    def ensure_native_higgs_registered(self) -> bool:
+        """Register the local Q4 native package when its model and DLL are present."""
+        model_dir = self._model_store_dir / self.NATIVE_HIGGS_MODEL_ID
+        if not model_dir.exists() or not (model_dir / "q4_k_m.gguf").exists():
+            return False
+        project_root = Path(__file__).resolve().parents[3]
+        configured = os.getenv("VOXPASSPORT_HIGGS_NATIVE_DLL", "").strip()
+        dll_candidates = [Path(configured)] if configured else []
+        dll_candidates.extend([
+            project_root / "native" / "audiocpp_engine.dll",
+            project_root / "temp_higgs_test" / "audiocpp_engine.dll",
+            project_root.parent / "Higgs-Audio-v3-Studio" / "build" / "windows-cuda-release" / "bin" / "audiocpp_engine.dll",
+        ])
+        dll_path = next((path for path in dll_candidates if path and path.exists()), None)
+        if dll_path is None:
+            return False
+        installed_size_gb = sum(path.stat().st_size for path in model_dir.rglob("*") if path.is_file()) / 1e9
+        entry = self.registry.get_entry(self.NATIVE_HIGGS_MODEL_ID)
+        if entry is None:
+            self.registry.register(ModelRegistryEntry(
+                model_id=self.NATIVE_HIGGS_MODEL_ID,
+                name="Higgs TTS 3 Q4_K_M (Native CUDA)",
+                family="higgs-tts",
+                provider="boson-ai / audio.cpp",
+                capability=ModelCapability.TTS,
+                upstream_id="local://Higgs-Audio-v3-Studio",
+                revision="q4_k_m",
+                supported_source_languages=["en", "ro", "es", "fr", "de", "it"],
+                supported_target_languages=["en", "ro", "es", "fr", "de", "it"],
+                supports_english=True,
+                supports_romanian=True,
+                streaming_support=False,
+                voice_cloning_support=True,
+                cross_lingual_voice_cloning=True,
+                required_runtime="audiocpp_native",
+                min_runtime_version="",
+                quantization_options=["q4_k_m"],
+                estimated_download_size_gb=installed_size_gb,
+                installed_size_gb=installed_size_gb,
+                expected_vram_tiers={"8GB": "native clone reference capped at 5 seconds"},
+                expected_ram_gb=8.0,
+                license="See Higgs-Audio-v3-Studio and model terms",
+                commercial_use="verify",
+                redistribution="verify",
+                trust_level="USER_ADDED",
+                recommendation_state=RecommendationState.RECOMMENDED_FOR_LOCAL_BENCHMARK,
+            ))
+            entry = self.registry.get_entry(self.NATIVE_HIGGS_MODEL_ID)
+        entry.supported_source_languages = ["en", "ro", "es", "fr", "de", "it"]
+        entry.supported_target_languages = ["en", "ro", "es", "fr", "de", "it"]
+        entry.supports_english = True
+        entry.supports_romanian = True
+        entry.voice_cloning_support = True
+        entry.cross_lingual_voice_cloning = True
+        entry.expected_vram_tiers = {"8GB": "native clone reference capped at 5 seconds"}
+        self.registry.register(entry)
+        self.registry.update_installation_status(
+            self.NATIVE_HIGGS_MODEL_ID,
+            InstallationStatus.INSTALLED,
+            installed_size_gb=installed_size_gb,
+        )
+        logger.info("Native Higgs Q4 engine detected: model=%s dll=%s", model_dir, dll_path)
+        return True
 
     def _handle_download_progress(self, task) -> None:
         """Keep persistent registry state synchronized with asynchronous downloads."""

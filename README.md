@@ -156,6 +156,7 @@ On lower-VRAM systems:
 - both language directions share **one physical Parakeet model** rather than loading duplicate ASR weights;
 - MiLMMT can run on CPU so GPU memory remains available for latency-sensitive speech models;
 - optional Sortformer diarization can remain on CPU;
+- heavyweight Parakeet ASR and native Higgs TTS inference are serialized on one GPU while audio capture and VAD continue buffering;
 - OmniVoice loads lazily and creates conditioning only for the voice profile actually being used;
 - only one OmniVoice clone prompt is retained in the runtime cache at a time.
 
@@ -312,6 +313,19 @@ The current local services are:
 | **Studio / Model Manager** | `http://127.0.0.1:8766/manager/index.html` | Voice profiles, model management, Live Studio, debugging |
 | **Local API** | `http://127.0.0.1:8766` | Runtime/model/voice endpoints |
 | **Caption WebSocket** | `ws://127.0.0.1:8765/ws/captions` | Live caption and translation events |
+
+### Higgs TTS Runtime Options
+
+VoxPassport supports two Higgs TTS paths:
+
+- **Full Higgs TTS 3** uses the existing SGLang/Omni worker and the standard `higgs-tts-3` model. This remains the broadest path for longer reference conditioning and higher-memory GPUs.
+- **Native Q4_K_M Higgs** uses a locally compiled or compatible prebuilt `audiocpp_engine.dll` with the `higgs-tts-3-q4_k_m` GGUF package. It supports native reference-audio voice cloning through `audiocpp_generate_voice_clone_stream`, including the multilingual targets exposed by the Studio and live pipeline. On 8 GB GPUs, VoxPassport creates a reusable five-second conditioning reference, persists the DLL's processed-speaker `.hspkcache`, generates deterministic short clauses, and streams decoded audio as it becomes available. The saved reference recording is never shortened or overwritten.
+
+The native DLL is not limited to the RTX 2070. That GPU requires a build containing `sm_75`, while newer NVIDIA GPUs can use a compatible prebuilt DLL containing their architecture (for example `sm_86`, `sm_89`, or newer). If no compatible native DLL is present, VoxPassport continues to expose the full Higgs/SGLang path instead of treating the native package as installed.
+
+For local native deployment, place the engine at `native/audiocpp_engine.dll` or set `VOXPASSPORT_HIGGS_NATIVE_DLL` to its absolute path. Place the quantized model at `models/higgs-tts-3-q4_k_m/`; the Model Settings → Active Engines page registers it automatically when both the GGUF and DLL are present. The native loader also honors `CUDA_PATH` for CUDA runtime dependencies.
+
+On an 8 GB card, Parakeet ASR remains resident because live transcription is still required, while MiLMMT translation runs on CPU and VAD remains lightweight. VoxPassport serializes the heavy ASR and TTS CUDA execution instead of unloading and reloading Parakeet for every phrase; microphone and conference capture continue during synthesis, and queued audio is transcribed when the GPU becomes available. Unused TTS engines and optional GPU sidecars should not be kept resident alongside native Higgs.
 
 ## 4. Download the Models You Want
 

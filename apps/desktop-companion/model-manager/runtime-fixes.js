@@ -100,6 +100,7 @@
         try {
           const body = JSON.parse(next.body);
           if (!body.target) body.target = targetLanguage(w);
+          body.clone_model = activeTts(w);
           next.body = JSON.stringify(body);
         } catch (_) {}
       }
@@ -121,7 +122,30 @@
       if (!res.ok) return;
       lastStatus = await res.json();
       const slots = lastStatus.active_slots || {};
-      if (slots.TTS) setLexical(w, 'activeSystemTtsEngine', slots.TTS);
+      if (slots.TTS) {
+        setLexical(w, 'activeSystemTtsEngine', slots.TTS);
+        const runtimeTtsLabel = slots.TTS === 'higgs-tts-3-q4_k_m'
+          ? 'HIGGS Q4 NATIVE'
+          : slots.TTS.replaceAll('-', ' ').toUpperCase();
+        for (const badgeId of ['liveTtsEngineBadge', 'debugTtsEngineBadge']) {
+          const badge = w.document.getElementById(badgeId);
+          if (badge) badge.textContent = runtimeTtsLabel;
+        }
+        const hiddenTts = w.document.getElementById('studioCloneModelSelect');
+        if (hiddenTts) hiddenTts.value = slots.TTS;
+        const cloneBadge = w.document.getElementById('studioCloneEngineBadge');
+        const captureNote = w.document.getElementById('studioCloneCaptureNote');
+        if (slots.TTS === 'higgs-tts-3-q4_k_m') {
+          if (cloneBadge) cloneBadge.textContent = 'Higgs Q4 Native Voice Clone';
+          if (captureNote) captureNote.textContent = '5s GPU-conditioned reference window';
+        } else if (slots.TTS === 'higgs-tts-3') {
+          if (cloneBadge) cloneBadge.textContent = 'Higgs TTS 3 Voice Clone';
+          if (captureNote) captureNote.textContent = 'Full-reference acoustic conditioning';
+        } else {
+          if (cloneBadge) cloneBadge.textContent = `${slots.TTS} Voice Output`;
+          if (captureNote) captureNote.textContent = 'Voice capability depends on active engine';
+        }
+      }
       if (slots.ASR) setLexical(w, 'activeAsrEngine', slots.ASR);
       if (slots.NMT || slots.TRANSLATION) setLexical(w, 'activeNmtEngine', slots.NMT || slots.TRANSLATION);
       if (slots.VAD) setLexical(w, 'activeVadEngine', slots.VAD);
@@ -199,6 +223,24 @@
     w.loadModelHub = async () => {
       await w.checkHardwareProfile?.();
       await syncModelState(w);
+      try {
+        const installed = await api(w, '/api/models/installed');
+        if (Array.isArray(installed)) {
+          w.installedModelIds?.clear();
+          installed.forEach(item => {
+            if (!item?.model_id || !w.installedModelIds) return;
+            const id = String(item.model_id).trim().toLowerCase();
+            w.installedModelIds.add(id);
+            w.installedModelIds.add(w.normalizeModelId?.(id) || id);
+          });
+        }
+      } catch (err) {
+        console.warn('Could not refresh installed engine registry:', err);
+      }
+      w.renderTtsModelWidgets?.();
+      w.renderAsrModelWidgets?.();
+      w.renderNmtModelWidgets?.();
+      w.renderVadModelWidgets?.();
       if (originalLoadHf) await originalLoadHf();
     };
   }
@@ -243,6 +285,16 @@
 
     w.startLiveStreamMic = async () => {
       if (liveActive) return;
+      try {
+        await api(w, '/api/mode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: 'full_duplex' }),
+        });
+      } catch (err) {
+        w.showToast?.(`Could not start full-duplex runtime: ${err.message}`);
+        return;
+      }
       await configureLiveLanguage(w);
       try {
         const profiles = await api(w, '/api/voice/profiles');

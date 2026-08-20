@@ -146,7 +146,10 @@ class DuplexOrchestrator:
     async def _load_slot_adapter(self, slot: str, model_id: str) -> object:
         mid = str(model_id).lower()
         if slot.startswith("tts_"):
-            if "higgs" in mid:
+            if "higgs-tts-3-q4_k_m" in mid or "higgs-native" in mid:
+                from runtime.inference.adapters.tts.higgs_native_tts_adapter import HiggsNativeTtsAdapter
+                adapter = HiggsNativeTtsAdapter(model_dir=Path("models") / "higgs-tts-3-q4_k_m")
+            elif "higgs" in mid:
                 from runtime.inference.adapters.tts.higgs_tts_adapter import HiggsTtsAdapter
                 adapter = HiggsTtsAdapter()
             elif "moss" in mid:

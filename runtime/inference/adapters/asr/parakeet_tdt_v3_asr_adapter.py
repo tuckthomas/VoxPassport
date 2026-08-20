@@ -21,6 +21,7 @@ import numpy as np
 
 from runtime.inference.adapters.base import AsrAdapter
 from runtime.inference.asr_types import AsrConfig, AsrStream
+from runtime.inference.gpu_inference_coordinator import heavy_gpu_inference
 from runtime.inference.protocol import AudioFrame, LanguageCode, SampleFormat, TranscriptEvent, TranscriptState
 
 logger = logging.getLogger(__name__)
@@ -185,7 +186,7 @@ class ParakeetTdtV3AsrAdapter(AsrAdapter):
         if self._pipe is None or not pcm:
             return "", None
         audio = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
-        with type(self)._shared_inference_lock:
+        with heavy_gpu_inference(), type(self)._shared_inference_lock:
             result = self._pipe({"array": audio, "sampling_rate": int(sample_rate)})
         if isinstance(result, dict):
             text = str(result.get("text", "")).strip()

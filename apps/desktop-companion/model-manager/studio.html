@@ -991,6 +991,43 @@
       border-color: rgba(59, 130, 246, 0.45);
       transform: translateY(-2px);
     }
+    .model-license-row {
+      display: flex;
+      align-items: center;
+      min-height: 22px;
+      margin: 1px 0 6px;
+    }
+    .model-license-badge {
+      display: inline-flex;
+      align-items: center;
+      max-width: 100%;
+      padding: 3px 7px;
+      border: 1px solid rgba(148, 163, 184, 0.32);
+      border-radius: 4px;
+      background: rgba(148, 163, 184, 0.09);
+      color: #cbd5e1;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px;
+      font-weight: 800;
+      line-height: 1.25;
+      letter-spacing: 0.025em;
+      white-space: normal;
+    }
+    .model-license-badge.commercial {
+      border-color: rgba(16, 185, 129, 0.38);
+      background: rgba(16, 185, 129, 0.1);
+      color: #6ee7b7;
+    }
+    .model-license-badge.noncommercial {
+      border-color: rgba(245, 158, 11, 0.48);
+      background: rgba(245, 158, 11, 0.12);
+      color: #fcd34d;
+    }
+    .model-license-badge.verify {
+      border-color: rgba(249, 115, 22, 0.45);
+      background: rgba(249, 115, 22, 0.1);
+      color: #fdba74;
+    }
     .hf-repo-badge {
       display: inline-flex;
       align-items: center;
@@ -2305,7 +2342,7 @@
             <div class="pane-header">
               <div class="pane-title">
                 <span>Live Cloned Audio Stream</span>
-                <span class="pane-badge">OMNIVOICE-1</span>
+                <span class="pane-badge" id="liveTtsEngineBadge">ACTIVE TTS</span>
               </div>
               <span style="font-size:11px; color:var(--text-dim);">Active Voice Profile Output</span>
             </div>
@@ -2405,7 +2442,7 @@
             <div class="pane-header">
               <div class="pane-title">
                 <span>Translated Audio Stream</span>
-                <span class="pane-badge">OMNIVOICE-1</span>
+                <span class="pane-badge" id="debugTtsEngineBadge">ACTIVE TTS</span>
               </div>
               <span style="font-size:11px; color:var(--text-dim);">TTS · Zero-Shot Voice Clone</span>
             </div>
@@ -2623,8 +2660,8 @@
           <!-- Pane Footer with Discard Exit and Save & Exit -->
           <div class="pane-footer" style="justify-content: space-between;">
             <div style="display:flex; align-items:center; gap:8px;">
-              <span class="metric-badge">OmniVoice Zero-Shot Cloning</span>
-              <span style="font-size:11px; color:var(--text-dim);">16kHz Neural Acoustic Capture</span>
+              <span class="metric-badge" id="studioCloneEngineBadge">Active TTS Voice Cloning</span>
+              <span id="studioCloneCaptureNote" style="font-size:11px; color:var(--text-dim);">16kHz Neural Acoustic Capture</span>
             </div>
             <div style="display:flex; gap:12px; align-items:center;">
               <button class="btn-action-sm delete" id="btnStudioExitDiscard" onclick="handleStudioExitClick()" style="min-width:140px; padding:10px 18px; font-size:12.5px; display:inline-flex; align-items:center; justify-content:center; gap:8px;" data-tooltip="Exit Voice Profile Studio without saving" data-tooltip-pos="top">
@@ -3571,6 +3608,7 @@
     let studioSelectedFile = null;
     let studioRecordedBlob = null;
     let studioHasUnsavedChanges = false;
+    let studioRuntimeReadyPromise = Promise.resolve();
     let isStudioSamplePlaying = false;
     let initialEditingProfileName = "";
 
@@ -3613,6 +3651,16 @@
     function showVoiceStudioView(mode = 'create', id = null, name = '') {
       if (isLiveStreamingMic) stopLiveStreamMic();
       if (isLiveMicActive) stopLiveMic();
+      studioRuntimeReadyPromise = fetch(`${API_URL}/mode`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "captions_only" })
+      }).then(res => {
+        if (!res.ok) throw new Error(`Could not prepare preview runtime (${res.status})`);
+      }).catch(error => {
+        showToast(error.message, "error");
+        throw error;
+      });
 
       studioMode = mode;
       editingProfileId = id;
@@ -4246,6 +4294,7 @@
 
     async function playStudioSampleInTargetLang() {
       const playBtn = document.getElementById('btnStudioPlaySampleTarget');
+      const playLabel = document.getElementById('btnStudioPlaySampleTargetLabel');
       const player = document.getElementById('globalAudioPlayer');
 
       if (isStudioSamplePlaying) {
@@ -4257,36 +4306,74 @@
         return;
       }
 
-      showToast("Playing synthesized cloned voice preview...");
+      try {
+        await studioRuntimeReadyPromise;
+      } catch (_) {
+        return;
+      }
+
+      showToast("Generating synthesized voice preview...");
       playBtn.classList.add('is-playing');
+      playBtn.disabled = true;
+      if (playLabel) playLabel.textContent = "Generating...";
       isStudioSamplePlaying = true;
 
       try {
-        // 1. Fetch staged preview audio
-        const res = await fetch(`${API_URL}/voice/staging/preview`);
-        if (res.ok) {
-          const blob = await res.blob();
-          if (blob.size > 500) {
-            const audioUrl = URL.createObjectURL(blob);
-            player.src = audioUrl;
-            player.play();
+        let res;
 
-            player.onended = () => {
-              isStudioSamplePlaying = false;
-              playBtn.classList.remove('is-playing');
-            };
-            player.onerror = () => {
-              isStudioSamplePlaying = false;
-              playBtn.classList.remove('is-playing');
-            };
-            return;
-          }
+        // New or replaced recordings already have a staged preview. Existing
+        // profiles do not, so synthesize the selected-language sample on demand.
+        if (studioRecordedBlob) {
+          res = await fetch(`${API_URL}/voice/staging/preview`);
+        } else if (editingProfileId) {
+          const previewText = document.getElementById('studioSampleTextDisplay').textContent.trim().replace(/^"|"$/g, '');
+          const previewLang = document.getElementById('studioSampleOutputLangSelect').value || 'ro';
+          const cloneModel = document.getElementById('studioCloneModelSelect')?.value || undefined;
+          res = await fetch(`${API_URL}/synthesize`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              text: previewText,
+              target: previewLang,
+              profile_id: editingProfileId,
+              clone_model: cloneModel,
+              preview: true
+            })
+          });
+        } else {
+          throw new Error("Record or upload reference audio before generating a sample");
         }
-      } catch(e) {}
 
-      isStudioSamplePlaying = false;
-      playBtn.classList.remove('is-playing');
-      showToast("No valid staged preview audio found. Please re-record to generate preview.", "error");
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}));
+          throw new Error(errorData.detail || errorData.error || `Synthesis failed (${res.status})`);
+        }
+
+        const blob = await res.blob();
+        if (blob.size <= 500) throw new Error("The TTS engine returned no usable audio");
+
+        const audioUrl = URL.createObjectURL(blob);
+        player.src = audioUrl;
+        await player.play();
+        showToast("Playing synthesized voice preview...", "success");
+
+        const finishPlayback = () => {
+          URL.revokeObjectURL(audioUrl);
+          isStudioSamplePlaying = false;
+          playBtn.disabled = false;
+          playBtn.classList.remove('is-playing');
+          if (playLabel) playLabel.textContent = "Play Sample";
+        };
+        player.onended = finishPlayback;
+        player.onerror = finishPlayback;
+        return;
+      } catch(e) {
+        isStudioSamplePlaying = false;
+        playBtn.disabled = false;
+        playBtn.classList.remove('is-playing');
+        if (playLabel) playLabel.textContent = "Play Sample";
+        showToast(`Could not play synthesized preview: ${e.message}`, "error");
+      }
     }
 
     async function handleStudioAction() {
@@ -4625,6 +4712,7 @@
     const MODEL_DISPLAY_NAMES = {
       'omnivoice': 'OmniVoice Stock (k2-fsa)',
       'higgs-tts-3': 'Higgs TTS 3 (Boson AI)',
+      'higgs-tts-3-q4_k_m': 'Higgs TTS 3 Q4_K_M (Native CUDA)',
       'voxcpm-2': 'VoxCPM 2 (OpenBMB)',
       'moss-tts-1.5': 'MOSS-TTS v1.5 (OpenMOSS)',
     };
@@ -4632,6 +4720,7 @@
     const MODEL_TAG_STATUS = {
       'omnivoice': 'On-Device',
       'higgs-tts-3': 'SGLang :8095',
+      'higgs-tts-3-q4_k_m': 'Native CUDA DLL',
       'voxcpm-2': 'Worker :8097',
       'moss-tts-1.5': 'SGLang :8096',
     };
@@ -4869,6 +4958,7 @@
       'omnivoice-stock',
       'k2-fsa-omnivoice',
       'higgs-tts-3',
+      'higgs-tts-3-q4_k_m',
       'bosonai-higgs-tts-3-4b',
       'nvidia-parakeet-tdt-0.6b-v3',
       'parakeet-tdt-0.6b',
@@ -4879,6 +4969,7 @@
       'silero-vad-v6.2.1',
       'snakers4-silero-vad'
     ]);
+    let modelMetadataById = new Map();
     let downloadingModels = {}; // { [modelId]: { progress: 0, status: 'Downloading...' } }
     let pendingDeleteModelId = null;
     let pendingDeleteModelName = null;
@@ -4888,6 +4979,7 @@
       'omnivoice-stock': 'omnivoice',
       'k2-fsa-omnivoice': 'omnivoice',
       'higgs-tts-3': 'higgs-tts-3',
+      'higgs-tts-3-q4_k_m': 'higgs-tts-3-q4_k_m',
       'bosonai-higgs-tts-3-4b': 'higgs-tts-3',
       'moss-tts-1.5': 'moss-tts-1.5',
       'openmoss-moss-tts-1.5': 'moss-tts-1.5',
@@ -4923,6 +5015,73 @@
       return installedModelIds.has(clean) || installedModelIds.has(norm) || (alias && installedModelIds.has(alias));
     }
 
+    function escapeModelMetadata(value) {
+      return String(value ?? '').replace(/[&<>"']/g, character => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[character]);
+    }
+
+    function rememberModelMetadata(models, overwrite = true) {
+      if (!Array.isArray(models)) return;
+      models.forEach(model => {
+        if (!model || !model.model_id) return;
+        const clean = String(model.model_id).trim().toLowerCase();
+        const normalized = normalizeModelId(clean);
+        if (overwrite || !modelMetadataById.has(clean)) modelMetadataById.set(clean, model);
+        if (overwrite || !modelMetadataById.has(normalized)) modelMetadataById.set(normalized, model);
+        const alias = CANONICAL_MODEL_ALIASES[clean];
+        if (alias && (overwrite || !modelMetadataById.has(alias))) modelMetadataById.set(alias, model);
+      });
+    }
+
+    function modelMetadataFor(id) {
+      const clean = String(id || '').trim().toLowerCase();
+      return modelMetadataById.get(clean) || modelMetadataById.get(normalizeModelId(clean)) || {};
+    }
+
+    function compactLicenseLabel(license) {
+      const value = String(license || 'verify').trim();
+      const lower = value.toLowerCase();
+      if (['verify', 'unknown', 'other', 'custom'].includes(lower)) return 'UNKNOWN';
+      if (lower.includes('see ') && lower.includes('terms')) return 'SEE MODEL TERMS';
+      if (lower.includes('research/non-commercial')) return 'NONCOMMERCIAL TERMS';
+      if (lower.includes('apache-2.0') && lower.includes('gemma')) return 'APACHE-2.0 / GEMMA TERMS';
+      if (lower.includes('cc-by-nc') && lower.includes('apache')) return 'CC-BY-NC WEIGHTS';
+      return value.length > 34 ? `${value.slice(0, 31)}...` : value;
+    }
+
+    function renderLicenseBadge(license, commercialUse = 'verify') {
+      const rawLicense = String(license || 'verify').trim();
+      const normalizedLicense = rawLicense.toLowerCase();
+      const normalizedCommercial = String(commercialUse || 'verify').trim().toLowerCase();
+      const isNoncommercial = ['no', 'research_only'].includes(normalizedCommercial)
+        || normalizedLicense.includes('non-commercial')
+        || normalizedLicense.includes('noncommercial')
+        || normalizedLicense.includes('cc-by-nc');
+      const classification = isNoncommercial
+        ? 'noncommercial'
+        : (normalizedCommercial === 'yes' ? 'commercial' : 'verify');
+      const suffix = classification === 'noncommercial'
+        ? ' · NONCOMMERCIAL'
+        : (classification === 'verify' ? ' · VERIFY TERMS' : '');
+      const statusText = classification === 'noncommercial'
+        ? 'Commercial use is not permitted by the recorded model terms.'
+        : (classification === 'commercial'
+          ? 'Commercial use is recorded as permitted; upstream conditions still apply.'
+          : 'Commercial-use status has not been verified; review the upstream model terms.');
+      const visibleLabel = escapeModelMetadata(compactLicenseLabel(rawLicense));
+      const tooltip = escapeModelMetadata(`Model/checkpoint license: ${rawLicense}. ${statusText}`);
+      return `<span class="model-license-badge ${classification}" data-tooltip="${tooltip}" data-tooltip-pos="top">LICENSE · ${visibleLabel}${suffix}</span>`;
+    }
+
+    function renderModelLicenseBadge(modelSpec) {
+      const registryModel = modelMetadataFor(modelSpec.id);
+      return renderLicenseBadge(
+        registryModel.license || modelSpec.license || 'verify',
+        registryModel.commercial_use || modelSpec.commercialUse || 'verify'
+      );
+    }
+
     let TTS_MODEL_SPECS = [
       {
         id: 'omnivoice',
@@ -4931,6 +5090,8 @@
         meta: '24kHz • 2.45 GB',
         vramGb: 2.45,
         desc: 'Diffusion Acoustic Model',
+        license: 'Apache-2.0',
+        commercialUse: 'yes',
       },
       {
         id: 'higgs-tts-3',
@@ -4939,6 +5100,18 @@
         meta: '24kHz • 9.31 GB',
         vramGb: 8.2,
         desc: '4.0B Speech LLM',
+        license: 'UNKNOWN',
+        commercialUse: 'verify',
+      },
+      {
+        id: 'higgs-tts-3-q4_k_m',
+        name: 'Higgs TTS 3 Q4_K_M (Native CUDA)',
+        shortName: 'Higgs TTS 3 Q4 Native',
+        meta: '24kHz • 4.09 GB GGUF',
+        vramGb: 7.2,
+        desc: 'Compiled audiocpp CUDA voice cloning',
+        license: 'See Higgs-Audio-v3-Studio and model terms',
+        commercialUse: 'verify',
       },
       {
         id: 'moss-tts-1.5',
@@ -4966,6 +5139,8 @@
         meta: '16kHz • 2.50 GB',
         vramGb: 1.2,
         desc: 'FastConformer RNNT',
+        license: 'CC-BY-4.0',
+        commercialUse: 'yes',
       },
       {
         id: 'openai-whisper-large-v3-turbo',
@@ -4993,6 +5168,8 @@
         meta: '46-Lang MoE • 2.00 GB',
         vramGb: 2.0,
         desc: 'Multilingual Neural NMT',
+        license: 'Apache-2.0 (code) / Gemma Terms',
+        commercialUse: 'yes',
       },
       {
         id: 'xiaomi-milmmt-46-4b',
@@ -5020,6 +5197,8 @@
         meta: '32ms • pinned official v6.2.1',
         vramGb: 0.05,
         desc: 'Neural Voice Activity Detection',
+        license: 'MIT',
+        commercialUse: 'yes',
       }
     ];
 
@@ -5096,6 +5275,7 @@
               </span>
               <span class="profile-card-meta">${m.meta}</span>
             </div>
+            <div class="model-license-row">${renderModelLicenseBadge(m)}</div>
             <div class="profile-btn-row" style="grid-template-columns: 1fr; margin-top:auto;">
               <button class="btn-engine-toggle ${isActive ? 'active' : 'inactive'}" onclick="toggleActiveTtsEngine('${m.id}', '${m.name}')" data-tooltip="${isActive ? `${m.shortName} is active • Click to disable` : `Click to enable ${m.shortName}`}">
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -5140,6 +5320,7 @@
               </span>
               <span class="profile-card-meta">${m.meta}</span>
             </div>
+            <div class="model-license-row">${renderModelLicenseBadge(m)}</div>
             <div class="profile-btn-row" style="grid-template-columns: 1fr; margin-top:auto;">
               <button class="btn-engine-toggle ${isActive ? 'active' : 'inactive'}" onclick="selectActiveAsrEngine('${m.id}', '${m.name}')" data-tooltip="${isActive ? `${m.shortName} is enabled` : `Enable ${m.shortName}`}">
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -5184,6 +5365,7 @@
               </span>
               <span class="profile-card-meta">${m.meta}</span>
             </div>
+            <div class="model-license-row">${renderModelLicenseBadge(m)}</div>
             <div class="profile-btn-row" style="grid-template-columns: 1fr; margin-top:auto;">
               <button class="btn-engine-toggle ${isActive ? 'active' : 'inactive'}" onclick="selectActiveNmtEngine('${m.id}', '${m.name}')" data-tooltip="${isActive ? `${m.shortName} is enabled` : `Enable ${m.shortName}`}">
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -5228,6 +5410,7 @@
               </span>
               <span class="profile-card-meta">${m.meta}</span>
             </div>
+            <div class="model-license-row">${renderModelLicenseBadge(m)}</div>
             <div class="profile-btn-row" style="grid-template-columns: 1fr; margin-top:auto;">
               <button class="btn-engine-toggle ${isActive ? 'active' : 'inactive'}" onclick="selectActiveVadEngine('${m.id}', '${m.name}')" data-tooltip="${isActive ? `${m.shortName} is enabled` : `Enable ${m.shortName}`}">
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -5258,6 +5441,7 @@
         if (instRes.ok) {
           const instData = await instRes.json();
           if (Array.isArray(instData) && instData.length > 0) {
+            rememberModelMetadata(instData);
             installedModelIds.clear();
             instData.forEach(item => {
               if (item.model_id) {
@@ -5450,6 +5634,11 @@
             }
           ];
         }
+        rememberModelMetadata(hfCatalogModels, false);
+        renderTtsModelWidgets();
+        renderAsrModelWidgets();
+        renderNmtModelWidgets();
+        renderVadModelWidgets();
       } catch (e) {
         console.warn("Could not fetch available models:", e);
       }
@@ -5624,7 +5813,6 @@
         const hfUrl = `https://huggingface.co/${upstream}`;
         const sizeGb = m.estimated_download_size_gb ? `${m.estimated_download_size_gb} GB` : 'On-Demand';
         const vramRequired = m.vram_required_gb || m.estimated_download_size_gb || 2.0;
-        const license = m.license || 'Open-Source';
         const capLabel = formatCapabilityLabel(m.capability);
         const dlState = downloadingModels[m.model_id];
         const isInstalled = isModelInstalled(m.model_id);
@@ -5656,9 +5844,9 @@
 
               <div style="display:flex; gap:12px; font-size:11.5px; color:var(--text-dim); margin-top:4px;">
                 <span>📦 ${sizeGb}</span>
-                <span>⚖️ ${license}</span>
                 <span>🏢 ${(m.provider || 'community').toUpperCase()}</span>
               </div>
+              <div class="model-license-row" style="margin-bottom:0;">${renderLicenseBadge(m.license, m.commercial_use)}</div>
             </div>
 
             <div style="display:flex; justify-content:space-between; align-items:center; border-top: 1px solid var(--border-subtle); padding-top:10px; margin-top:4px; min-height:36px;">

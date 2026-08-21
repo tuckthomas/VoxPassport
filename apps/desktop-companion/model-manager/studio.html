@@ -250,12 +250,26 @@
       z-index: 1;
       top: 14px;
       display: block;
+      height: 10px;
+      line-height: 10px;
+      white-space: nowrap;
       color: #6b7280;
       transition: color 0.15s ease;
     }
 
-    .runtime-mode-switch .runtime-ready-label { position: absolute; left: 0; }
-    .runtime-mode-switch .runtime-demand-label { position: absolute; right: 0; }
+    .runtime-mode-switch .runtime-ready-label {
+      position: absolute;
+      left: 0;
+      width: 54px;
+      text-align: center;
+    }
+
+    .runtime-mode-switch .runtime-demand-label {
+      position: absolute;
+      right: 0;
+      width: 54px;
+      text-align: center;
+    }
 
     .runtime-mode-switch .runtime-switch-indicator {
       position: absolute;
@@ -275,21 +289,33 @@
     .runtime-mode-switch .runtime-switch-indicator::before {
       content: "";
       position: absolute;
-      left: 9px;
-      top: -7px;
-      width: 9px;
-      height: 19px;
-      border: 1px solid #68717b;
-      border-radius: 45% 45% 35% 35%;
-      background: linear-gradient(90deg, #3b424a 0%, #e2e6ea 35%, #8b949d 67%, #272d34 100%);
-      box-shadow: 0 1px 2px #050608, inset 1px 0 1px rgba(255,255,255,0.5);
-      transform-origin: 50% 100%;
-      transform: rotate(-27deg);
-      transition: transform 0.15s ease;
+      left: 3px;
+      top: 10px;
+      width: 0;
+      height: 0;
+      border-top: 4px solid transparent;
+      border-bottom: 4px solid transparent;
+      border-right: 11px solid #080b10;
+      filter: drop-shadow(0 1px 1px rgba(255,255,255,0.38));
+      transition: left 0.15s ease, border-right-color 0.15s ease;
     }
 
     .runtime-mode-switch input:checked + .runtime-switch-face .runtime-switch-indicator::before {
-      transform: rotate(27deg);
+      left: 15px;
+      border-right-color: transparent;
+      border-left: 11px solid #080b10;
+    }
+
+    .runtime-mode-switch .runtime-switch-indicator::after {
+      content: "";
+      position: absolute;
+      left: 12px;
+      top: 12px;
+      width: 5px;
+      height: 5px;
+      border-radius: 1px;
+      background: #080b10;
+      box-shadow: 0 0 2px rgba(255,255,255,0.35);
     }
 
     .runtime-mode-switch input:not(:checked) + .runtime-switch-face .runtime-ready-label,

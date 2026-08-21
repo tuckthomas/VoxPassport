@@ -73,6 +73,22 @@ Purpose: Replace destructive card-first controls with discoverable model managem
 - [ ] Explain that retaining runtime CUDA caches may improve latency but is unsafe by default on an 8 GB GPU.
 - [ ] Prevent settings combinations whose estimated peak exceeds the configured safety margin unless the user explicitly overrides the warning.
 
+## Adaptive voice timing and speech rate
+
+- [ ] Treat speech rate as a user-facing, configurable voice-output setting rather than a fixed engine assumption.
+- [ ] Support separate defaults and overrides at the voice-profile, TTS-engine, language-pair, and workflow levels, with clear precedence rules.
+- [ ] Define a normalized speech-rate control (for example, `0.75x`–`1.25x`, default `1.0x`) and expose both the numeric value and a plain-language label such as Slower, Natural, or Faster.
+- [ ] Allow users to choose whether the rate applies to live cloned audio, fixed-clip output, or both.
+- [ ] Prefer native engine duration/rate controls when available; otherwise apply pitch-preserving time-stretching after synthesis.
+- [ ] Keep pitch, speaker identity, and pronunciation stable when changing duration; do not use naïve resampling that shifts pitch.
+- [ ] Add adaptive timing guidance based on target language, text length, clause length, punctuation, and estimated syllable density, while always allowing manual override.
+- [ ] Provide an optional readability/clarity mode that automatically slows unusually dense translations and reports the applied rate.
+- [ ] Preview the selected rate before saving it and show the estimated output duration beside the control.
+- [ ] Store rate metadata with generated fixed clips so users know which setting produced each downloadable file.
+- [ ] Keep generated audio content independent from the timing preference so changing rate does not require re-running translation or voice cloning when a safe post-process is possible.
+- [ ] Benchmark rate changes for latency, artifacts, intelligibility, and VRAM/CPU cost on the local hardware profile.
+- [ ] Add reset-to-adaptive-default and reset-to-engine-default actions, plus migration for profiles created before speech-rate settings existed.
+
 ## Configuration page or drawer
 
 - [ ] Open Configure in a dedicated model configuration route or full-height drawer.

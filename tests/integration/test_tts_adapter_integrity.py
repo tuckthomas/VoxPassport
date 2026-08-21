@@ -115,6 +115,19 @@ def test_active_and_hugging_face_model_cards_link_license_icons():
     assert 'class="activity-dock"' not in studio
 
 
+def test_voice_profiles_retain_and_expose_saved_translation_samples():
+    studio = (
+        _repo_root() / "apps" / "desktop-companion" / "model-manager" / "studio.html"
+    ).read_text(encoding="utf-8")
+    server = _server_source()
+    assert "translated_sample.wav" in server
+    assert 'app.router.add_get("/api/voice/translation/{profile_id}", api_voice_translation)' in server
+    assert "playTranslatedProfile" in studio
+    assert "<span>Original</span>" in studio
+    assert "<span>Translation</span>" in studio
+    assert "btn-card-trash" in studio
+
+
 def test_omnivoice_no_longer_dispatches_other_engines_from_profile_metadata():
     source = _adapter_source("omnivoice_tts_adapter.py")
     stream_body = source[source.index("async def synthesize_stream"):]

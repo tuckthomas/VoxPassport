@@ -80,19 +80,36 @@ def test_resource_monitor_is_a_standalone_collapsible_component():
 
     assert "class ResourceMonitor" in script
     assert "POLL_INTERVAL_MS = 2000" in script
+    assert "/ws/resources" in script
+    assert "new WebSocket" in script
+    assert "Resource monitor disabled" in script
     assert "voxpassport.resourceMonitor.collapsed" in script
-    assert "voxpassport.resourceMonitor.compactMode" in script
-    assert "toggleCompactMode()" in script
+    assert "voxpassport.resourceMonitor.enabled" in script
+    assert "voxpassport.resourceMonitor.compactVramMode" in script
+    assert "voxpassport.resourceMonitor.compactRamMode" in script
+    assert "toggleCompactMode('vram')" in script
+    assert "toggleCompactMode('ram')" in script
+    assert "data-resource-power" in script
+    assert 'data-tooltip="Disable resource monitor"' in script
     assert "data-resource-collapse" in script
     assert "data-resource-expand" in script
-    assert "data-resource-compact-toggle" in script
+    assert "data-resource-compact-vram-toggle" in script
+    assert "data-resource-compact-ram-toggle" in script
     assert "data-resource-compact-gpu" in script
     assert "data-resource-compact-vram" in script
     assert "data-resource-compact-cpu" in script
     assert "data-resource-compact-ram" in script
     assert "data-resource-compact-hint" not in script
+    assert "Live · 2s refresh" not in script
+    assert "GPU_TEMP_WARNING_C = 70" in script
+    assert "GPU_TEMP_CRITICAL_C = 85" in script
+    assert '.resource-monitor[data-enabled="true"] .resource-monitor__power-button' in styles
+    assert ".resource-monitor__power-button:hover" in styles
+    assert '.resource-monitor__temperature[data-level="warning"]' in styles
+    assert '.resource-monitor__temperature[data-level="critical"]' in styles
     assert '.resource-monitor[data-collapsed="true"]' in styles
-    assert 'href="./resource-monitor.css?v=1.1"' in studio
-    assert 'src="./resource-monitor.js?v=1.1"' in studio
+    assert 'href="./resource-monitor.css?v=1.5"' in studio
+    assert 'src="./resource-monitor.js?v=1.5"' in studio
     assert 'app.router.add_get("/api/resources", api_resources)' in server
+    assert 'app.router.add_get("/ws/resources", ws_resources)' in server
     assert 'app.router.add_static("/assets", path=str(assets_dir), show_index=False)' in server

@@ -3,10 +3,10 @@
 <img src="apps/desktop-companion/assets/VoxPassport_icon_256.png" alt="VoxPassport icon" width="160" />
 
 # VoxPassport
-### Local-First Multilingual Voice Translation for Live Conversations
+### Local-First Live Translation, Captions, Voice Cloning & Text-to-Speech
 
 <p>
-  Real-time speech translation, captions, speaker-aware processing, and cross-lingual voice cloning for meetings, calls, and live conversation workflows.
+  A local-first platform for live speech translation with synchronized captions, speech-to-text, text translation, voice cloning, synthesized speech, and live conversation workflows.
 </p>
 
 <p>
@@ -27,11 +27,13 @@
 
 ## Project Overview
 
-**VoxPassport** is a local-first speech translation platform designed to make live multilingual conversation feel less like operating a translation tool and more like simply talking. It captures speech, detects voice activity, transcribes it, translates the resulting text, synthesizes the translation, and routes that audio to the appropriate listener or conference input while also publishing synchronized captions.
+**VoxPassport** is a modular local-first audio and language platform with two complementary roles: a live multilingual translation-and-captioning workspace and a voice-cloning/TTS studio. It can run an end-to-end live conversation workflow—capturing speech, detecting voice activity, transcribing it, translating the resulting text, synthesizing translated speech, routing audio to the appropriate listener or conference input, and publishing synchronized captions—but no single workflow requires every capability or model to be enabled.
+
+The same application can be used for independent tasks. Someone can use it only for speech-to-text transcription, only for text-to-text translation, or only for voice cloning and text-to-speech playback from supplied text. A compatible voice profile can be reused by a cloning engine without requiring a translation step, while ASR and translation models can be used without synthesized audio. The model registry and Model Hub are deliberately separate from the pipeline so users can assemble the capabilities they need as newer models are released.
 
 VoxPassport began as a way for me to have natural conversations with family members in Romania despite the language barrier. That personal use case shaped the project's emphasis on low-latency two-way conversation and preserving a speaker's voice across languages, but **VoxPassport is not an English/Romanian-only translator**. The runtime is built around configurable language pairs and swappable model adapters so additional languages can be supported whenever the selected ASR, translation, and TTS models support them. The model registry and Model Hub are deliberately separate from the pipeline so the application can evolve as newer multilingual models are released.
 
-VoxPassport also treats **voice identity as a first-class part of translation**. A user can enroll a reusable, engine-agnostic voice profile and have translated speech synthesized in that voice using a compatible cloning model. The objective is not merely to translate *what* a person said, but—when the selected model supports it—to preserve *who sounds like they are speaking* across languages.
+VoxPassport treats **voice identity as a first-class platform capability**. A user can enroll a reusable, engine-agnostic voice profile and use it for standalone text-to-speech or for translated speech synthesized in that voice using a compatible cloning model. The objective is not merely to translate *what* a person said, but—when the selected model supports it—to preserve *who sounds like they are speaking* across languages.
 
 ## Product Interface
 
@@ -317,14 +319,18 @@ On Windows:
 install.bat
 ```
 
-The installer creates `.venv` if necessary and installs `runtime/inference/requirements.txt`.
+The installer uses the project-local `.python312` runtime when present, creates the
+project-local `.venv`, and keeps pip/model caches under `.pip-cache` and `.cache`.
+It installs the tested Windows CUDA pair `torch 2.13.0+cu130` and
+`torchaudio 2.11.0+cu130`; TorchAudio 2.11 supports PyTorch 2.13 through its
+stable ABI.
 
 For a manual setup:
 
 ```bash
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r runtime/inference/requirements.txt
+.python312\python.exe -m venv .venv
+.venv\Scripts\python.exe -m pip install torch==2.13.0 torchaudio==2.11.0 --index-url https://download.pytorch.org/whl/cu130
+.venv\Scripts\python.exe -m pip install -r runtime/inference/requirements.txt
 ```
 
 ## 3. Start VoxPassport
@@ -336,7 +342,7 @@ run.bat
 Or start the daemon directly:
 
 ```bash
-python runtime/inference/server/main.py
+.venv\Scripts\python.exe runtime/inference/server/main.py
 ```
 
 The current local services are:
@@ -385,6 +391,8 @@ Before deploying a particular configuration, review both the Model Hub metadata 
 The core translation path is designed for local inference. Conference audio and translated text do not need to be sent to a cloud translation provider for the reference pipeline to function.
 
 Saved voice profiles are deliberately persisted **locally** because they are reusable user assets. A profile contains the normalized reference recording, its transcript, and profile metadata. Model-specific voice-conditioning prompts are runtime artifacts rather than the canonical stored identity.
+
+Live audio is processed in memory by default and is not recorded unattended. Voice Profile Studio is an explicit exception: when the user starts enrollment, the reference recording is captured and saved locally as part of the reusable voice profile. User-requested imports and saved previews are likewise intentional local recordings.
 
 The local HTTP and caption services bind to `127.0.0.1` in the current runtime. See [`docs/privacy-security.md`](docs/privacy-security.md) for the broader privacy/security design.
 

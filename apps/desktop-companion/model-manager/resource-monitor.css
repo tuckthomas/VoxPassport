@@ -21,6 +21,7 @@
 }
 
 .resource-monitor__header,
+.resource-monitor__header-left,
 .resource-monitor__title-group,
 .resource-monitor__status,
 .resource-monitor__compact,
@@ -34,6 +35,10 @@
 
 .resource-monitor__header {
   justify-content: space-between;
+}
+
+.resource-monitor__header-left {
+  gap: 12px;
 }
 
 .resource-monitor__title-group {
@@ -76,6 +81,11 @@
   box-shadow: 0 0 8px rgba(248, 113, 113, 0.55);
 }
 
+.resource-monitor[data-enabled="false"] .resource-monitor__status-dot {
+  background: #64748b;
+  box-shadow: none;
+}
+
 .resource-monitor__header-actions {
   align-items: center;
   display: flex;
@@ -100,6 +110,34 @@
 .resource-monitor__icon-button:hover {
   color: #f8fafc;
   transform: scale(1.08);
+}
+
+.resource-monitor__power-button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #64748b;
+  cursor: pointer !important;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 20px;
+  justify-content: center;
+  line-height: 0;
+  padding: 0;
+  width: 20px;
+}
+
+.resource-monitor__power-button:hover {
+  cursor: pointer !important;
+}
+
+.resource-monitor[data-enabled="true"] .resource-monitor__power-button {
+  color: #f8fafc;
+}
+
+.resource-monitor__power-button:focus-visible {
+  outline: 1px solid #60a5fa;
+  outline-offset: 2px;
 }
 
 .resource-monitor__metrics {
@@ -171,16 +209,29 @@
   white-space: nowrap;
 }
 
+.resource-monitor__temperature {
+  color: #f8fafc;
+}
+
+.resource-monitor__temperature[data-level="warning"] {
+  color: var(--resource-amber);
+}
+
+.resource-monitor__temperature[data-level="critical"] {
+  color: var(--resource-red);
+}
+
 .resource-monitor__compact {
   display: none;
+  gap: 16px;
   height: 38px;
-  justify-content: space-between;
   padding: 0 20px;
 }
 
 .resource-monitor__compact-metrics {
   align-items: center;
   display: flex;
+  flex: 1 1 auto;
   gap: 22px;
   min-width: 0;
   overflow: hidden;

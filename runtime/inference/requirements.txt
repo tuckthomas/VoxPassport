@@ -1,9 +1,11 @@
 # VoxPassport — Python Runtime Dependencies
-# Install with: pip install -r runtime/inference/requirements.txt
+# Install with: install.bat (Windows/CUDA) or pip install -r runtime/inference/requirements.txt
 
 # Core ML
-torch>=2.2.0
-torchaudio>=2.2.0
+# TorchAudio 2.11 uses PyTorch's stable ABI and supports PyTorch 2.11+
+# (including 2.13). The Windows installer selects the cu130 wheels.
+torch==2.13.0
+torchaudio==2.11.0
 
 # Hugging Face / local model execution
 # NVIDIA's current Parakeet TDT v3 model card still requires Transformers from
@@ -22,8 +24,12 @@ huggingface-hub>=0.20.0
 # Audio I/O and DSP
 soundfile>=0.12.0
 sounddevice>=0.4.6
+soxr>=0.3.7
+librosa>=0.10.2
+numba>=0.59.0
 scipy>=1.11.0
 numpy>=1.24.0
+scikit-learn>=1.4.0
 
 # Hardware/system telemetry
 psutil>=5.9.0

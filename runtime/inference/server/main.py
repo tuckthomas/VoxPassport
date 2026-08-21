@@ -114,6 +114,8 @@ class LiveTranslatorApp:
             staging_dir=PROJECT_ROOT / "models" / ".staging",
         )
         self.resource_monitor = ResourceSnapshotCollector()
+        self._resource_ws_clients: set[object] = set()
+        self._resource_stream_task: asyncio.Task | None = None
         self._http_runner = None
 
     @staticmethod
@@ -453,6 +455,46 @@ class LiveTranslatorApp:
             snapshot = await asyncio.to_thread(self.resource_monitor.snapshot)
             return web.json_response(snapshot)
 
+        async def resource_stream_loop():
+            """Push one shared resource sample to all subscribed Studio clients."""
+            try:
+                while self._resource_ws_clients:
+                    snapshot = await asyncio.to_thread(self.resource_monitor.snapshot)
+                    stale = []
+                    for websocket in list(self._resource_ws_clients):
+                        if websocket.closed:
+                            stale.append(websocket)
+                            continue
+                        try:
+                            await websocket.send_json({"type": "resources", "data": snapshot})
+                        except Exception:
+                            stale.append(websocket)
+                    for websocket in stale:
+                        self._resource_ws_clients.discard(websocket)
+                    if self._resource_ws_clients:
+                        await asyncio.sleep(2.0)
+            except asyncio.CancelledError:
+                raise
+            finally:
+                if self._resource_stream_task is asyncio.current_task():
+                    self._resource_stream_task = None
+
+        async def ws_resources(request):
+            websocket = web.WebSocketResponse(heartbeat=30)
+            await websocket.prepare(request)
+            self._resource_ws_clients.add(websocket)
+            if self._resource_stream_task is None or self._resource_stream_task.done():
+                self._resource_stream_task = asyncio.create_task(resource_stream_loop())
+            try:
+                async for message in websocket:
+                    if message.type in (web.WSMsgType.CLOSE, web.WSMsgType.ERROR):
+                        break
+            finally:
+                self._resource_ws_clients.discard(websocket)
+                if not self._resource_ws_clients and self._resource_stream_task:
+                    self._resource_stream_task.cancel()
+            return websocket
+
         async def api_models_progress(request):
             model_id = request.query.get("model_id", "").strip()
             if not model_id:
@@ -570,6 +612,10 @@ class LiveTranslatorApp:
                     }
                 meta["profile_id"] = directory.name
                 meta["has_audio"] = wav.exists()
+                translated_audio = directory / "translated_sample.wav"
+                meta["has_translation_audio"] = translated_audio.exists()
+                if translated_audio.exists():
+                    meta["translation_url"] = f"/api/voice/translation/{directory.name}"
                 meta["is_active"] = directory.name == active_id
                 profiles.append(meta)
             return web.json_response({"profiles": profiles, "active_id": active_id})
@@ -644,6 +690,9 @@ class LiveTranslatorApp:
                 "ref_lang": str(data.get("ref_lang", "en")).lower(),
                 "status": "Staged (Pending Save)",
                 "last_preview_model": preview_model,
+                "preview_lang": preview_lang,
+                "preview_text": preview_text,
+                "translation_audio": "translated_sample.wav",
             }
             (staging / "profile.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
             if preview_path.exists():
@@ -716,6 +765,10 @@ class LiveTranslatorApp:
                 "reference_text": "reference.txt",
                 "status": "Enrolled & Active",
             })
+            if (staging / "preview_sample.wav").exists():
+                shutil.copy2(staging / "preview_sample.wav", target / "translated_sample.wav")
+                meta["translation_audio"] = "translated_sample.wav"
+                meta["has_translation_audio"] = True
             meta.pop("clone_model", None)
             (target / "profile.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
             (self.profiles_dir / "active_selection.json").write_text(json.dumps({"active_id": profile_id}), encoding="utf-8")
@@ -763,6 +816,22 @@ class LiveTranslatorApp:
         async def api_voice_audio(request):
             path = self.profiles_dir / request.match_info.get("profile_id", "") / "reference.wav"
             return web.Response(body=path.read_bytes(), content_type="audio/wav") if path.exists() else web.Response(status=404)
+
+        async def api_voice_translation(request):
+            path = self.profiles_dir / request.match_info.get("profile_id", "") / "translated_sample.wav"
+            return web.Response(body=path.read_bytes(), content_type="audio/wav") if path.exists() else web.Response(status=404)
+
+        def save_profile_translation_sample(directory: Path, audio: bytes, model: str, target: str, text: str) -> None:
+            (directory / "translated_sample.wav").write_bytes(audio)
+            meta = self._profile_metadata(directory)
+            meta.update({
+                "translation_audio": "translated_sample.wav",
+                "has_translation_audio": True,
+                "last_preview_model": model,
+                "preview_lang": target,
+                "preview_text": text,
+            })
+            (directory / "profile.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
         async def api_synthesize(request):
             data = await request.json() if request.can_read_body else {}
@@ -815,8 +884,10 @@ class LiveTranslatorApp:
                 preview_cache_dir.mkdir(parents=True, exist_ok=True)
                 preview_cache_path = preview_cache_dir / f"{cache_key}.wav"
                 if preview_cache_path.exists() and preview_cache_path.stat().st_size > 500:
+                    cached_audio = preview_cache_path.read_bytes()
+                    save_profile_translation_sample(directory, cached_audio, selected_model, target, text)
                     return web.Response(
-                        body=preview_cache_path.read_bytes(),
+                        body=cached_audio,
                         content_type="audio/wav",
                         headers={
                             "X-VoxPassport-TTS-Engine": engine_name,
@@ -840,6 +911,7 @@ class LiveTranslatorApp:
                     raise RuntimeError("TTS backend returned no usable audio")
                 if preview_cache_path is not None:
                     preview_cache_path.write_bytes(audio)
+                    save_profile_translation_sample(directory, audio, selected_model, target, text)
                 return web.Response(
                     body=audio,
                     content_type="audio/wav",
@@ -921,6 +993,7 @@ class LiveTranslatorApp:
         app.router.add_get("/api/status", api_status)
         app.router.add_get("/api/hardware/profile", api_hardware_profile)
         app.router.add_get("/api/resources", api_resources)
+        app.router.add_get("/ws/resources", ws_resources)
         app.router.add_get("/api/models/available", api_models_available)
         app.router.add_get("/api/models/installed", api_models_installed)
         app.router.add_get("/api/models/progress", api_models_progress)
@@ -944,6 +1017,7 @@ class LiveTranslatorApp:
         app.router.add_post("/api/voice/enroll", api_voice_enroll)
         app.router.add_delete("/api/voice/profiles/{profile_id}", api_voice_delete)
         app.router.add_get("/api/voice/audio/{profile_id}", api_voice_audio)
+        app.router.add_get("/api/voice/translation/{profile_id}", api_voice_translation)
         app.router.add_post("/api/synthesize", api_synthesize)
         app.router.add_post("/api/verify", api_verify)
 
@@ -989,6 +1063,15 @@ class LiveTranslatorApp:
         logger.info("VoxPassport daemon is online")
 
     async def stop(self) -> None:
+        if self._resource_stream_task:
+            self._resource_stream_task.cancel()
+            self._resource_stream_task = None
+        for websocket in list(self._resource_ws_clients):
+            try:
+                await websocket.close()
+            except Exception:
+                pass
+        self._resource_ws_clients.clear()
         if self._http_runner:
             await self._http_runner.cleanup()
         await self.discovery_agent.stop()

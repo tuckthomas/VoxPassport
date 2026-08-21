@@ -4,7 +4,10 @@
 
 1. **Local-first inference.** All AI processing runs on-device by default.
 2. **No transcript persistence.** Transcripts, translations, and source text are never written to disk by default.
-3. **No audio recording.** Raw audio is never saved by default.
+3. **No unattended audio recording.** Live audio is processed in memory and is
+   not saved automatically. Voice Profile Studio explicitly records and saves
+   a reference sample when the user starts enrollment, and users may also save
+   or import audio for a requested voice-cloning workflow.
 4. **Content-free metrics.** All performance metrics contain only numeric values — no speech content.
 5. **Explicit consent for voice cloning.** Voice enrollment requires explicit user action.
 
@@ -13,7 +16,7 @@
 | Setting | Default | Notes |
 |---------|---------|-------|
 | `persist_transcripts` | `false` | Transcripts stay in memory only |
-| `persist_audio` | `false` | No audio files written |
+| `persist_audio` | `false` | Live audio is not written automatically; explicit voice-profile enrollment or user-requested audio saves are exceptions |
 | `persist_translation_history` | `false` | Translations not logged |
 | `voice_cloning_enabled` | `false` | Must be explicitly enabled |
 | `remote_inference` | `false` | All inference local by default |

@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VoxPassport</title>
   <link rel="icon" href="../assets/VoxPassport_icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./resource-monitor.css?v=1.1">
-  <script src="./resource-monitor.js?v=1.1" defer></script>
+  <link rel="stylesheet" href="./resource-monitor.css?v=1.5">
+  <script src="./resource-monitor.js?v=1.5" defer></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -885,6 +885,13 @@
 
     .btn-action-sm:hover:not(:disabled) {
       filter: brightness(1.15);
+    }
+
+    .btn-action-sm:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      filter: saturate(0.35);
+      box-shadow: none;
     }
 
     .btn-action-sm:active:not(:disabled) {
@@ -3280,7 +3287,8 @@
           if (data.profiles && data.profiles.length > 0) {
             data.profiles.forEach(p => {
               if (p.is_active) activeName = p.profile_name || p.profile_id;
-              const isPlaying = currentlyPlayingProfileId === p.profile_id;
+              const isPlayingOriginal = currentlyPlayingProfileId === p.profile_id;
+              const isPlayingTranslation = currentlyPlayingProfileId === `translation:${p.profile_id}`;
               const isEditingThis = (studioMode === 'edit' && editingProfileId === p.profile_id);
               const langCode = (p.ref_lang || p.source_lang || 'en').toLowerCase();
               const langNames = { en: 'English (US)', ro: 'Romanian (RO)', es: 'Spanish (ES)', fr: 'French (FR)', de: 'German (DE)', it: 'Italian (IT)' };
@@ -3298,6 +3306,11 @@
                           data-tooltip-pos="top"></span>
                     <span class="profile-name-text">${p.profile_name || p.profile_id}</span>
                   </div>
+                  <span class="profile-card-actions">
+                    <button class="btn-card-trash" aria-label="Delete ${p.profile_name || p.profile_id}" onclick="event.stopPropagation(); promptDeleteProfile('${p.profile_id}', '${p.profile_name || p.profile_id}')" data-tooltip="Delete voice profile" data-tooltip-pos="top">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                  </span>
                 </div>
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin: 2px 0 4px 0;">
                   <span class="profile-model-tag">
@@ -3307,17 +3320,17 @@
                   <span class="profile-card-meta">${pitchMeta}</span>
                 </div>
                 <div class="profile-btn-row">
-                  <button class="btn-action-sm play ${isPlaying ? 'is-playing' : ''}" id="btnPlay_${p.profile_id}" onclick="playProfile('${p.profile_id}')" data-tooltip="Listen to reference audio sample" data-tooltip-pos="top">
+                  <button class="btn-action-sm play ${isPlayingOriginal ? 'is-playing' : ''}" id="btnPlay_${p.profile_id}" onclick="playProfile('${p.profile_id}')" data-tooltip="Play original reference recording" data-tooltip-pos="top">
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                    <span>Play</span>
+                    <span>Original</span>
+                  </button>
+                  <button class="btn-action-sm play ${isPlayingTranslation ? 'is-playing' : ''}" id="btnTranslation_${p.profile_id}" onclick="playTranslatedProfile('${p.profile_id}')" ${p.has_translation_audio ? '' : 'disabled'} data-tooltip="${p.has_translation_audio ? 'Play saved translated voice sample' : 'No saved translated sample'}" data-tooltip-pos="top">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                    <span>Translation</span>
                   </button>
                   <button class="btn-action-sm edit ${isEditingThis ? 'is-editing-active' : ''}" id="btnEdit_${p.profile_id}" onclick="openEditModalForProfile('${p.profile_id}', '${p.profile_name || p.profile_id}')" data-tooltip="Edit voice profile settings" data-tooltip-pos="top">
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
                     <span>Edit</span>
-                  </button>
-                  <button class="btn-action-sm delete" onclick="promptDeleteProfile('${p.profile_id}', '${p.profile_name || p.profile_id}')" data-tooltip="Delete voice profile" data-tooltip-pos="top">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                    <span>Delete</span>
                   </button>
                 </div>
               `;
@@ -3375,7 +3388,7 @@
         const res = await fetch(`${API_URL}/voice/profiles/${id}`, { method: "DELETE" });
         if (res.ok) {
           showToast(`Deleted profile '${id}'`);
-          if (currentlyPlayingProfileId === id) {
+          if (currentlyPlayingProfileId === id || currentlyPlayingProfileId === `translation:${id}`) {
             const player = document.getElementById('globalAudioPlayer');
             player.pause();
             currentlyPlayingProfileId = null;
@@ -3486,6 +3499,42 @@
       };
 
       showToast(`Playing sample: ${id}`);
+    }
+
+    function playTranslatedProfile(id) {
+      const player = document.getElementById('globalAudioPlayer');
+      const playbackId = `translation:${id}`;
+
+      if (currentlyPlayingProfileId === playbackId && !player.paused) {
+        player.pause();
+        player.currentTime = 0;
+        currentlyPlayingProfileId = null;
+        loadProfiles();
+        updatePlayButtonStates();
+        showToast("Stopped playback");
+        return;
+      }
+
+      currentlyPlayingProfileId = playbackId;
+      player.src = `${API_URL}/voice/translation/${id}`;
+      player.play();
+      loadProfiles();
+      updatePlayButtonStates();
+
+      player.onended = () => {
+        currentlyPlayingProfileId = null;
+        loadProfiles();
+        updatePlayButtonStates();
+      };
+
+      player.onerror = () => {
+        currentlyPlayingProfileId = null;
+        loadProfiles();
+        updatePlayButtonStates();
+        showToast(`Translation playback error for ${id}`);
+      };
+
+      showToast(`Playing saved translation: ${id}`);
     }
 
     const MODEL_SPECS = {

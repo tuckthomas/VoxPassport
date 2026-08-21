@@ -33,6 +33,13 @@ __pycache__/
 *.py[cod]
 *$py.class
 .venv/
+.python312/
+.setup-temp/
+.pip-cache/
+.venv-py311-backup/
+.venv-py312-c-python/
+.venv-incomplete-py312/
+.packages-py311-backup/
 env/
 venv/
 .cache/

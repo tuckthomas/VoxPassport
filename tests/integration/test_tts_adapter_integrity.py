@@ -142,6 +142,22 @@ def test_live_studio_supports_fixed_clip_translation_and_download():
     assert "fixedTranslatedAudioUrl" in studio
 
 
+def test_runtime_residency_switch_has_backend_and_header_controls():
+    server = _server_source()
+    studio = (
+        _repo_root() / "apps" / "desktop-companion" / "model-manager" / "studio.html"
+    ).read_text(encoding="utf-8")
+    assert "_runtime_residency" in server
+    assert "_ensure_runtime_ready" in server
+    assert "_release_runtime_when_idle" in server
+    assert '"/api/runtime/residency"' in server
+    assert 'id="runtimeModeButton"' in studio
+    assert 'id="runtimeModeInput"' in studio
+    assert 'class="runtime-switch-face"' in studio
+    assert "toggleRuntimeResidency" in studio
+    assert "ON DEMAND" in studio
+
+
 def test_omnivoice_no_longer_dispatches_other_engines_from_profile_metadata():
     source = _adapter_source("omnivoice_tts_adapter.py")
     stream_body = source[source.index("async def synthesize_stream"):]

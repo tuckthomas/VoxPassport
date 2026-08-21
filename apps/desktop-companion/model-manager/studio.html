@@ -214,6 +214,94 @@
       box-shadow: 0 0 0 0 #1d4ed8, 0 1px 3px rgba(0, 0, 0, 0.3);
     }
 
+    .runtime-mode-switch {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 5px;
+      border: 1px solid #252a31;
+      border-radius: 2px;
+      background: #15181d;
+      color: #94a3b8;
+      font-size: 8px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      user-select: none;
+      box-shadow: inset 0 1px 4px rgba(0,0,0,0.8), 0 3px 0 #020617, 0 5px 10px rgba(0,0,0,0.35);
+    }
+
+    .runtime-mode-switch input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .runtime-mode-switch .runtime-switch-face {
+      position: relative;
+      display: block;
+      width: 164px;
+      height: 36px;
+      border: 0;
+      background: transparent;
+    }
+
+    .runtime-mode-switch .runtime-position {
+      position: relative;
+      z-index: 1;
+      top: 14px;
+      display: block;
+      color: #6b7280;
+      transition: color 0.15s ease;
+    }
+
+    .runtime-mode-switch .runtime-ready-label { position: absolute; left: 0; }
+    .runtime-mode-switch .runtime-demand-label { position: absolute; right: 0; }
+
+    .runtime-mode-switch .runtime-switch-indicator {
+      position: absolute;
+      z-index: 0;
+      top: 4px;
+      left: 50%;
+      width: 29px;
+      height: 29px;
+      margin-left: -15px;
+      border: 1px solid #636b75;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 28%, #f8fafc 0%, #c0c7cf 20%, #7b838c 48%, #303740 78%, #11151a 100%);
+      box-shadow: 0 2px 3px rgba(0,0,0,0.9), inset 0 1px 2px rgba(255,255,255,0.8), 0 0 0 2px #080a0d;
+      transition: filter 0.15s ease;
+    }
+
+    .runtime-mode-switch .runtime-switch-indicator::before {
+      content: "";
+      position: absolute;
+      left: 9px;
+      top: -7px;
+      width: 9px;
+      height: 19px;
+      border: 1px solid #68717b;
+      border-radius: 45% 45% 35% 35%;
+      background: linear-gradient(90deg, #3b424a 0%, #e2e6ea 35%, #8b949d 67%, #272d34 100%);
+      box-shadow: 0 1px 2px #050608, inset 1px 0 1px rgba(255,255,255,0.5);
+      transform-origin: 50% 100%;
+      transform: rotate(-27deg);
+      transition: transform 0.15s ease;
+    }
+
+    .runtime-mode-switch input:checked + .runtime-switch-face .runtime-switch-indicator::before {
+      transform: rotate(27deg);
+    }
+
+    .runtime-mode-switch input:not(:checked) + .runtime-switch-face .runtime-ready-label,
+    .runtime-mode-switch input:checked + .runtime-switch-face .runtime-demand-label {
+      color: #f8fafc;
+    }
+
+    .runtime-mode-switch:focus-within {
+      outline: 2px solid #60a5fa;
+      outline-offset: 2px;
+    }
+
     /* Studio Workspace: 2-Column Master / Detail */
     .studio-workspace {
       flex: 1;
@@ -2193,6 +2281,14 @@
     </div>
 
     <div class="header-actions">
+      <label class="runtime-mode-switch" id="runtimeModeButton" data-tooltip="Ready keeps active models loaded. On Demand unloads them after idle time to reduce GPU usage." data-tooltip-pos="bottom">
+        <input id="runtimeModeInput" type="checkbox" onchange="toggleRuntimeResidency()" aria-label="Switch between Ready and On Demand model modes">
+        <span class="runtime-switch-face" aria-hidden="true">
+          <span class="runtime-position runtime-ready-label">READY</span>
+          <span class="runtime-position runtime-demand-label">ON DEMAND</span>
+          <span class="runtime-switch-indicator"></span>
+        </span>
+      </label>
       <a class="btn-header" href="/overlay/index.html" target="_blank" data-tooltip="Open subtitle overlay in floating window" data-tooltip-pos="bottom">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
@@ -2980,7 +3076,59 @@
       checkHardwareProfile();
       loadModelHub();
       loadProfiles();
+      loadRuntimeResidency();
     });
+
+    async function loadRuntimeResidency() {
+      try {
+        const response = await fetch(`${API_URL}/runtime/residency`);
+        if (!response.ok) return;
+        const data = await response.json();
+        updateRuntimeResidencyUi(data.model_residency || 'ready');
+      } catch (e) {
+        updateRuntimeResidencyUi('ready');
+      }
+    }
+
+    function updateRuntimeResidencyUi(mode) {
+      const button = document.getElementById('runtimeModeButton');
+      const input = document.getElementById('runtimeModeInput');
+      const onDemand = mode === 'on_demand';
+      if (input) {
+        input.checked = onDemand;
+        input.setAttribute('aria-checked', String(onDemand));
+      }
+      if (button) {
+        button.setAttribute('data-tooltip', onDemand
+          ? 'On Demand: models load when needed and release after 30 seconds idle. Click for Ready mode.'
+          : 'Ready: active models stay loaded for the lowest latency. Click for On Demand mode.');
+      }
+    }
+
+    async function toggleRuntimeResidency() {
+      const input = document.getElementById('runtimeModeInput');
+      if (!input) return;
+      input.disabled = true;
+      try {
+        const next = input.checked ? 'on_demand' : 'ready';
+        const response = await fetch(`${API_URL}/runtime/residency`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model_residency: next })
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.error || 'Could not change model mode');
+        updateRuntimeResidencyUi(data.model_residency);
+        showToast(next === 'on_demand'
+          ? 'On Demand enabled — idle models will be released.'
+          : 'Ready enabled — models are loading for low-latency use.');
+      } catch (e) {
+        input.checked = !input.checked;
+        showToast(`Model mode change failed: ${e.message}`);
+      } finally {
+        input.disabled = false;
+      }
+    }
 
     function switchSourceTab(tab, btn) {
       document.querySelectorAll('.source-tab-btn').forEach(b => b.classList.remove('active'));

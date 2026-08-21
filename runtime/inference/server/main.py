@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -117,6 +118,75 @@ class LiveTranslatorApp:
         self._resource_ws_clients: set[object] = set()
         self._resource_stream_task: asyncio.Task | None = None
         self._http_runner = None
+        self._runtime_settings_path = PROJECT_ROOT / "data" / "runtime_settings.json"
+        self._runtime_residency = self._load_runtime_residency()
+        self._runtime_idle_task: asyncio.Task | None = None
+        self._runtime_activity_lock = asyncio.Lock()
+        self._runtime_last_activity = 0.0
+
+    def _load_runtime_residency(self) -> str:
+        """Load the user's model residency preference; ready is the safe default."""
+        try:
+            data = json.loads(self._runtime_settings_path.read_text(encoding="utf-8"))
+            value = str(data.get("model_residency", "ready")).strip().lower()
+            return value if value in {"ready", "on_demand"} else "ready"
+        except Exception:
+            return "ready"
+
+    def _save_runtime_residency(self) -> None:
+        self._runtime_settings_path.parent.mkdir(parents=True, exist_ok=True)
+        self._runtime_settings_path.write_text(
+            json.dumps({"model_residency": self._runtime_residency}, indent=2),
+            encoding="utf-8",
+        )
+
+    def _touch_runtime_activity(self) -> None:
+        self._runtime_last_activity = time.monotonic()
+
+    async def _ensure_runtime_ready(self) -> None:
+        """Lazily load the inference stack when On Demand mode receives work."""
+        self._touch_runtime_activity()
+        if self.orchestrator._is_active:
+            return
+        async with self._runtime_activity_lock:
+            if not self.orchestrator._is_active:
+                await self.orchestrator.start()
+            self._touch_runtime_activity()
+        if self._runtime_residency == "on_demand":
+            self._schedule_runtime_idle_release()
+
+    def _schedule_runtime_idle_release(self) -> None:
+        if self._runtime_idle_task and not self._runtime_idle_task.done():
+            self._runtime_idle_task.cancel()
+        self._runtime_idle_task = asyncio.create_task(self._release_runtime_when_idle())
+
+    async def _release_runtime_when_idle(self) -> None:
+        try:
+            await asyncio.sleep(30.0)
+            if (
+                self._runtime_residency == "on_demand"
+                and self.orchestrator._is_active
+                and time.monotonic() - self._runtime_last_activity >= 30.0
+            ):
+                await self.orchestrator.stop()
+                logger.info("On Demand mode released idle inference models")
+        except asyncio.CancelledError:
+            return
+
+    async def _set_runtime_residency(self, value: str) -> None:
+        value = str(value).strip().lower()
+        if value not in {"ready", "on_demand"}:
+            raise ValueError("model_residency must be 'ready' or 'on_demand'")
+        self._runtime_residency = value
+        self._save_runtime_residency()
+        if value == "ready":
+            await self._ensure_runtime_ready()
+        else:
+            if self._runtime_idle_task and not self._runtime_idle_task.done():
+                self._runtime_idle_task.cancel()
+            if self.orchestrator._is_active:
+                await self.orchestrator.stop()
+            logger.info("On Demand mode released inference models")
 
     @staticmethod
     def _normalize_clone_model(model_name: str | None) -> str:
@@ -372,6 +442,8 @@ class LiveTranslatorApp:
                 "user_language": self.orchestrator.user_language.value,
                 "remote_language": self.orchestrator.remote_language.value,
                 "active_slots": slots,
+                "model_residency": self._runtime_residency,
+                "models_loaded": self.orchestrator._is_active,
             })
 
         async def api_models_available(request):
@@ -537,6 +609,23 @@ class LiveTranslatorApp:
             except Exception as exc:
                 return web.json_response({"success": False, "error": str(exc)}, status=400)
 
+        async def api_runtime_residency(request):
+            if request.method == "GET":
+                return web.json_response({
+                    "model_residency": self._runtime_residency,
+                    "models_loaded": self.orchestrator._is_active,
+                })
+            data = await request.json()
+            try:
+                await self._set_runtime_residency(data.get("model_residency", "ready"))
+                return web.json_response({
+                    "success": True,
+                    "model_residency": self._runtime_residency,
+                    "models_loaded": self.orchestrator._is_active,
+                })
+            except Exception as exc:
+                return web.json_response({"success": False, "error": str(exc)}, status=400)
+
         async def api_set_tts_mode(request):
             data = await request.json()
             raw = str(data.get("tts_mode", "tts_no_clone"))
@@ -573,6 +662,7 @@ class LiveTranslatorApp:
             if not text:
                 return web.json_response({"error": "Empty text"}, status=400)
             try:
+                await self._ensure_runtime_ready()
                 src = self._language_code(data.get("source", "en"))
                 tgt = self._language_code(data.get("target", "ro"))
                 result = await self.orchestrator.mt_adapter.translate(text, source_language=src, target_language=tgt)
@@ -843,6 +933,7 @@ class LiveTranslatorApp:
                 self._language_code(target)
             except ValueError as exc:
                 return web.json_response({"error": str(exc)}, status=400)
+            await self._ensure_runtime_ready()
 
             profile_id = str(data.get("profile_id", "")).strip()
             if not profile_id:
@@ -934,6 +1025,7 @@ class LiveTranslatorApp:
             from scipy.signal import resample_poly
 
             try:
+                await self._ensure_runtime_ready()
                 reader = await request.multipart()
                 audio_bytes = None
                 original = ""
@@ -1002,6 +1094,7 @@ class LiveTranslatorApp:
         app.router.add_post("/api/models/uninstall", api_models_uninstall)
         app.router.add_post("/api/models/discover", api_models_discover)
         app.router.add_post("/api/mode", api_set_mode)
+        app.router.add_route("*", "/api/runtime/residency", api_runtime_residency)
         app.router.add_post("/api/tts-mode", api_set_tts_mode)
         app.router.add_get("/api/languages", api_languages)
         app.router.add_post("/api/languages", api_languages)
@@ -1055,7 +1148,10 @@ class LiveTranslatorApp:
         self._selected_tts_model = persisted_tts
         logger.info("Restored persisted TTS engine before pipeline startup: %s", persisted_tts)
         await self.caption_server.start()
-        await self.orchestrator.start()
+        if self._runtime_residency == "ready":
+            await self.orchestrator.start()
+        else:
+            logger.info("On Demand model residency enabled; deferring inference model loading")
         await self._mark_default_runtime_models()
         await self._setup_http_server()
         await self.scheduler.start()

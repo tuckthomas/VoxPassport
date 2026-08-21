@@ -128,6 +128,20 @@ def test_voice_profiles_retain_and_expose_saved_translation_samples():
     assert "btn-card-trash" in studio
 
 
+def test_live_studio_supports_fixed_clip_translation_and_download():
+    studio = (
+        _repo_root() / "apps" / "desktop-companion" / "model-manager" / "studio.html"
+    ).read_text(encoding="utf-8")
+    assert "Live Source Audio" in studio
+    assert "Source Language Text" in studio
+    assert 'id="btnFixedAudio"' in studio
+    assert "toggleFixedAudioRecording" in studio
+    assert "finishFixedRecording" in studio
+    assert 'id="btnDownloadLiveTranslation"' in studio
+    assert "downloadFixedTranslation" in studio
+    assert "fixedTranslatedAudioUrl" in studio
+
+
 def test_omnivoice_no_longer_dispatches_other_engines_from_profile_metadata():
     source = _adapter_source("omnivoice_tts_adapter.py")
     stream_body = source[source.index("async def synthesize_stream"):]

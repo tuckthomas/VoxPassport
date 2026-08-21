@@ -1153,6 +1153,35 @@
       transform: scale(0.92);
     }
 
+    .live-download-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: #60a5fa;
+      cursor: pointer;
+      flex-shrink: 0;
+      line-height: 0;
+    }
+
+    .live-download-button:hover:not(:disabled) {
+      color: #bfdbfe;
+    }
+
+    .live-download-button:disabled {
+      color: var(--text-dim);
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .live-download-button svg {
+      display: block;
+    }
+
     /* Download Progress Bar */
     .download-progress-box {
       width: 100%;
@@ -2235,35 +2264,52 @@
         <!-- Tab Content 1: Live Mode (Conference Streaming Workflow) -->
         <div class="editor-grid" id="viewLiveMode" style="flex:1;">
         
-        <!-- English Live Source Speech -->
-        <div class="editor-pane">
-          <div class="pane-header">
-            <div class="pane-title">
-              <span>Live Source Speech</span>
-              <span class="pane-badge">PARAKEET-TDT-CTC-110M</span>
+        <!-- English source: audio capture and source-language text -->
+        <div class="connected-cards-column">
+          <div class="connected-card card-audio" style="flex:1;">
+            <div class="pane-header">
+              <div class="pane-title">
+                <span>Live Source Audio</span>
+                <span class="pane-badge">SOURCE AUDIO</span>
+              </div>
+              <span style="font-size:11px; color:var(--text-dim);">Live or Fixed Clip</span>
             </div>
-            <span style="font-size:11px; color:var(--text-dim);">Real-Time Dictation Stream</span>
-          </div>
-
-          <div class="pane-body">
-            <!-- Live Mic Stream Control Bar -->
-            <div class="mic-live-bar">
-              <button class="btn-record-action" id="btnLiveStreamMic" onclick="toggleLiveStreamMic()" data-tooltip="Click to start/stop live continuous conference dictation">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="9"/></svg>
-                <span id="liveStreamMicLabel">Live Record</span>
-              </button>
-              <div class="wave-strip">
-                <canvas id="canvasLiveStreamMic" width="400" height="28" style="width:100%; height:100%; display:block;"></canvas>
+            <div class="pane-body">
+              <div class="mic-live-bar">
+                <button class="btn-record-action" id="btnLiveStreamMic" onclick="toggleLiveStreamMic()" data-tooltip="Start or stop continuous live translation">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="9"/></svg>
+                  <span id="liveStreamMicLabel">Live Stream</span>
+                </button>
+                <button class="btn-record-action" id="btnFixedAudio" onclick="toggleFixedAudioRecording()" data-tooltip="Record a fixed clip, then translate it once when stopped">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="9"/></svg>
+                  <span id="fixedAudioLabel">Record Clip</span>
+                </button>
+                <div class="wave-strip">
+                  <canvas id="canvasLiveStreamMic" width="400" height="28" style="width:100%; height:100%; display:block;"></canvas>
+                </div>
               </div>
             </div>
-
-            <!-- Live Streaming Transcript Feed -->
-            <div class="editor-textarea" id="liveSourceTranscript" style="overflow-y:auto; line-height:1.6; white-space:pre-wrap;" contenteditable="true" placeholder="Live transcript will stream here automatically as you speak..."></div>
+            <div class="pane-footer" style="justify-content: space-between;">
+              <span style="font-size:11px; color:var(--text-dim);" id="liveSourceAudioStatusText">Mic Inactive • Ready</span>
+              <span class="metric-badge">SOURCE</span>
+            </div>
           </div>
 
-          <div class="pane-footer" style="justify-content: space-between;">
-            <span style="font-size:11px; color:var(--text-dim);" id="liveSourceStatusText">Mic Inactive • Ready</span>
-            <span class="metric-badge" id="liveInputWordCount">0 words</span>
+          <div class="connected-card card-captions" style="flex:1;">
+            <div class="pane-header">
+              <div class="pane-title">
+                <span>Source Language Text</span>
+                <span class="pane-badge">ENGLISH</span>
+              </div>
+              <span style="font-size:11px; color:var(--text-dim);">ASR Captions</span>
+            </div>
+            <div class="pane-body">
+              <div class="editor-textarea" id="liveSourceTranscript" style="overflow-y:auto; line-height:1.6; white-space:pre-wrap;" contenteditable="true" placeholder="Source speech will appear here..."></div>
+            </div>
+            <div class="pane-footer" style="justify-content: space-between;">
+              <span style="font-size:11px; color:var(--text-dim);" id="liveSourceStatusText">Mic Inactive • Ready</span>
+              <span class="metric-badge" id="liveInputWordCount">0 words</span>
+            </div>
           </div>
         </div>
 
@@ -2312,7 +2358,12 @@
                 <span>Live Cloned Audio Stream</span>
                 <span class="pane-badge" id="liveTtsEngineBadge">ACTIVE TTS</span>
               </div>
-              <span style="font-size:11px; color:var(--text-dim);">Active Voice Profile Output</span>
+              <div style="display:flex; align-items:center; gap:10px;">
+                <span id="liveOutputSubtitle" style="font-size:11px; color:var(--text-dim);">Active Voice Profile Output</span>
+                <button class="live-download-button" id="btnDownloadLiveTranslation" type="button" onclick="downloadFixedTranslation()" disabled style="display:none;" data-tooltip="Download the completed translated clip" data-tooltip-pos="top" aria-label="Download translated clip">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+                </button>
+              </div>
             </div>
             <div class="pane-body" style="padding:14px 16px; display:flex; flex-direction:column; justify-content:center;">
               <div class="wave-strip" style="height:44px; width:100%;">
@@ -3741,6 +3792,14 @@
     let liveAudioQueue = [];
     let isProcessingLiveQueue = false;
     let currentLivePlayer = null;
+    let streamFixedAudio = null;
+    let fixedRecognition = null;
+    let isFixedRecording = false;
+    let fixedStopRequested = false;
+    let fixedSourceText = '';
+    let fixedProcessingStarted = false;
+    let fixedTranslatedAudioUrl = null;
+    let fixedTranslatedPlayer = null;
 
     let activeTranslatorTab = 'live'; // 'live' | 'debug'
 
@@ -3765,6 +3824,7 @@
     function showModelConfigView() {
       if (isStudioRecording) stopStudioRecord(false);
       if (isLiveStreamingMic) stopLiveStreamMic();
+      if (isFixedRecording) stopFixedAudioRecording();
       if (isLiveMicActive) stopLiveMic();
 
       studioMode = 'create';
@@ -3796,6 +3856,7 @@
         if (viewDebug) viewDebug.style.display = 'none';
       } else {
         if (isLiveStreamingMic) stopLiveStreamMic();
+        if (isFixedRecording) stopFixedAudioRecording();
         if (tabDebug) tabDebug.classList.add('active');
         if (tabLive) tabLive.classList.remove('active');
         if (viewLive) viewLive.style.display = 'none';
@@ -3828,6 +3889,7 @@
     }
 
     async function startLiveStreamMic() {
+      if (isFixedRecording) stopFixedAudioRecording();
       const btn = document.getElementById('btnLiveStreamMic');
       const label = document.getElementById('liveStreamMicLabel');
       const statusText = document.getElementById('liveSourceStatusText');
@@ -3841,6 +3903,7 @@
       if (btn) btn.classList.add('recording');
       if (label) label.textContent = "Stop Stream";
       if (statusText) statusText.textContent = "Live Mic Streaming • Transcribing Speech...";
+      setLiveSourceAudioStatus("Live Mic Streaming • Transcribing Speech...");
 
       initLiveContinuousRecognition();
     }
@@ -3854,6 +3917,7 @@
       if (btn) btn.classList.remove('recording');
       if (label) label.textContent = "Live Record";
       if (statusText) statusText.textContent = "Mic Inactive • Ready";
+      setLiveSourceAudioStatus("Mic Inactive • Ready");
 
       stopWaveform('canvasLiveStreamMic');
 
@@ -4372,6 +4436,209 @@
         if (playLabel) playLabel.textContent = "Play Sample";
         showToast(`Could not play synthesized preview: ${e.message}`, "error");
       }
+    }
+
+    function setLiveSourceAudioStatus(text) {
+      const status = document.getElementById('liveSourceAudioStatusText');
+      if (status) status.textContent = text;
+      const sourceStatus = document.getElementById('liveSourceStatusText');
+      if (sourceStatus) sourceStatus.textContent = text;
+    }
+
+    function toggleFixedAudioRecording() {
+      if (isFixedRecording) {
+        stopFixedAudioRecording();
+      } else {
+        startFixedAudioRecording();
+      }
+    }
+
+    async function startFixedAudioRecording() {
+      if (isLiveStreamingMic) stopLiveStreamMic();
+      if (fixedTranslatedAudioUrl) {
+        URL.revokeObjectURL(fixedTranslatedAudioUrl);
+        fixedTranslatedAudioUrl = null;
+      }
+      const downloadButton = document.getElementById('btnDownloadLiveTranslation');
+      if (downloadButton) {
+        downloadButton.disabled = true;
+        downloadButton.style.display = 'none';
+      }
+      const outputSubtitle = document.getElementById('liveOutputSubtitle');
+      if (outputSubtitle) outputSubtitle.textContent = 'Active Voice Profile Output';
+      const sourceBox = document.getElementById('liveSourceTranscript');
+      if (sourceBox) sourceBox.innerHTML = '';
+      const targetBox = document.getElementById('liveTargetCaptionsText');
+      if (targetBox) {
+        targetBox.innerHTML = 'Awaiting fixed audio clip...';
+        targetBox.style.fontStyle = 'italic';
+        targetBox.style.color = 'var(--text-dim)';
+      }
+      fixedSourceText = '';
+      fixedProcessingStarted = false;
+      fixedStopRequested = false;
+      isFixedRecording = true;
+
+      try {
+        streamFixedAudio = await navigator.mediaDevices.getUserMedia({ audio: true });
+        startWaveform(streamFixedAudio, 'canvasLiveStreamMic', '#10b981');
+      } catch (e) {
+        streamFixedAudio = null;
+      }
+
+      const btn = document.getElementById('btnFixedAudio');
+      const label = document.getElementById('fixedAudioLabel');
+      if (btn) btn.classList.add('recording');
+      if (label) label.textContent = 'Stop & Translate';
+      setLiveSourceAudioStatus('Recording fixed clip • Press again to translate');
+      initFixedRecognition();
+    }
+
+    function stopFixedAudioRecording() {
+      if (!isFixedRecording && fixedProcessingStarted) return;
+      isFixedRecording = false;
+      fixedStopRequested = true;
+      const btn = document.getElementById('btnFixedAudio');
+      const label = document.getElementById('fixedAudioLabel');
+      if (btn) btn.classList.remove('recording');
+      if (label) label.textContent = 'Record Clip';
+      stopWaveform('canvasLiveStreamMic');
+      if (streamFixedAudio) {
+        streamFixedAudio.getTracks().forEach(t => t.stop());
+        streamFixedAudio = null;
+      }
+      if (fixedRecognition) {
+        try { fixedRecognition.stop(); } catch (e) { finishFixedRecording(); }
+      } else {
+        finishFixedRecording();
+      }
+    }
+
+    function initFixedRecognition() {
+      if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+        showToast('Speech Recognition is not supported in this browser.');
+        return;
+      }
+      const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+      fixedRecognition = new SpeechRec();
+      fixedRecognition.continuous = true;
+      fixedRecognition.interimResults = true;
+      fixedRecognition.lang = 'en-US';
+      fixedRecognition.onresult = (event) => {
+        let interimText = '';
+        let finalText = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          if (event.results[i].isFinal) finalText += event.results[i][0].transcript;
+          else interimText += event.results[i][0].transcript;
+        }
+        if (finalText.trim()) fixedSourceText = `${fixedSourceText} ${finalText.trim()}`.trim();
+        renderFixedSourceText(interimText);
+      };
+      fixedRecognition.onerror = (e) => {
+        if (isFixedRecording && e.error !== 'no-speech') console.warn('Fixed recognition error:', e);
+      };
+      fixedRecognition.onend = () => {
+        fixedRecognition = null;
+        if (isFixedRecording && !fixedStopRequested) {
+          initFixedRecognition();
+        } else if (fixedStopRequested) {
+          finishFixedRecording();
+        }
+      };
+      try { fixedRecognition.start(); } catch (e) {}
+    }
+
+    function renderFixedSourceText(interimText = '') {
+      const box = document.getElementById('liveSourceTranscript');
+      if (!box) return;
+      box.textContent = fixedSourceText + (interimText ? ` ${interimText}` : '');
+      box.scrollTop = box.scrollHeight;
+      const countEl = document.getElementById('liveInputWordCount');
+      const words = fixedSourceText.trim().split(/\s+/).filter(Boolean).length;
+      if (countEl) countEl.textContent = `${words} word${words === 1 ? '' : 's'}`;
+    }
+
+    async function finishFixedRecording() {
+      if (fixedProcessingStarted) return;
+      fixedProcessingStarted = true;
+      const phraseText = fixedSourceText.trim();
+      if (!phraseText) {
+        setLiveSourceAudioStatus('No source speech recognized');
+        showToast('No source speech was recognized in that clip.');
+        return;
+      }
+      setLiveSourceAudioStatus('Fixed clip captured • Translating...');
+      const targetLang = document.getElementById('liveTargetLangSelect')?.value || 'ro';
+      const targetBox = document.getElementById('liveTargetCaptionsText');
+      const latencyBadge = document.getElementById('liveLatencyMetrics');
+      const t0 = performance.now();
+      try {
+        const translationResponse = await fetch(`${API_URL}/translate`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: phraseText, source: 'en', target: targetLang })
+        });
+        if (!translationResponse.ok) throw new Error('Translation request failed');
+        const translationData = await translationResponse.json();
+        const translated = translationData.translated_text;
+        if (targetBox) {
+          targetBox.textContent = translated;
+          targetBox.style.fontStyle = 'normal';
+          targetBox.style.color = 'var(--text-heading)';
+        }
+        setLiveSourceAudioStatus('Fixed clip translated • Synthesizing voice...');
+        const synthResponse = await fetch(`${API_URL}/synthesize`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: translated, target: targetLang })
+        });
+        if (!synthResponse.ok) throw new Error('Synthesis request failed');
+        const blob = await synthResponse.blob();
+        if (!blob.size) throw new Error('Empty translated audio');
+        fixedTranslatedAudioUrl = URL.createObjectURL(blob);
+        const downloadButton = document.getElementById('btnDownloadLiveTranslation');
+        if (downloadButton) {
+          downloadButton.disabled = false;
+          downloadButton.style.display = 'inline-flex';
+        }
+        const outputSubtitle = document.getElementById('liveOutputSubtitle');
+        if (outputSubtitle) outputSubtitle.textContent = 'Fixed translated clip';
+        if (latencyBadge) latencyBadge.textContent = `Clip: ${Math.round(performance.now() - t0)}ms`;
+        playFixedTranslatedAudio();
+        setLiveSourceAudioStatus('Fixed clip translated • Ready to download');
+      } catch (e) {
+        if (latencyBadge) latencyBadge.textContent = 'Translation Error';
+        setLiveSourceAudioStatus('Fixed clip failed • Ready');
+        showToast(`Fixed translation failed: ${e.message}`);
+      }
+    }
+
+    function playFixedTranslatedAudio() {
+      if (!fixedTranslatedAudioUrl) return;
+      if (fixedTranslatedPlayer) {
+        fixedTranslatedPlayer.pause();
+        fixedTranslatedPlayer = null;
+      }
+      fixedTranslatedPlayer = new Audio(fixedTranslatedAudioUrl);
+      startLiveOutputAudioWaveform();
+      fixedTranslatedPlayer.onended = () => {
+        stopLiveOutputAudioWaveform();
+        fixedTranslatedPlayer = null;
+      };
+      fixedTranslatedPlayer.onerror = () => {
+        stopLiveOutputAudioWaveform();
+        fixedTranslatedPlayer = null;
+      };
+      fixedTranslatedPlayer.play().catch(() => stopLiveOutputAudioWaveform());
+    }
+
+    function downloadFixedTranslation() {
+      if (!fixedTranslatedAudioUrl) return;
+      const targetLang = document.getElementById('liveTargetLangSelect')?.value || 'ro';
+      const link = document.createElement('a');
+      link.href = fixedTranslatedAudioUrl;
+      link.download = `voxpassport-${targetLang}-translation.wav`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
     }
 
     async function handleStudioAction() {

@@ -16,6 +16,13 @@ class SupervisorFakeTtsDriver(TtsDriver):
     def load(self) -> None:
         if self.manifest.driver_options.get("fail_load"):
             raise RuntimeError("requested fake load failure")
+        crash_marker = str(self.manifest.driver_options.get("crash_load_once_marker", "")).strip()
+        if crash_marker:
+            marker_path = Path(crash_marker)
+            if not marker_path.exists():
+                marker_path.parent.mkdir(parents=True, exist_ok=True)
+                marker_path.write_text("crashed-during-load", encoding="utf-8")
+                os._exit(90)
         self._loaded = True
 
     def unload(self) -> None:
@@ -32,7 +39,7 @@ class SupervisorFakeTtsDriver(TtsDriver):
             marker_path = Path(marker)
             if not marker_path.exists():
                 marker_path.parent.mkdir(parents=True, exist_ok=True)
-                marker_path.write_text("crashed", encoding="utf-8")
+                marker_path.write_text("crashed-during-synthesis", encoding="utf-8")
                 os._exit(91)
         if not request.text:
             raise ValueError("text required")

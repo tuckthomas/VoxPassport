@@ -23,7 +23,7 @@
 - Switch to a lower-memory model/quantization where available.
 - On 8 GB-class GPUs, keep MiLMMT and optional diarization on CPU when appropriate.
 - Do not keep multiple heavyweight TTS models resident merely because runtime profiles are separate processes.
-- Check the **TTS Runtime Profiles** row in Model Settings and verify only the intended supervised TTS model is active.
+- Check the **TTS Runtime Profiles** row in Model Settings and verify only the intended supervised TTS model/backend is active.
 - Native Higgs Q4 file size is not runtime VRAM usage; CUDA workspaces, activations, caches, and scratch allocations also matter.
 
 ### ASR producing nonsense / wrong language
@@ -44,14 +44,16 @@ Every local TTS model reaches the application through:
 
 ```text
 TTS manifest
-  ↓ runtime_profile
+  ↓ runtime_profile / optional backend_process
 TtsRuntimeSupervisor
-  ↓ ephemeral worker endpoint
+  ├─ ephemeral generic worker
+  └─ ephemeral managed proxy backend, when required
+       ↓
 ManifestTtsAdapter ↔ voxpassport.tts.v1
-  ↓
+       ↓
 TtsDriver
-  ↓
-model library / DLL / true external backend
+       ↓
+model library / DLL / explicit remote backend
 ```
 
 The main daemon should not import model-specific local TTS adapters.
@@ -62,9 +64,10 @@ The main daemon should not import model-specific local TTS adapters.
 2. Check the manifest's `runtime_profile`.
 3. Open the Model Settings resource monitor and inspect **TTS Runtime Profiles**.
 4. If the profile is **missing**, provision it with `scripts/manage_runtime_profile.py`.
-5. If it is **broken**, inspect `data/logs/tts-worker-<profile>.log`.
-6. If the driver proxies another service (for example MOSS/full Higgs), verify that true backend is reachable.
-7. Verify model weights/checkpoint files are complete.
+5. If the worker is **broken**, inspect `data/logs/tts-worker-<profile>.log`.
+6. If a managed proxy backend is **broken**, inspect `data/logs/tts-backend-<model-id>.log`.
+7. For a proxy model, verify that either its supervisor launch-command environment is configured or its URL environment points to a non-loopback remote service.
+8. Verify model weights/checkpoint files are complete.
 
 ### Runtime profile is missing
 
@@ -94,11 +97,86 @@ runtime/profiles/coqui-xtts/.venv
 
 Do not recreate the deleted root-level `.venv-xtts` topology.
 
-### Worker port collision
+## Managed proxy backend issues
 
-VoxPassport TTS worker ports are dynamically assigned by the supervisor. There is no supported fixed `8098`/`8099` worker mapping anymore.
+Full Higgs, MOSS, and VoxCPM use the generic HTTP proxy driver. When those models execute **locally**, the actual backend server is now supervisor-owned rather than a separately launched exception.
 
-If worker startup fails, inspect the worker log and diagnostics rather than manually reserving a model-specific port. A true driver backend can still have a configured port (for example an externally launched MOSS/Higgs service); that is separate from the generic VoxPassport worker endpoint.
+Current launch-command environments are:
+
+```text
+VOXPASSPORT_HIGGS_TTS_COMMAND
+VOXPASSPORT_MOSS_TTS_COMMAND
+VOXPASSPORT_VOXCPM_TTS_COMMAND
+```
+
+The value may be a JSON string array (preferred) or a shell-style command string. Supported placeholders are:
+
+```text
+{host}
+{port}
+{project_root}
+{model_id}
+{python}
+```
+
+Example shape:
+
+```text
+["C:\\path\\to\\python.exe", "-m", "some_backend", "--host", "{host}", "--port", "{port}"]
+```
+
+The exact command is backend/package dependent. VoxPassport supplies the dynamic host/port; do not hard-code a backend port in the TTS manifest.
+
+### Error: no launch command is configured
+
+A proxy manifest declares a managed local backend, but its `*_TTS_COMMAND` variable is not configured and no manifest command is present.
+
+Configure the appropriate backend command before activating that local proxy model. Do **not** work around the error by starting a localhost service manually and setting a loopback URL; that recreates the unmanaged GPU-residency problem the supervisor is designed to prevent.
+
+### Error: unmanaged local backend
+
+A proxy backend URL resolves to `localhost`, `127.0.0.1`, `::1`, or another loopback address without supervisor process ownership.
+
+That configuration is intentionally rejected. Use one of:
+
+- the model's `*_TTS_COMMAND` launch contract for a local backend; or
+- its `*_TTS_URL` environment variable with an explicit **non-loopback remote endpoint**.
+
+### Remote proxy backend
+
+The existing URL environment variables remain valid for remote deployments:
+
+```text
+VOXPASSPORT_HIGGS_TTS_URL
+VOXPASSPORT_MOSS_TTS_URL
+VOXPASSPORT_VOXCPM_TTS_URL
+```
+
+A non-loopback endpoint is not process-owned by the local supervisor because it cannot consume the local GPU. Its service lifecycle belongs to that remote deployment.
+
+### Managed backend unexpectedly exits
+
+The resource monitor reports the active TTS runtime as **broken** if either the generic worker or its managed backend exits/becomes unreachable.
+
+Check:
+
+```text
+data/logs/tts-backend-<model-id>.log
+```
+
+The next safe activation/recovery recreates the backend with a new ephemeral port and reinjects that endpoint into the proxy driver.
+
+### Backend remains in VRAM after switching models
+
+That is a bug for a supervisor-owned local backend. Switching/releasing the proxy model unloads its worker-side driver and terminates the complete managed backend process tree before replacement residency is established.
+
+Verify with the TTS Runtime Profiles monitor plus `nvidia-smi`. If a descendant GPU process survives, capture the backend log/model ID and treat it as a process-tree cleanup defect.
+
+### Worker/backend port collision
+
+Both generic TTS worker ports and managed local proxy-backend ports are dynamically assigned by the supervisor. There is no supported fixed `8098`/`8099` worker mapping or `8095`/`8096`/`8097` proxy mapping anymore.
+
+If startup fails, inspect the worker/backend logs rather than reserving a model-specific port manually.
 
 ### Worker unexpectedly exits
 
@@ -114,9 +192,9 @@ If the worker repeatedly exits during load, verify the profile dependency enviro
 
 ### Worker dies during synthesis
 
-If the disconnect occurs before any PCM has been delivered, the generic adapter restarts the runtime profile and retries once. If some speech was already emitted, VoxPassport does not replay the sentence automatically because that could duplicate audible output.
+If the disconnect occurs before any PCM has been delivered, the generic adapter restarts the supervised runtime and retries once. If some speech was already emitted, VoxPassport does not replay the sentence automatically because that could duplicate audible output.
 
-Repeated pre-audio crashes should be treated as a driver/runtime defect and diagnosed from the profile log.
+Repeated pre-audio crashes should be treated as a driver/runtime defect and diagnosed from the profile/backend logs.
 
 ### TTS audio artifacts at chunk boundaries
 
@@ -192,8 +270,8 @@ Native Higgs remains an ordinary worker-side `TtsDriver`; do not add an applicat
 
 - Check the current TTS Runtime Profiles row.
 - Allow committed speech to finish before assuming the switch is hung.
-- Check the previous worker was unloaded/terminated when crossing profiles.
-- Inspect target profile logs for startup/load errors.
+- Check the previous worker/backend was unloaded/terminated as required.
+- Inspect target worker/backend logs for startup/load errors.
 - Check VRAM release if moving between heavyweight TTS models.
 
 ### Target model fails health validation
@@ -203,10 +281,11 @@ The supervisor attempts to restore the previously active TTS manifest after acti
 Check whether failure occurred in:
 
 1. runtime-profile interpreter resolution;
-2. generic worker startup;
-3. `/health` readiness;
-4. driver/model `/load`;
-5. true external backend health, when the driver is a proxy.
+2. managed proxy-backend command/startup/health, if applicable;
+3. generic worker startup;
+4. worker `/health` readiness;
+5. driver/model `/load`;
+6. explicit non-loopback remote backend health, when configured.
 
 ## Session stability
 
@@ -226,6 +305,6 @@ Useful local checks:
 .venv\Scripts\python.exe -m pytest -q tests/integration tests/test_tts_plugin_architecture.py tests/test_tts_runtime_supervisor.py tests/test_xtts_romanian.py
 ```
 
-Runtime Integrity includes real lightweight subprocess tests for dynamic worker startup/reuse, cross-profile termination, idle shutdown, load-time crash rollback, and pre-audio synthesis crash recovery without downloading production TTS weights.
+Runtime Integrity includes lightweight subprocess tests for dynamic worker startup/reuse, managed proxy-backend startup/termination, rejection of unmanaged loopback proxies, cross-profile termination, idle shutdown, load-time crash rollback, and pre-audio synthesis crash recovery without downloading production TTS weights.
 
 Hardware acceptance still requires the target RTX 2070 for real VRAM/latency measurements.

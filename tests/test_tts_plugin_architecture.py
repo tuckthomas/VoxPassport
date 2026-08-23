@@ -12,6 +12,8 @@ from runtime.inference.tts_plugins.manifest import (
     TtsManifestCatalog,
     TtsManifestError,
 )
+from runtime.inference.tts_plugins.runtime_profiles import RuntimeProfileCatalog
+from runtime.inference.tts_plugins.runtime_supervisor import TtsRuntimeSupervisor
 from runtime.workers.tts_host import server as tts_host_server
 from runtime.workers.tts_host.driver_loader import load_driver_class
 from runtime.workers.tts_host.protocol import TtsDriver, TtsDriverRequest
@@ -61,14 +63,14 @@ def _manifest_dir() -> Path:
     return _repo_root() / "runtime" / "tts_manifests"
 
 
-def _fake_manifest_dict(entrypoint: str = PROXY_ENTRYPOINT) -> dict:
+def _fake_manifest_dict(entrypoint: str = PROXY_ENTRYPOINT, runtime_profile: str = "core") -> dict:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "model_id": "future-tts",
         "display_name": "Future TTS",
         "aliases": ["future"],
+        "runtime_profile": runtime_profile,
         "driver": {"entrypoint": entrypoint, "options": {}},
-        "worker": {"base_url": "http://127.0.0.1:8098"},
         "capabilities": {
             "languages": ["en", "ro"],
             "streaming": True,
@@ -85,9 +87,11 @@ def test_all_local_tts_models_are_manifests():
     catalog = TtsManifestCatalog(_manifest_dir()).load()
     assert {manifest.model_id for manifest in catalog.manifests()} == LOCAL_TTS_MODELS
     assert all(entry.capability != ModelCapability.TTS for entry in get_builtin_catalog())
+    assert all(manifest.schema_version == 2 for manifest in catalog.manifests())
+    assert all("worker" not in manifest.raw for manifest in catalog.manifests())
 
 
-def test_manifest_catalog_resolves_models_and_aliases():
+def test_manifest_catalog_resolves_models_aliases_and_runtime_profiles():
     catalog = TtsManifestCatalog(_manifest_dir()).load()
     assert catalog.resolve("omnivoice").model_id == "omnivoice-stock"
     assert catalog.resolve("higgs-native").model_id == "higgs-tts-3-q4_k_m"
@@ -95,17 +99,26 @@ def test_manifest_catalog_resolves_models_and_aliases():
     assert catalog.resolve("xtts-ro-v2").model_id == "xtts-v2-romanian-v2"
     assert catalog.resolve("moss").model_id == "moss-tts-1.5"
     assert catalog.resolve("openbmb/VoxCPM2").model_id == "voxcpm-2"
+    assert catalog.resolve("xtts-ro-v2").runtime_profile == "coqui-xtts"
+    assert {
+        manifest.runtime_profile for manifest in catalog.manifests() if manifest.model_id != "xtts-v2-romanian-v2"
+    } == {"core"}
+
+
+def test_runtime_profile_catalog_groups_dependency_families():
+    profiles = RuntimeProfileCatalog().load()
+    assert {profile.profile_id for profile in profiles.profiles()} == {"core", "coqui-xtts"}
+    assert profiles.resolve("core").interpreter.endswith(".venv/Scripts/python.exe")
+    assert profiles.resolve("coqui-xtts").interpreter.endswith(".venv-xtts/Scripts/python.exe")
+    assert profiles.resolve("coqui-xtts").provisioning["prefer_uv"] is True
 
 
 def test_every_local_tts_model_uses_one_main_process_adapter():
     catalog = TtsManifestCatalog(_manifest_dir()).load()
-    adapters = [
-        ManifestTtsAdapter(manifest, catalog=catalog)
-        for manifest in catalog.manifests()
-    ]
+    adapters = [ManifestTtsAdapter(manifest, catalog=catalog) for manifest in catalog.manifests()]
     assert {type(adapter) for adapter in adapters} == {ManifestTtsAdapter}
-    endpoints = {adapter.manifest.worker_base_url for adapter in adapters}
-    assert endpoints == {"http://127.0.0.1:8098", "http://127.0.0.1:8099"}
+    assert {adapter.manifest.runtime_profile for adapter in adapters} == {"core", "coqui-xtts"}
+    assert all(not hasattr(adapter.manifest, "worker_base_url") for adapter in adapters)
 
 
 def test_voxcpm_language_restriction_is_manifest_data():
@@ -133,9 +146,7 @@ def test_model_library_drivers_import_without_loading_heavy_libraries():
 
 
 def test_main_daemon_has_no_local_tts_model_dispatch_or_concrete_adapters():
-    source = (
-        _repo_root() / "runtime" / "inference" / "server" / "main.py"
-    ).read_text(encoding="utf-8")
+    source = (_repo_root() / "runtime" / "inference" / "server" / "main.py").read_text(encoding="utf-8")
     lowered = source.lower()
     assert "ManifestTtsAdapter" in source
     assert "TtsManifestCatalog" in source
@@ -146,14 +157,12 @@ def test_main_daemon_has_no_local_tts_model_dispatch_or_concrete_adapters():
         assert legacy_class not in source
     assert "if any(k in model" not in source
     assert "selected_model != \"omnivoice\"" not in source
-    assert "reference_transcript_required" not in lowered  # server reads manifest.transcript_required instead
+    assert "reference_transcript_required" not in lowered
     assert "manifest.transcript_required" in source
 
 
 def test_orchestrator_tts_hot_swap_is_manifest_only():
-    source = (
-        _repo_root() / "runtime" / "inference" / "pipeline" / "duplex_orchestrator.py"
-    ).read_text(encoding="utf-8")
+    source = (_repo_root() / "runtime" / "inference" / "pipeline" / "duplex_orchestrator.py").read_text(encoding="utf-8")
     assert "ManifestTtsAdapter" in source
     assert "TtsManifestCatalog" in source
     for old_module in (
@@ -162,6 +171,50 @@ def test_orchestrator_tts_hot_swap_is_manifest_only():
     ):
         assert old_module not in source
     assert "await previous.unload()" in source
+
+
+def test_runtime_supervisor_owns_dynamic_ports_and_has_no_model_name_dispatch():
+    source = (_repo_root() / "runtime" / "inference" / "tts_plugins" / "runtime_supervisor.py").read_text(encoding="utf-8")
+    assert 'sock.bind(("127.0.0.1", 0))' in source
+    assert "subprocess.Popen" in source
+    assert "runtime_profile" in source
+    assert "8098" not in source
+    assert "8099" not in source
+    for model_name in ("omnivoice", "higgs", "moss", "voxcpm", "xtts"):
+        assert model_name not in source.lower()
+
+
+def test_unused_runtime_profiles_do_not_spawn_workers(tmp_path: Path):
+    profile_file = tmp_path / "runtime_profiles.json"
+    profile_file.write_text(json.dumps({
+        "schema_version": 1,
+        "profiles": {
+            "core": {
+                "interpreter": "missing/python.exe",
+                "startup_timeout_seconds": 1,
+                "idle_timeout_seconds": 1,
+                "environment": {},
+                "provisioning": {},
+            }
+        },
+    }), encoding="utf-8")
+    manifest_dir = tmp_path / "manifests"
+    manifest_dir.mkdir()
+    (manifest_dir / "future.json").write_text(json.dumps(_fake_manifest_dict()), encoding="utf-8")
+    supervisor = TtsRuntimeSupervisor(
+        manifest_catalog=TtsManifestCatalog(manifest_dir).load(),
+        profile_catalog=RuntimeProfileCatalog(profile_file).load(),
+        project_root=tmp_path,
+        log_dir=tmp_path / "logs",
+    )
+
+    async def exercise():
+        state = await supervisor.status()
+        assert state["active_model_id"] is None
+        assert state["profiles"][0]["running"] is False
+        assert state["profiles"][0]["installed"] is False
+
+    asyncio.run(exercise())
 
 
 def test_obsolete_concrete_tts_adapter_files_are_removed():
@@ -181,16 +234,22 @@ def test_synthetic_new_manifest_routes_without_daemon_model_branch(tmp_path: Pat
     manifest = catalog.resolve("future")
     adapter = ManifestTtsAdapter(manifest, profiles_root=tmp_path, catalog=catalog)
     assert adapter.manifest.model_id == "future-tts"
-    daemon_source = (
-        _repo_root() / "runtime" / "inference" / "server" / "main.py"
-    ).read_text(encoding="utf-8").lower()
+    daemon_source = (_repo_root() / "runtime" / "inference" / "server" / "main.py").read_text(encoding="utf-8").lower()
+    supervisor_source = (_repo_root() / "runtime" / "inference" / "tts_plugins" / "runtime_supervisor.py").read_text(encoding="utf-8").lower()
     assert "future-tts" not in daemon_source
+    assert "future-tts" not in supervisor_source
 
 
-def test_manifest_validation_rejects_missing_driver(tmp_path: Path):
+def test_manifest_validation_rejects_missing_driver_and_worker_topology(tmp_path: Path):
     raw = _fake_manifest_dict()
     raw.pop("driver")
     path = tmp_path / "bad.json"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(TtsManifestError):
+        TtsManifest.load(path)
+
+    raw = _fake_manifest_dict()
+    raw["worker"] = {"base_url": "http://127.0.0.1:9999"}
     path.write_text(json.dumps(raw), encoding="utf-8")
     with pytest.raises(TtsManifestError):
         TtsManifest.load(path)
@@ -199,10 +258,7 @@ def test_manifest_validation_rejects_missing_driver(tmp_path: Path):
 def test_generic_controller_load_stream_wav_capabilities_clone_reference_and_unload(tmp_path: Path, monkeypatch):
     manifest_dir = tmp_path / "manifests"
     manifest_dir.mkdir()
-    (manifest_dir / "future.json").write_text(
-        json.dumps(_fake_manifest_dict()),
-        encoding="utf-8",
-    )
+    (manifest_dir / "future.json").write_text(json.dumps(_fake_manifest_dict()), encoding="utf-8")
     created_drivers = []
 
     def create_fake_driver(manifest):
@@ -244,10 +300,12 @@ def test_generic_controller_load_stream_wav_capabilities_clone_reference_and_unl
     asyncio.run(exercise())
 
 
-def test_run_script_uses_generic_hosts_and_single_daemon():
+def test_run_script_starts_only_daemon_and_supervisor_starts_tts_on_demand():
     run_script = (_repo_root() / "run.bat").read_text(encoding="utf-8")
-    assert "tts_host\\server.py --port 8098" in run_script
-    assert "tts_host\\server.py --port 8099" in run_script
     assert "inference\\server\\main.py" in run_script
-    assert "tts_plugin_main.py" not in run_script
-    assert "xtts_main.py" not in run_script
+    assert "tts_host\\server.py" not in run_script
+    assert "8098" not in run_script
+    assert "8099" not in run_script
+    assert "runtime-profile supervisor" in run_script
+    assert not (_repo_root() / "install_xtts_worker.bat").exists()
+    assert (_repo_root() / "scripts" / "manage_runtime_profile.py").exists()

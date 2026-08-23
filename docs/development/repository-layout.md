@@ -7,14 +7,13 @@ This document is the routing map for human and AI developers. Put behavior in th
 ```text
 VoxPassport/
 ├── apps/
-│   ├── client/              Shared Expo + React Native + React Native Web UI
-│   ├── desktop/             Thin Tauri desktop shell; no duplicate product UI
+│   ├── client/              Canonical Expo + React Native + React Native Web UI
 │   ├── browser-extension/   Browser-specific integration only
 │   └── desktop-companion/   LEGACY migration source; not architectural target
-├── runtime/                 Python inference/runtime implementation
+├── runtime/                 Python inference/runtime and local service
 ├── crates/                  Native/shared Rust audio and protocol components
 ├── configs/                 User/operator configuration examples
-├── native/                  Native artifacts outside the Rust workspace when needed
+├── native/                  OS integration/driver artifacts when needed
 ├── tests/                   Python/integration/architecture tests
 ├── benchmarks/              Reproducible model/runtime benchmarks
 ├── scripts/                 Developer/admin utilities; not production modules
@@ -22,38 +21,46 @@ VoxPassport/
 └── .agents/plans/           pending / in-progress / completed implementation plans
 ```
 
-## `apps/client` — shared product UI
+There is deliberately **no canonical `apps/desktop` product shell**. The product UI remains `apps/client` under Expo. Desktop system integration is provided behind local-runtime/native service contracts rather than by embedding the Expo UI in a second application framework.
 
-`apps/client` is the canonical frontend. It owns screens, presentation state, typed API clients, client-side settings, and low-frequency UI events.
+## `apps/client` — canonical universal product UI
+
+`apps/client` owns screens, presentation state, typed API clients, client-side settings, Expo audio/media integration where supported, and session/control UI for Android, iOS, and web/PWA.
 
 It must not own:
 
 - Python/model process lifecycle implementation;
 - CUDA/model-library details;
-- realtime PCM processing;
 - Windows WASAPI/CoreAudio/PipeWire implementation;
+- system virtual-microphone drivers;
+- high-frequency PCM processing that belongs in native/runtime code;
 - model-name-specific process routing;
 - hard-coded provider topology;
-- iframe/eval/fetch monkey-patching.
+- iframe/eval/fetch monkey-patching;
+- Tauri-specific IPC or dependencies.
 
-Platform-specific files (`*.native.ts`, `*.web.ts`) are acceptable only when the platform genuinely requires different behavior.
+Platform-specific Expo/React Native files (`*.native.ts`, `*.web.ts`, and narrowly scoped platform modules) are acceptable when the platform genuinely requires different behavior.
 
-## `apps/desktop` — installable desktop shell
+## Desktop use of the Expo client
 
-`apps/desktop` packages the exported `apps/client` web build in Tauri. It owns desktop application lifecycle and the narrow IPC boundary to native capabilities.
+Desktop is an immediate use case, but it does not get a second UI architecture. `apps/client` remains the product frontend.
 
-The desktop shell may expose typed commands such as:
+Desktop-native capabilities such as:
 
-- local runtime status/start/stop;
+- physical microphone capture;
+- Windows WASAPI loopback capture;
 - audio endpoint enumeration;
-- selected audio route state;
-- system integration state.
+- translated-audio routing;
+- a real system virtual-microphone endpoint;
+- process/driver lifecycle;
 
-It must not duplicate Translator, Models, Voice Profiles, Settings, or other product screens. Realtime PCM must stay in native/runtime code rather than crossing the React/Tauri command boundary.
+belong behind stable local-runtime/native contracts. The Expo client consumes status/configuration/session APIs and does not carry raw realtime PCM through a UI-specific bridge.
+
+An installable web/PWA experience can be produced from the Expo web target. Any future alternative desktop packaging mechanism must be an explicit architecture decision; do not introduce Tauri or another shell implicitly.
 
 ## `apps/browser-extension` — optional browser integration
 
-The browser extension is for browser-specific integration and overlays. It is not the primary desktop audio transport. Core desktop translation should work through native audio routing/virtual endpoints without requiring a Zoom/Meet-specific extension.
+The browser extension is for browser-specific overlays and integration. It is not the core desktop audio transport. Core desktop translation should be communication-platform independent wherever native/system audio routing permits it.
 
 ## `apps/desktop-companion` — legacy only
 
@@ -67,19 +74,19 @@ For each legacy patch behavior:
 2. fix or replace the owning implementation;
 3. preserve only enduring domain behavior in a proper abstraction;
 4. delete the patch when its required behavior is covered;
-5. do not copy the patch into the new client under a cleaner filename.
+5. do not copy the patch into the Expo client under a cleaner filename.
 
 ## `runtime` — Python inference and local service
 
-The Python runtime owns model/inference behavior, the local HTTP/session API, GPU/model process supervision, registry/manifests, voice-profile processing, and provider/runtime adapters.
+The Python runtime owns model/inference behavior, the local HTTP/session API, GPU/model process supervision, registry/manifests, voice-profile processing, provider/runtime adapters, and coordination with native desktop audio services where applicable.
 
-The UI should consume stable capability/API contracts rather than import or reproduce Python implementation details.
+The UI consumes stable capability/API contracts rather than importing or reproducing Python implementation details.
 
 Direct speech-to-speech providers and the modular `VAD -> ASR -> NMT -> TTS` pipeline are translation strategies behind runtime/session contracts, not communication-platform-specific implementations.
 
 ## `crates` — native/shared Rust
 
-Rust crates own portable native contracts and OS-specific native implementations.
+Rust crates own reusable native audio/protocol code that is independent of the Expo UI framework.
 
 Current direction:
 
@@ -90,7 +97,9 @@ crates/
 └── audio-windows/   Windows Core Audio/WASAPI implementation
 ```
 
-Future macOS/Linux implementations should satisfy the same `audio-core` platform contracts rather than require client-screen changes.
+Future macOS/Linux implementations should satisfy the same portable contracts rather than require product-screen changes.
+
+These crates may be used by a local native audio service/helper or other explicitly approved integration boundary. Their existence does not imply a Tauri desktop application.
 
 ## Where a change belongs
 
@@ -98,14 +107,20 @@ Future macOS/Linux implementations should satisfy the same `audio-core` platform
 Change Translator/Settings/Models UI
     -> apps/client
 
-Change desktop window/process/native command bridge
-    -> apps/desktop
+Change Expo client platform behavior
+    -> apps/client platform-specific module
+
+Change local runtime/session API
+    -> runtime
 
 Change Windows audio device/capture/loopback behavior
     -> crates/audio-windows
 
 Change portable audio abstractions
     -> crates/audio-core
+
+Change system virtual-microphone driver/helper
+    -> native and/or native audio service code
 
 Change inference/model/provider behavior
     -> runtime/inference
@@ -128,16 +143,17 @@ Add developer one-off migration/admin command
 - Name modules after their enduring responsibility, not why they were added.
 - Do not create `*-fixes.*`, `*-patch.*`, `new-*`, `old-*`, or numbered replacement files in canonical application code.
 - A temporary compatibility module must live under an explicitly named `legacy`/`compat` boundary, explain its removal condition, and have a tracked migration plan.
-- Do not use `desktop` to describe a browser page. `apps/desktop` means the installable native shell.
+- Do not create `apps/desktop` or add Tauri dependencies unless the architecture is explicitly changed in the plan first.
 - Do not use `model-manager` for an application surface that owns unrelated product workflows.
 
 ## Architectural invariants
 
-1. One canonical shared UI: `apps/client`.
-2. Desktop is an installable shell plus native capabilities, not a second UI.
-3. Audio realtime path stays native/runtime-side.
+1. One canonical product UI: `apps/client` using Expo + React Native + React Native Web.
+2. Desktop priority does not create a second UI framework.
+3. Desktop-native audio/driver work stays behind runtime/native contracts.
 4. Communication platform and inference provider are independent axes.
 5. Providers/models are selected by capabilities/contracts rather than UI model-name branches.
 6. Local/self-hosted operation does not depend on VoxPassport Cloud.
-7. Mobile is deferred; shared client contracts must remain mobile-compatible.
+7. Mobile implementation can be deferred without compromising the universal Expo client architecture.
 8. Legacy patch files are removed by correcting their causes, not consolidated wholesale.
+9. Tauri is not part of the current architecture.

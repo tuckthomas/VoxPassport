@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "model_id": "higgs-tts-3-q4_k_m",
   "display_name": "Higgs TTS 3 Q4_K_M (Native CUDA)",
   "aliases": [
@@ -7,6 +7,7 @@
     "higgs-native",
     "higgs-native-q4"
   ],
+  "runtime_profile": "core",
   "driver": {
     "entrypoint": "runtime.workers.tts_host.drivers.higgs_native:HiggsNativeDriver",
     "options": {
@@ -14,10 +15,6 @@
       "device": 0,
       "threads": 4
     }
-  },
-  "worker": {
-    "base_url": "http://127.0.0.1:8098",
-    "base_url_env": "VOXPASSPORT_TTS_HOST_URL"
   },
   "capabilities": {
     "languages": ["en", "ro", "es", "fr", "de", "it"],

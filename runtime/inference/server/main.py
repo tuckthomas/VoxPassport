@@ -44,6 +44,10 @@ from runtime.inference.scheduler.degraded_mode_scheduler import DegradedModeSche
 from runtime.inference.server.caption_server import CaptionServer
 from runtime.inference.server.model_manager_api import ModelManagerController
 from runtime.inference.server.resource_monitor import ResourceSnapshotCollector
+from runtime.inference.remote_runtime import (
+    RemoteAsrAdapter, RemoteEndpoint, RemoteEndpointStore, RemoteTranslationAdapter,
+    RemoteTtsAdapter, remote_model_id,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("VoxPassportDaemon")
@@ -66,6 +70,8 @@ class LiveTranslatorApp:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.profiles_dir = self.data_dir / "voice_profiles"
         self.profiles_dir.mkdir(parents=True, exist_ok=True)
+        self._model_settings_path = self.data_dir / "model_settings.json"
+        self._model_store_dir = self._load_model_store_dir()
 
         self.registry = ModelRegistry(self.data_dir / "registry.json")
         self.registry.load()
@@ -111,9 +117,11 @@ class LiveTranslatorApp:
         self.discovery_agent = ModelDiscoveryAgent(registry=self.registry, scan_interval_hours=24.0)
         self.model_manager = ModelManagerController(
             self.registry,
-            model_store_dir=PROJECT_ROOT / "models",
-            staging_dir=PROJECT_ROOT / "models" / ".staging",
+            model_store_dir=self._model_store_dir,
+            staging_dir=self._model_store_dir / ".staging",
         )
+        self.remote_endpoints = RemoteEndpointStore(self.data_dir / "remote_endpoints.json")
+        self._register_remote_endpoints()
         self.resource_monitor = ResourceSnapshotCollector()
         self._resource_ws_clients: set[object] = set()
         self._resource_stream_task: asyncio.Task | None = None
@@ -123,6 +131,52 @@ class LiveTranslatorApp:
         self._runtime_idle_task: asyncio.Task | None = None
         self._runtime_activity_lock = asyncio.Lock()
         self._runtime_last_activity = 0.0
+
+    def _load_model_store_dir(self) -> Path:
+        try:
+            configured = json.loads(self._model_settings_path.read_text(encoding="utf-8")).get("model_store_dir")
+            if configured:
+                return Path(str(configured)).expanduser().resolve()
+        except Exception:
+            pass
+        return PROJECT_ROOT / "models"
+
+    def _save_model_store_dir(self, location: str) -> str:
+        candidate = Path(location).expanduser().resolve()
+        candidate.mkdir(parents=True, exist_ok=True)
+        self._model_store_dir = candidate
+        self.model_manager._model_store_dir = candidate
+        self.model_manager._staging_dir = candidate / ".staging"
+        self._model_settings_path.write_text(json.dumps({"model_store_dir": str(candidate)}, indent=2), encoding="utf-8")
+        return str(candidate)
+
+    def _register_remote_endpoints(self) -> None:
+        """Expose configured remote capabilities as normal installed model entries."""
+        for endpoint in self.remote_endpoints.list():
+            for capability_name in endpoint.capabilities:
+                model_id = remote_model_id(endpoint.endpoint_id, capability_name)
+                if self.registry.get_entry(model_id):
+                    continue
+                capability = ModelCapability.TRANSLATION if capability_name == "TRANSLATION" else ModelCapability(capability_name)
+                self.registry.register(ModelRegistryEntry(
+                    model_id=model_id, name=f"{endpoint.name} · {endpoint.selected_model_id or capability_name} (cloud)",
+                    family="remote-worker", provider="remote", capability=capability,
+                    upstream_id=endpoint.base_url, revision="remote", supported_source_languages=["*"],
+                    supported_target_languages=["*"], supports_english=True, supports_romanian=True,
+                    streaming_support=capability_name in {"TTS", "ASR"}, voice_cloning_support=capability_name == "TTS",
+                    cross_lingual_voice_cloning=capability_name == "TTS", required_runtime="remote_worker",
+                    min_runtime_version="v1", quantization_options=[], estimated_download_size_gb=0,
+                    installed_size_gb=0, expected_vram_tiers={}, expected_ram_gb=None, license="configured by operator",
+                    commercial_use="verify", redistribution="verify", trust_level="USER_ADDED",
+                    recommendation_state=RecommendationState.CANDIDATE,
+                    installation_status=InstallationStatus.INSTALLED, eligible_for_cleanup=False,
+                ))
+
+    def _remote_endpoint_for_model(self, model_id: str, capability: str) -> RemoteEndpoint | None:
+        parts = str(model_id).split("::")
+        if len(parts) != 3 or parts[0] != "remote" or parts[2] != capability:
+            return None
+        return self.remote_endpoints.get(parts[1])
 
     def _load_runtime_residency(self) -> str:
         """Load the user's model residency preference; ready is the safe default."""
@@ -226,7 +280,8 @@ class LiveTranslatorApp:
 
     def _active_tts_model(self) -> str:
         active = self.model_manager.get_active_slots().get("TTS")
-        return self._normalize_clone_model(active or self._selected_tts_model)
+        selected = active or self._selected_tts_model
+        return selected if str(selected).startswith("remote::") else self._normalize_clone_model(selected)
 
     def _register_external_tts_if_needed(self, canonical: str) -> None:
         if self.registry.get_entry(canonical):
@@ -355,6 +410,35 @@ class LiveTranslatorApp:
         previous = self.model_manager.get_active_slots().get(cap if cap != "TRANSLATION" else "NMT")
 
         try:
+            remote = self._remote_endpoint_for_model(canonical, cap)
+            if remote:
+                if cap == "ASR":
+                    adapter_en, adapter_ro = RemoteAsrAdapter(remote), RemoteAsrAdapter(remote)
+                    await adapter_en.load(); await adapter_ro.load()
+                    healthy = await adapter_en.health_check()
+                    if healthy:
+                        await self.orchestrator.set_asr_adapters(adapter_en, adapter_ro)
+                        self.asr_en, self.asr_ro = adapter_en, adapter_ro
+                elif cap == "TRANSLATION":
+                    adapter = RemoteTranslationAdapter(remote)
+                    await adapter.load()
+                    healthy = await adapter.health_check()
+                    if healthy:
+                        await self.orchestrator.set_translation_adapter(adapter)
+                        self.mt = adapter
+                elif cap == "TTS":
+                    adapter = RemoteTtsAdapter(remote)
+                    await adapter.load()
+                    healthy = await adapter.health_check()
+                    if healthy:
+                        await self.orchestrator.set_tts_adapter(adapter)
+                        self._selected_tts_model = canonical
+                else:
+                    raise ValueError("Remote VAD is intentionally not supported; it must remain local for realtime capture")
+                if not healthy:
+                    raise RuntimeError(f"Remote endpoint {remote.name!r} is not reachable")
+                return self.model_manager.set_active_model(cap, canonical)
+
             if cap == "TTS":
                 normalized = self._normalize_clone_model(canonical)
                 engine, _ = self._tts_engine_for_model(normalized)
@@ -522,6 +606,51 @@ class LiveTranslatorApp:
                 return web.json_response({"success": ok, "model_id": data.get("model_id")})
             except Exception as exc:
                 return web.json_response({"success": False, "error": str(exc)}, status=400)
+
+        async def api_model_pipeline(request):
+            data = await request.json()
+            try:
+                success = self.model_manager.set_pipeline_enabled(
+                    str(data.get("model_id", "")), bool(data.get("enabled", False))
+                )
+                return web.json_response({"success": success})
+            except Exception as exc:
+                return web.json_response({"success": False, "error": str(exc)}, status=400)
+
+        async def api_model_storage(request):
+            if request.method == "GET":
+                return web.json_response({"model_store_dir": str(self._model_store_dir)})
+            try:
+                data = await request.json()
+                path = self._save_model_store_dir(str(data.get("model_store_dir", "")))
+                return web.json_response({"success": True, "model_store_dir": path})
+            except Exception as exc:
+                return web.json_response({"success": False, "error": str(exc)}, status=400)
+
+        async def api_remote_endpoints(request):
+            if request.method == "GET":
+                return web.json_response([{
+                    "endpoint_id": x.endpoint_id, "name": x.name, "base_url": x.base_url,
+                    "capabilities": x.capabilities, "auth_token_env": x.auth_token_env, "selected_model_id": x.selected_model_id,
+                } for x in self.remote_endpoints.list()])
+            data = await request.json()
+            try:
+                endpoint = self.remote_endpoints.upsert(
+                    name=str(data.get("name", "")), base_url=str(data.get("base_url", "")),
+                    capabilities=data.get("capabilities", []), auth_token_env=str(data.get("auth_token_env", "")),
+                    endpoint_id=str(data.get("endpoint_id", "")), selected_model_id=str(data.get("selected_model_id", "")),
+                )
+                self._register_remote_endpoints()
+                return web.json_response({"success": True, "endpoint_id": endpoint.endpoint_id})
+            except Exception as exc:
+                return web.json_response({"success": False, "error": str(exc)}, status=400)
+
+        async def api_remote_endpoint_delete(request):
+            endpoint_id = request.match_info["endpoint_id"]
+            active = set(filter(None, self.model_manager.get_active_slots().values()))
+            if any(remote_model_id(endpoint_id, cap) in active for cap in ("ASR", "TRANSLATION", "TTS")):
+                return web.json_response({"success": False, "error": "Switch active cloud slots before removing this endpoint"}, status=409)
+            return web.json_response({"success": self.remote_endpoints.delete(endpoint_id)})
 
         async def api_resources(request):
             snapshot = await asyncio.to_thread(self.resource_monitor.snapshot)
@@ -1090,6 +1219,10 @@ class LiveTranslatorApp:
         app.router.add_get("/api/models/installed", api_models_installed)
         app.router.add_get("/api/models/progress", api_models_progress)
         app.router.add_post("/api/models/active", api_models_active)
+        app.router.add_post("/api/models/pipeline", api_model_pipeline)
+        app.router.add_route("*", "/api/settings/model-storage", api_model_storage)
+        app.router.add_route("*", "/api/remote-endpoints", api_remote_endpoints)
+        app.router.add_delete("/api/remote-endpoints/{endpoint_id}", api_remote_endpoint_delete)
         app.router.add_post("/api/models/install", api_models_install)
         app.router.add_post("/api/models/uninstall", api_models_uninstall)
         app.router.add_post("/api/models/discover", api_models_discover)
@@ -1139,21 +1272,35 @@ class LiveTranslatorApp:
     async def start(self) -> None:
         logger.info("Initializing VoxPassport daemon")
         self.model_manager.ensure_native_higgs_registered()
-        persisted_tts = self._normalize_clone_model(
-            self.model_manager.get_active_slots().get("TTS") or self._selected_tts_model
-        )
-        persisted_tts_engine, _ = self._tts_engine_for_model(persisted_tts)
+        saved_tts = self.model_manager.get_active_slots().get("TTS") or self._selected_tts_model
+        persisted_tts = saved_tts if str(saved_tts).startswith("remote::") else self._normalize_clone_model(saved_tts)
+        remote_tts = self._remote_endpoint_for_model(persisted_tts, "TTS") if str(persisted_tts).startswith("remote::") else None
+        persisted_tts_engine = RemoteTtsAdapter(remote_tts) if remote_tts else self._tts_engine_for_model(persisted_tts)[0]
         self.orchestrator.tts_adapter_ro = persisted_tts_engine
         self.orchestrator.tts_adapter_en = persisted_tts_engine
         self._selected_tts_model = persisted_tts
+        active_slots = self.model_manager.get_active_slots()
+        persisted_asr = active_slots.get("ASR")
+        remote_asr = self._remote_endpoint_for_model(persisted_asr, "ASR") if persisted_asr else None
+        if remote_asr:
+            self.asr_en, self.asr_ro = RemoteAsrAdapter(remote_asr), RemoteAsrAdapter(remote_asr)
+            self.orchestrator.asr_adapter_en, self.orchestrator.asr_adapter_ro = self.asr_en, self.asr_ro
+        persisted_translation = active_slots.get("TRANSLATION")
+        remote_translation = self._remote_endpoint_for_model(persisted_translation, "TRANSLATION") if persisted_translation else None
+        if remote_translation:
+            self.mt = RemoteTranslationAdapter(remote_translation)
+            self.orchestrator.mt_adapter = self.mt
         logger.info("Restored persisted TTS engine before pipeline startup: %s", persisted_tts)
         await self.caption_server.start()
+        # Bring up the control plane before heavyweight local models finish
+        # loading. This keeps Model Settings reachable for users who need to
+        # move one or more capabilities to a cloud worker because of VRAM.
+        await self._setup_http_server()
         if self._runtime_residency == "ready":
             await self.orchestrator.start()
         else:
             logger.info("On Demand model residency enabled; deferring inference model loading")
         await self._mark_default_runtime_models()
-        await self._setup_http_server()
         await self.scheduler.start()
         await self.discovery_agent.start()
         logger.info("VoxPassport daemon is online")

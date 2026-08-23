@@ -93,6 +93,9 @@ class ModelRegistryEntry:
     is_active: bool = False
     is_pinned: bool = False
     eligible_for_cleanup: bool = True
+    # Controls whether an otherwise known model appears in Active Engines.
+    # Model Hub continues to expose it for download or cloud configuration.
+    is_pipeline_enabled: bool = True
 
     # Trust
     requires_remote_code: bool = False

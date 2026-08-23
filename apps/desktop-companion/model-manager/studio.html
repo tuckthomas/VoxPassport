@@ -239,34 +239,35 @@
     .runtime-mode-switch .runtime-switch-face {
       position: relative;
       display: block;
-      width: 164px;
+      width: 182px;
       height: 36px;
       border: 0;
       background: transparent;
     }
 
     .runtime-mode-switch .runtime-position {
-      position: relative;
+      position: absolute;
       z-index: 1;
-      top: 14px;
-      display: block;
-      height: 10px;
-      line-height: 10px;
-      white-space: nowrap;
+      top: 0;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1.05;
       color: #6b7280;
       transition: color 0.15s ease;
     }
 
     .runtime-mode-switch .runtime-ready-label {
       position: absolute;
-      left: 0;
-      width: 54px;
+      left: 13px;
+      width: 50px;
       text-align: center;
     }
 
     .runtime-mode-switch .runtime-demand-label {
       position: absolute;
-      right: 0;
+      right: 13px;
       width: 54px;
       text-align: center;
     }
@@ -321,6 +322,29 @@
     .runtime-mode-switch input:not(:checked) + .runtime-switch-face .runtime-ready-label,
     .runtime-mode-switch input:checked + .runtime-switch-face .runtime-demand-label {
       color: #f8fafc;
+    }
+
+    .runtime-mode-light {
+      position:absolute;
+      z-index:1;
+      top:14px;
+      width:7px;
+      height:7px;
+      border-radius:50%;
+      background:#26303a;
+      border:1px solid #05070a;
+      box-shadow:inset 0 1px 2px rgba(0,0,0,.8);
+      transition:background .15s ease, box-shadow .15s ease;
+    }
+    .runtime-ready-light { left:2px; }
+    .runtime-demand-light { right:2px; }
+    .runtime-mode-switch input:not(:checked) + .runtime-switch-face .runtime-ready-light {
+      background:#34d399;
+      box-shadow:0 0 8px #34d399, 0 0 15px rgba(52,211,153,.55);
+    }
+    .runtime-mode-switch input:checked + .runtime-switch-face .runtime-demand-light {
+      background:#60a5fa;
+      box-shadow:0 0 8px #60a5fa, 0 0 15px rgba(96,165,250,.55);
     }
 
     .runtime-mode-switch:focus-within {
@@ -1266,6 +1290,46 @@
     .btn-card-trash:active {
       transform: scale(0.92);
     }
+
+    .btn-engine-menu {
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      width:18px;
+      height:18px;
+      padding:0;
+      border:0;
+      border-radius:4px;
+      background:transparent;
+      color:#94a3b8;
+      font-size:18px;
+      line-height:1;
+      cursor:pointer;
+    }
+    .btn-engine-menu:hover { color:#f8fafc; background:rgba(148,163,184,.14); }
+
+    .engine-overflow-menu {
+      box-sizing: border-box;
+      width: 212px;
+      min-width: 212px !important;
+      padding: 6px !important;
+    }
+    .engine-overflow-menu .custom-dropdown-item {
+      box-sizing: border-box;
+      width: 100%;
+      justify-content: flex-start;
+      text-align: left;
+      font: inherit;
+    }
+    .engine-menu-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 16px;
+      color: #94a3b8;
+      flex: 0 0 16px;
+    }
+    .engine-overflow-menu .custom-dropdown-item:hover:not(.disabled) .engine-menu-icon { color: #dbeafe; }
 
     .live-download-button {
       display: inline-flex;
@@ -2307,11 +2371,13 @@
     </div>
 
     <div class="header-actions">
-      <label class="runtime-mode-switch" id="runtimeModeButton" data-tooltip="Ready keeps active models loaded. On Demand unloads them after idle time to reduce GPU usage." data-tooltip-pos="bottom">
+      <label class="runtime-mode-switch" id="runtimeModeButton">
         <input id="runtimeModeInput" type="checkbox" onchange="toggleRuntimeResidency()" aria-label="Switch between Ready and On Demand model modes">
         <span class="runtime-switch-face" aria-hidden="true">
-          <span class="runtime-position runtime-ready-label">READY</span>
-          <span class="runtime-position runtime-demand-label">ON DEMAND</span>
+          <span class="runtime-mode-light runtime-ready-light"></span>
+          <span class="runtime-position runtime-ready-label" data-tooltip="Ready keeps active models loaded for the lowest latency." data-tooltip-pos="bottom">READY</span>
+          <span class="runtime-position runtime-demand-label" data-tooltip="On Demand unloads idle models to reduce GPU memory usage." data-tooltip-pos="bottom">ON<br>DEMAND</span>
+          <span class="runtime-mode-light runtime-demand-light"></span>
           <span class="runtime-switch-indicator"></span>
         </span>
       </label>
@@ -2820,7 +2886,7 @@
 
       </div> <!-- /#viewVoiceStudio -->
 
-      <!-- View 3: Model Configuration & Hugging Face Hub (Tabular Studio Layout) -->
+      <!-- View 3: Model Configuration & Model Hub (Tabular Studio Layout) -->
       <div class="editor-grid" id="viewModelConfig" style="display:none; grid-template-columns: 1fr; height: 100%; overflow: hidden; padding: 20px; box-sizing: border-box;">
         
         <div class="editor-pane" style="max-width: 1080px; margin: 0 auto; width: 100%; height: 100%; max-height: 100%; border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); background: var(--bg-surface); overflow: hidden; display: flex; flex-direction: column;">
@@ -2833,7 +2899,11 @@
             </button>
             <button class="studio-tab" id="tabBtnHfHub" onclick="switchModelHubTab('hfhub')">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-              <span>Hugging Face Hub</span>
+              <span>Model Hub</span>
+            </button>
+            <button class="studio-tab" id="tabBtnConfiguration" onclick="switchModelHubTab('configuration')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.1 2.1-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V20h-3v-.09A1.7 1.7 0 0 0 10.7 18.35a1.7 1.7 0 0 0-1.88.34l-.06.06-2.1-2.1.06-.06A1.7 1.7 0 0 0 7.06 14.7 1.7 1.7 0 0 0 5.5 13.67H5v-3h.09A1.7 1.7 0 0 0 6.65 9.64a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.1-2.1.06.06a1.7 1.7 0 0 0 1.88.34A1.7 1.7 0 0 0 11.33 4.5V4h3v.09A1.7 1.7 0 0 0 15.36 5.65a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.1 2.1-.06.06A1.7 1.7 0 0 0 19 9.3a1.7 1.7 0 0 0 1.5 1.03h.5v3h-.09A1.7 1.7 0 0 0 19.4 15z"></path></svg>
+              <span>Configuration</span>
             </button>
           </div>
 
@@ -2904,14 +2974,14 @@
 
             </div>
 
-            <!-- Tab Content 2: Hugging Face Model Discovery Hub -->
+            <!-- Tab Content 2: provider-neutral model discovery and deployment -->
             <div id="hubViewHfHub" style="display:none; flex-direction:column; gap:16px;">
               
               <!-- Search & Filter Controls with Recommended Default -->
               <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; background:#0b0f19; border:1px solid rgba(59,130,246,0.25); border-radius:var(--radius-lg); padding:12px 16px;">
                 <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:240px;">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2.2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                  <input type="text" id="hfSearchInput" class="input-field" placeholder="Search Hugging Face models by name, provider, or repo ID..." style="border:none; background:transparent; padding:0; height:32px; box-shadow:none;" oninput="filterHfCatalog()">
+                  <input type="text" id="hfSearchInput" class="input-field" placeholder="Search models by name, publisher, or repository ID..." style="border:none; background:transparent; padding:0; height:32px; box-shadow:none;" oninput="filterHfCatalog()">
                 </div>
                 <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
                   <button class="hf-filter-pill active" id="hfPillRecommended" onclick="toggleHfRecommendedFilter()" data-tooltip="Toggle hardware-optimized models for your GPU/RAM">✨ Recommended for Your PC</button>
@@ -2921,6 +2991,11 @@
                   <button class="hf-filter-pill hf-category-pill" data-filter="ASR" onclick="setHfCategoryFilter('ASR')">ASR</button>
                   <button class="hf-filter-pill hf-category-pill" data-filter="TRANSLATION" onclick="setHfCategoryFilter('TRANSLATION')">Translation</button>
                   <button class="hf-filter-pill hf-category-pill" data-filter="VAD" onclick="setHfCategoryFilter('VAD')">VAD</button>
+                  <span style="width:1px; height:18px; background:rgba(255,255,255,0.15); margin:0 2px;"></span>
+                  <button class="hf-filter-pill hf-provider-pill active" data-provider="ALL" onclick="setHfProviderFilter('ALL')">Any Cloud</button>
+                  <button class="hf-filter-pill hf-provider-pill" data-provider="AWS" onclick="setHfProviderFilter('AWS')">AWS</button>
+                  <button class="hf-filter-pill hf-provider-pill" data-provider="GOOGLE_COLAB" onclick="setHfProviderFilter('GOOGLE_COLAB')">Google Colab</button>
+                  <button class="hf-filter-pill hf-provider-pill" data-provider="PRIVATE_VPS" onclick="setHfProviderFilter('PRIVATE_VPS')">Private VPS</button>
                   <button class="btn-action-outline" id="btnTriggerDiscovery" onclick="triggerHfDiscovery()" style="padding:6px 14px; font-size:12px; display:inline-flex; align-items:center; gap:6px;">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
                     <span>Scan Hugging Face</span>
@@ -2935,6 +3010,34 @@
 
             </div>
 
+            <!-- Tab Content 3: Cloud profiles and local model storage -->
+            <div id="hubViewConfiguration" style="display:none; flex-direction:column; gap:18px;">
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:16px;">
+                <section class="profile-card" style="padding:18px;">
+                  <div class="hub-section-title" style="margin-bottom:12px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg><span>Default Model Storage</span></div>
+                  <p style="font-size:12px; color:var(--text-muted); margin:0 0 12px; line-height:1.5;">Choose where newly downloaded local models and staging files are stored.</p>
+                  <form onsubmit="saveModelStorage(event)" style="display:flex; gap:8px; align-items:center;">
+                    <input id="modelStoragePath" class="input-field" required placeholder="D:\\Models" style="height:38px; flex:1; min-width:0; font-size:12px;">
+                    <button class="btn-action-sm edit" type="submit" data-tooltip="Save default model location" data-tooltip-pos="top">Save</button>
+                  </form>
+                </section>
+                <section class="profile-card" style="padding:18px;">
+                  <div class="hub-section-title" style="margin-bottom:12px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M17.5 19H9a7 7 0 1 1 6.7-9.1A5 5 0 1 1 17.5 19z"></path></svg><span>Create Cloud Profile</span></div>
+                  <form onsubmit="saveCloudConfigurationProfile(event)" style="display:flex; flex-direction:column; gap:8px;">
+                    <input id="cloudProfileName" class="input-field" required placeholder="Profile name (e.g. AWS A10G)" style="height:38px; font-size:12px;">
+                    <input id="cloudProfileUrl" class="input-field" required type="url" placeholder="https://worker.example.com" style="height:38px; font-size:12px;">
+                    <input id="cloudProfileTokenEnv" class="input-field" placeholder="Optional token environment variable" style="height:38px; font-size:12px;">
+                    <div style="display:flex; gap:12px; flex-wrap:wrap; color:var(--text-muted); font-size:12px;"><label><input type="checkbox" name="cloudProfileCapability" value="ASR" checked> ASR</label><label><input type="checkbox" name="cloudProfileCapability" value="TRANSLATION"> Translation</label><label><input type="checkbox" name="cloudProfileCapability" value="TTS"> TTS</label></div>
+                    <button class="btn-action-sm edit" type="submit" style="align-self:flex-start;">Create Profile</button>
+                  </form>
+                </section>
+              </div>
+              <section>
+                <div class="hub-section-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 3v18h18"></path><path d="M7 16l4-5 3 3 5-7"></path></svg><span>Cloud Configuration Profiles</span></div>
+                <div class="hf-models-grid" id="cloudConfigurationProfiles"></div>
+              </section>
+            </div>
+
           </div>
 
         </div>
@@ -2947,6 +3050,20 @@
 
   <div class="toast-box" id="toastBox"></div>
   <audio id="globalAudioPlayer" style="display:none;"></audio>
+
+  <div id="cloudDeployModal" class="modal-overlay" style="display:none; z-index:10000; align-items:center; justify-content:center; padding:16px;">
+    <div class="modal-card" style="max-width:520px; width:100%; padding:22px;">
+      <div class="modal-header"><div><div class="modal-title">Configure Cloud Deployment</div><div id="cloudDeployModelLabel" style="font-size:13px; color:var(--text-muted); margin-top:4px;"></div></div><button class="btn-modal-close" type="button" onclick="closeCloudDeployModal()">×</button></div>
+      <div class="modal-instructions">Use a worker you control on Colab, AWS, or a private VPS. The access token is read from your environment; its value is never saved in VoxPassport.</div>
+      <form onsubmit="saveCloudDeployment(event)" style="display:flex; flex-direction:column; gap:12px; margin-top:16px;">
+        <input id="cloudDeployName" class="input-field" required placeholder="Deployment name (e.g. AWS A10G)" style="height:40px; font-size:13px;">
+        <input id="cloudDeployUrl" class="input-field" required type="url" placeholder="https://worker.example.com" style="height:40px; font-size:13px;">
+        <input id="cloudDeployTokenEnv" class="input-field" placeholder="Optional token environment variable" style="height:40px; font-size:13px;">
+        <div style="font-size:12px; color:var(--text-muted);">The worker must implement the VoxPassport remote-worker HTTP contract. HTTPS is required except for localhost.</div>
+        <div class="modal-footer"><button class="btn-action-outline" type="button" onclick="closeCloudDeployModal()">Cancel</button><button class="btn-record-action" type="submit">Deploy to Cloud</button></div>
+      </form>
+    </div>
+  </div>
 
   <!-- Delete Voice Profile Confirmation Modal -->
   <div id="deleteConfirmModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75); backdrop-filter:blur(4px); z-index:9999; align-items:center; justify-content:center; padding:16px;">
@@ -2991,7 +3108,7 @@
       <div style="font-size:13px; color:#cbd5e1; line-height:1.5; background:#0b0f19; border:1px solid #1e293b; border-radius:6px; padding:14px;">
         Are you sure you want to delete and uninstall model <strong id="deleteTargetModelName" style="color:#f87171; font-weight:800;"></strong>?
         <div style="font-size:11.5px; color:#94a3b8; margin-top:8px;">
-          This action will delete all downloaded model weights and artifacts from local disk storage. The model will become available for re-download in the Hugging Face Hub.
+          This action will delete all downloaded model weights and artifacts from local disk storage. The model will remain available in Model Hub.
         </div>
       </div>
 
@@ -5304,6 +5421,8 @@
     let hfCatalogModels = [];
     let hfRecommendedOnly = true; // Composable Hardware Filter (Default: ON)
     let hfCategoryFilter = 'ALL'; // Composable Category Filter (Default: ALL)
+    let hfProviderFilter = 'ALL'; // Cloud deployment target filter
+    const cloudActiveModelIds = new Set();
     let activeAsrEngine = 'nvidia-parakeet-tdt-0.6b-v3';
     let activeNmtEngine = 'xiaomi-milmmt-46-1b';
     let activeVadEngine = 'silero-vad-v4';
@@ -5454,6 +5573,16 @@
     function modelMetadataFor(id) {
       const clean = String(id || '').trim().toLowerCase();
       return modelMetadataById.get(clean) || modelMetadataById.get(normalizeModelId(clean)) || {};
+    }
+
+    function isPipelineEnabled(id) {
+      return modelMetadataFor(id).is_pipeline_enabled !== false;
+    }
+
+    function renderCloudStatusIcon(model) {
+      const active = cloudActiveModelIds.has(String(model.id).toLowerCase()) || cloudActiveModelIds.has(normalizeModelId(model.id));
+      const label = active ? 'This model is running in the cloud' : 'This model is not running in the cloud';
+      return `<span aria-label="${label}" data-tooltip="${label}" data-tooltip-pos="top" style="display:inline-flex; color:${active ? '#f8fafc' : '#64748b'}; filter:${active ? 'drop-shadow(0 0 4px rgba(248,250,252,.65))' : 'none'};"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.5 19H9a7 7 0 1 1 6.7-9.1A5 5 0 1 1 17.5 19z"></path></svg></span>`;
     }
 
     function compactLicenseLabel(license) {
@@ -5683,9 +5812,9 @@
     function renderTtsModelWidgets() {
       const container = document.getElementById('ttsModelsContainer');
       if (!container) return;
-      const visible = TTS_MODEL_SPECS.filter(m => isModelInstalled(m.id));
+      const visible = TTS_MODEL_SPECS.filter(m => isModelInstalled(m.id) && isPipelineEnabled(m.id));
       if (visible.length === 0) {
-        container.innerHTML = `<div style="font-size:12px; color:var(--text-muted); padding:12px 4px; grid-column: 1 / -1;">No downloaded TTS models installed. Download models from the Hugging Face Hub.</div>`;
+        container.innerHTML = `<div style="font-size:12px; color:var(--text-muted); padding:12px 4px; grid-column: 1 / -1;">No downloaded TTS models installed. Download or configure a cloud deployment in Model Hub.</div>`;
         return;
       }
       container.innerHTML = visible.map(m => {
@@ -5702,10 +5831,9 @@
                 <span class="profile-name-text">${m.shortName}</span>
                 ${warnIcon}
                 <span class="profile-card-actions">
+                  ${renderCloudStatusIcon(m)}
                   ${renderModelLicenseIcon(m)}
-                  <button class="btn-card-trash" aria-label="Uninstall and delete ${m.shortName}" onclick="event.stopPropagation(); promptDeleteModel('${m.id}', '${m.name || m.shortName}')">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" data-tooltip="Uninstall and delete ${m.shortName}" data-tooltip-pos="top"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                  </button>
+                  ${renderEngineOverflow(m, 'TTS')}
                 </span>
               </div>
             </div>
@@ -5716,12 +5844,8 @@
               </span>
               <span class="profile-card-meta">${m.meta}</span>
             </div>
-            <div class="profile-btn-row" style="grid-template-columns: 1fr; margin-top:auto;">
-              <button class="btn-engine-toggle ${isActive ? 'active' : 'inactive'}" onclick="toggleActiveTtsEngine('${m.id}', '${m.name}')" data-tooltip="${isActive ? `${m.shortName} is active • Click to disable` : `Click to enable ${m.shortName}`}">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                <span>ENABLE</span>
-              </button>
-            </div>
+
+            ${renderDeploymentActions(m, 'TTS', isActive, `selectActiveTtsEngine('${m.id}', '${m.name}')`)}
           </div>
         `;
       }).join('');
@@ -5730,9 +5854,9 @@
     function renderAsrModelWidgets() {
       const container = document.getElementById('hubAsrModelsContainer');
       if (!container) return;
-      const visible = ASR_MODEL_SPECS.filter(m => isModelInstalled(m.id));
+      const visible = ASR_MODEL_SPECS.filter(m => isModelInstalled(m.id) && isPipelineEnabled(m.id));
       if (visible.length === 0) {
-        container.innerHTML = `<div style="font-size:12px; color:var(--text-muted); padding:12px 4px; grid-column: 1 / -1;">No downloaded ASR models installed. Download models from the Hugging Face Hub.</div>`;
+        container.innerHTML = `<div style="font-size:12px; color:var(--text-muted); padding:12px 4px; grid-column: 1 / -1;">No downloaded ASR models installed. Download or configure a cloud deployment in Model Hub.</div>`;
         return;
       }
       container.innerHTML = visible.map(m => {
@@ -5749,10 +5873,9 @@
                 <span class="profile-name-text">${m.shortName}</span>
                 ${warnIcon}
                 <span class="profile-card-actions">
+                  ${renderCloudStatusIcon(m)}
                   ${renderModelLicenseIcon(m)}
-                  <button class="btn-card-trash" aria-label="Uninstall and delete ${m.shortName}" onclick="event.stopPropagation(); promptDeleteModel('${m.id}', '${m.name || m.shortName}')">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" data-tooltip="Uninstall and delete ${m.shortName}" data-tooltip-pos="top"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                  </button>
+                  ${renderEngineOverflow(m, 'ASR')}
                 </span>
               </div>
             </div>
@@ -5763,12 +5886,7 @@
               </span>
               <span class="profile-card-meta">${m.meta}</span>
             </div>
-            <div class="profile-btn-row" style="grid-template-columns: 1fr; margin-top:auto;">
-              <button class="btn-engine-toggle ${isActive ? 'active' : 'inactive'}" onclick="selectActiveAsrEngine('${m.id}', '${m.name}')" data-tooltip="${isActive ? `${m.shortName} is enabled` : `Enable ${m.shortName}`}">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                <span>ENABLE</span>
-              </button>
-            </div>
+            ${renderDeploymentActions(m, 'ASR', isActive, `selectActiveAsrEngine('${m.id}', '${m.name}')`)}
           </div>
         `;
       }).join('');
@@ -5777,9 +5895,9 @@
     function renderNmtModelWidgets() {
       const container = document.getElementById('hubNmtModelsContainer');
       if (!container) return;
-      const visible = NMT_MODEL_SPECS.filter(m => isModelInstalled(m.id));
+      const visible = NMT_MODEL_SPECS.filter(m => isModelInstalled(m.id) && isPipelineEnabled(m.id));
       if (visible.length === 0) {
-        container.innerHTML = `<div style="font-size:12px; color:var(--text-muted); padding:12px 4px; grid-column: 1 / -1;">No downloaded translation models installed. Download models from the Hugging Face Hub.</div>`;
+        container.innerHTML = `<div style="font-size:12px; color:var(--text-muted); padding:12px 4px; grid-column: 1 / -1;">No downloaded translation models installed. Download or configure a cloud deployment in Model Hub.</div>`;
         return;
       }
       container.innerHTML = visible.map(m => {
@@ -5796,10 +5914,9 @@
                 <span class="profile-name-text">${m.shortName}</span>
                 ${warnIcon}
                 <span class="profile-card-actions">
+                  ${renderCloudStatusIcon(m)}
                   ${renderModelLicenseIcon(m)}
-                  <button class="btn-card-trash" aria-label="Uninstall and delete ${m.shortName}" onclick="event.stopPropagation(); promptDeleteModel('${m.id}', '${m.name || m.shortName}')">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" data-tooltip="Uninstall and delete ${m.shortName}" data-tooltip-pos="top"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                  </button>
+                  ${renderEngineOverflow(m, 'TRANSLATION')}
                 </span>
               </div>
             </div>
@@ -5810,12 +5927,7 @@
               </span>
               <span class="profile-card-meta">${m.meta}</span>
             </div>
-            <div class="profile-btn-row" style="grid-template-columns: 1fr; margin-top:auto;">
-              <button class="btn-engine-toggle ${isActive ? 'active' : 'inactive'}" onclick="selectActiveNmtEngine('${m.id}', '${m.name}')" data-tooltip="${isActive ? `${m.shortName} is enabled` : `Enable ${m.shortName}`}">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                <span>ENABLE</span>
-              </button>
-            </div>
+            ${renderDeploymentActions(m, 'TRANSLATION', isActive, `selectActiveNmtEngine('${m.id}', '${m.name}')`)}
           </div>
         `;
       }).join('');
@@ -5824,9 +5936,9 @@
     function renderVadModelWidgets() {
       const container = document.getElementById('hubVadModelsContainer');
       if (!container) return;
-      const visible = VAD_MODEL_SPECS.filter(m => isModelInstalled(m.id));
+      const visible = VAD_MODEL_SPECS.filter(m => isModelInstalled(m.id) && isPipelineEnabled(m.id));
       if (visible.length === 0) {
-        container.innerHTML = `<div style="font-size:12px; color:var(--text-muted); padding:12px 4px; grid-column: 1 / -1;">No downloaded VAD models installed. Download models from the Hugging Face Hub.</div>`;
+        container.innerHTML = `<div style="font-size:12px; color:var(--text-muted); padding:12px 4px; grid-column: 1 / -1;">No downloaded VAD models installed. Download a local VAD model in Model Hub.</div>`;
         return;
       }
       container.innerHTML = visible.map(m => {
@@ -5843,10 +5955,9 @@
                 <span class="profile-name-text">${m.shortName}</span>
                 ${warnIcon}
                 <span class="profile-card-actions">
+                  ${renderCloudStatusIcon(m)}
                   ${renderModelLicenseIcon(m)}
-                  <button class="btn-card-trash" aria-label="Uninstall and delete ${m.shortName}" onclick="event.stopPropagation(); promptDeleteModel('${m.id}', '${m.name || m.shortName}')">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" data-tooltip="Uninstall and delete ${m.shortName}" data-tooltip-pos="top"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                  </button>
+                  ${renderEngineOverflow(m, 'VAD')}
                 </span>
               </div>
             </div>
@@ -5857,12 +5968,7 @@
               </span>
               <span class="profile-card-meta">${m.meta}</span>
             </div>
-            <div class="profile-btn-row" style="grid-template-columns: 1fr; margin-top:auto;">
-              <button class="btn-engine-toggle ${isActive ? 'active' : 'inactive'}" onclick="selectActiveVadEngine('${m.id}', '${m.name}')" data-tooltip="${isActive ? `${m.shortName} is enabled` : `Enable ${m.shortName}`}">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                <span>ENABLE</span>
-              </button>
-            </div>
+            ${renderDeploymentActions(m, 'VAD', isActive, `selectActiveVadEngine('${m.id}', '${m.name}')`)}
           </div>
         `;
       }).join('');
@@ -5918,6 +6024,26 @@
         }
       } catch (e) {
         console.warn("Could not query live server active slots:", e);
+      }
+
+      cloudActiveModelIds.clear();
+      try {
+        const [statusResponse, endpointResponse] = await Promise.all([
+          fetch(`${API_URL}/status`),
+          fetch(`${API_URL}/remote-endpoints`),
+        ]);
+        const status = statusResponse.ok ? await statusResponse.json() : {};
+        const endpoints = endpointResponse.ok ? await endpointResponse.json() : [];
+        const activeSlots = status.active_slots || {};
+        endpoints.forEach(endpoint => {
+          const activeForCapability = activeSlots[endpoint.capabilities?.[0] === 'TRANSLATION' ? 'TRANSLATION' : endpoint.capabilities?.[0]];
+          if (String(activeForCapability || '').startsWith(`remote::${endpoint.endpoint_id}::`) && endpoint.selected_model_id) {
+            cloudActiveModelIds.add(String(endpoint.selected_model_id).toLowerCase());
+            cloudActiveModelIds.add(normalizeModelId(endpoint.selected_model_id));
+          }
+        });
+      } catch (e) {
+        console.warn("Could not query cloud deployment state:", e);
       }
 
       renderTtsModelWidgets();
@@ -6103,6 +6229,12 @@
       renderHfCatalog();
     }
 
+    function setHfProviderFilter(provider) {
+      hfProviderFilter = provider;
+      updateHfFilterPillsUI();
+      renderHfCatalog();
+    }
+
     function updateHfFilterPillsUI() {
       const recPill = document.getElementById('hfPillRecommended');
       if (recPill) {
@@ -6110,6 +6242,9 @@
       }
       document.querySelectorAll('.hf-category-pill').forEach(pill => {
         pill.classList.toggle('active', pill.dataset.filter === hfCategoryFilter);
+      });
+      document.querySelectorAll('.hf-provider-pill').forEach(pill => {
+        pill.classList.toggle('active', pill.dataset.provider === hfProviderFilter);
       });
     }
 
@@ -6217,6 +6352,9 @@
         const isInstalled = isModelInstalled(m.model_id);
         const cap = (m.capability || '').toUpperCase();
         const vramRequired = m.vram_required_gb || m.estimated_download_size_gb || 2.0;
+
+        // Installed models are managed from Active Engines, never from Model Hub.
+        if (isInstalled) return false;
         
         // 1. Recommended for PC constraint
         if (hfRecommendedOnly && vramRequired > limitVram) {
@@ -6230,6 +6368,13 @@
           } else if (cap !== hfCategoryFilter) {
             return false;
           }
+        }
+
+        // VAD remains on-device because it is in the realtime capture loop.
+        // Other catalog models are deployable through AWS, Colab, or VPS workers.
+        if (hfProviderFilter !== 'ALL') {
+          const providers = m.cloud_providers || (cap === 'VAD' ? [] : ['AWS', 'GOOGLE_COLAB', 'PRIVATE_VPS']);
+          if (!providers.includes(hfProviderFilter)) return false;
         }
 
         // 3. Search text constraint
@@ -6247,8 +6392,8 @@
         container.innerHTML = `
           <div style="grid-column: 1 / -1; padding: 40px; text-align:center; color:var(--text-dim);">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="margin-bottom:8px; opacity:0.5;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-            <div style="font-size:14px; font-weight:600; color:var(--text-body);">No downloadable Hugging Face models found matching current filter.</div>
-            <div style="font-size:12px; margin-top:4px;">All downloaded models are available under the "Active Engines" tab.</div>
+            <div style="font-size:14px; font-weight:600; color:var(--text-body);">No models found matching the current filters.</div>
+            <div style="font-size:12px; margin-top:4px;">Installed models are managed under Active Engines.</div>
           </div>
         `;
         return;
@@ -6307,11 +6452,10 @@
                   </div>
                 </div>
               ` : `
-                <span style="font-size:11px; font-weight:700; color:${isInstalled ? '#10b981' : 'var(--text-dim)'};">
-                  ${isInstalled ? '● INSTALLED' : '○ READY TO DOWNLOAD'}
-                </span>
-                
-                <div style="display:flex; gap:6px;">
+               <div style="display:flex; gap:6px;">
+                  <button class="btn-action-sm edit" onclick="configureCloudModel('${m.model_id}', '${m.capability}', '${m.name || m.model_id}')" data-tooltip="Configure this model for a cloud worker">
+                    <span>Cloud</span>
+                  </button>
                   ${isInstalled ? `
                     <button class="btn-action-sm play is-playing" style="cursor:default;" disabled data-tooltip="Model is installed on local system">
                       <span>Installed</span>
@@ -6330,12 +6474,100 @@
       }).join('');
     }
 
+    let cloudDeploymentTarget = null;
+
+    function configureCloudModel(modelId, capability, label) {
+      cloudDeploymentTarget = { modelId, capability, label };
+      document.getElementById('cloudDeployModelLabel').textContent = `${label} · ${capability === 'TRANSLATION' ? 'Translation' : capability}`;
+      document.getElementById('cloudDeployModal').style.display = 'flex';
+    }
+
+    function closeCloudDeployModal() {
+      document.getElementById('cloudDeployModal').style.display = 'none';
+      cloudDeploymentTarget = null;
+    }
+
+    async function saveCloudDeployment(event) {
+      event.preventDefault();
+      if (!cloudDeploymentTarget) return;
+      const { capability, label, modelId } = cloudDeploymentTarget;
+      const body = { name: document.getElementById('cloudDeployName').value, base_url: document.getElementById('cloudDeployUrl').value, auth_token_env: document.getElementById('cloudDeployTokenEnv').value, selected_model_id:modelId, capabilities: [capability] };
+      const response = await fetch(`${API_URL}/remote-endpoints`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) { showToast(data.error || 'Could not configure cloud deployment', 'error'); return; }
+      const remoteRouteModelId = `remote::${data.endpoint_id}::${capability}`;
+      const activate = await fetch(`${API_URL}/models/active`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ capability, model_id:remoteRouteModelId }) });
+      const activeData = await activate.json().catch(() => ({}));
+      if (!activate.ok || !activeData.success) { showToast(activeData.error || 'Cloud worker was saved but could not be activated', 'error'); return; }
+      closeCloudDeployModal(); event.target.reset(); showToast(`${label} is now deployed to the cloud`, 'success'); loadModelHub();
+    }
+
+    function toggleEngineMenu(event, id) {
+      event.stopPropagation();
+      const menu = document.getElementById(`engineMenu_${id}`);
+      document.querySelectorAll('.engine-overflow-menu').forEach(item => { if (item !== menu) item.style.display = 'none'; });
+      menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
+    }
+
+    async function removeModelFromPipeline(modelId, label, isDownloaded) {
+      const warning = isDownloaded ? `Removing ${label} from Active Engines also deletes its local files. Continue?` : `Remove ${label} from Active Engines?`;
+      if (!window.confirm(warning)) return;
+      if (isDownloaded) {
+        pendingDeleteModelId = modelId; pendingDeleteModelName = label;
+        const result = await fetch(`${API_URL}/models/pipeline`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ model_id:modelId, enabled:false }) });
+        if (!result.ok) { showToast('Could not remove model from the pipeline', 'error'); return; }
+        await executeConfirmedDeleteModel();
+      } else {
+        const response = await fetch(`${API_URL}/models/pipeline`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ model_id:modelId, enabled:false }) });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) { showToast(data.error || 'Could not remove model from the pipeline', 'error'); return; }
+        loadModelHub();
+      }
+    }
+
+    function renderEngineOverflow(model, capability) {
+      const downloaded = isModelInstalled(model.id);
+      const key = `${capability}_${String(model.id).replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+      const cloudIcon = `<span class="engine-menu-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.5 19H9a7 7 0 1 1 6.7-9.1A5 5 0 1 1 17.5 19z"></path></svg></span>`;
+      const trashIcon = `<span class="engine-menu-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v5M14 11v5"></path><path d="M9 6V4h6v2"></path></svg></span>`;
+      const removeIcon = `<span class="engine-menu-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1"></path><path d="M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1"></path><line x1="3" y1="3" x2="21" y2="21"></line></svg></span>`;
+      const cloudAction = capability === 'VAD'
+        ? `<div class="custom-dropdown-item disabled">${cloudIcon}<span>Cloud Configuration</span><span class="custom-dropdown-item-badge">LOCAL ONLY</span></div>`
+        : `<button class="custom-dropdown-item" onclick="configureCloudModel('${model.id}', '${capability}', '${model.name || model.shortName}')">${cloudIcon}<span>Cloud Configuration</span></button>`;
+      const deleteAction = downloaded
+        ? `<button class="custom-dropdown-item" onclick="promptDeleteModel('${model.id}', '${model.name || model.shortName}')">${trashIcon}<span>Delete Local Model</span></button>`
+        : `<div class="custom-dropdown-item disabled">${trashIcon}<span>Delete Local Model</span></div>`;
+      return `<span style="position:relative; display:inline-flex;">
+        <button class="btn-engine-menu" aria-label="Options for ${model.shortName}" data-tooltip="Model options" data-tooltip-pos="top" onclick="toggleEngineMenu(event, '${key}')">⋮</button>
+        <span id="engineMenu_${key}" class="custom-dropdown-menu engine-overflow-menu" style="display:none; right:0; left:auto; top:24px; z-index:50;">
+          ${cloudAction}
+          ${deleteAction}
+          <button class="custom-dropdown-item" onclick="removeModelFromPipeline('${model.id}', '${model.name || model.shortName}', ${downloaded})">${removeIcon}<span>Delete from Pipeline</span></button>
+        </span>
+      </span>`;
+    }
+
+    function renderDeploymentActions(model, capability, isActive, activate) {
+      const cloudButton = capability === 'VAD'
+        ? `<button class="btn-action-sm edit" disabled data-tooltip="Cloud deployment is unavailable for VAD because capture latency must stay local" data-tooltip-pos="top" style="opacity:.5;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.5 19H9a7 7 0 1 1 6.7-9.1A5 5 0 1 1 17.5 19z"></path></svg><span>CLOUD</span></button>`
+        : `<button class="btn-action-sm edit" onclick="configureCloudModel('${model.id}', '${capability}', '${model.name || model.shortName}')" data-tooltip="Deploy this model to a cloud worker" data-tooltip-pos="top"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.5 19H9a7 7 0 1 1 6.7-9.1A5 5 0 1 1 17.5 19z"></path></svg><span>CLOUD</span></button>`;
+      return `<div class="profile-btn-row" style="grid-template-columns:1fr 1fr; gap:7px; margin-top:auto;">
+        <button class="btn-engine-toggle ${isActive ? 'active' : 'inactive'}" onclick="${activate}" data-tooltip="Deploy this model on this computer" data-tooltip-pos="top">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"></rect><line x1="8" y1="20" x2="16" y2="20"></line><line x1="12" y1="16" x2="12" y2="20"></line></svg>
+          <span>LOCAL</span>
+        </button>
+        ${cloudButton}
+      </div>`;
+    }
+
     function switchModelHubTab(tab) {
       activeModelHubTab = tab;
       const tabEngines = document.getElementById('tabBtnEngines');
       const tabHf = document.getElementById('tabBtnHfHub');
+      const tabConfiguration = document.getElementById('tabBtnConfiguration');
       const viewEngines = document.getElementById('hubViewEngines');
       const viewHf = document.getElementById('hubViewHfHub');
+      const viewConfiguration = document.getElementById('hubViewConfiguration');
 
       const titleEl = document.getElementById('hubPaneTitle');
       const badgeEl = document.getElementById('hubPaneBadge');
@@ -6344,23 +6576,98 @@
       if (tab === 'engines') {
         if (tabEngines) tabEngines.classList.add('active');
         if (tabHf) tabHf.classList.remove('active');
+        if (tabConfiguration) tabConfiguration.classList.remove('active');
         if (viewEngines) viewEngines.style.display = 'flex';
         if (viewHf) viewHf.style.display = 'none';
+        if (viewConfiguration) viewConfiguration.style.display = 'none';
         if (titleEl) titleEl.textContent = "Active Inference Pipelines";
         if (badgeEl) badgeEl.textContent = "FULL DUPLEX ENGINE";
         if (subEl) subEl.textContent = "Real-time hot-swappable TTS, ASR, NMT, and VAD neural slots";
-      } else {
+      } else if (tab === 'hfhub') {
         if (tabEngines) tabEngines.classList.remove('active');
         if (tabHf) tabHf.classList.add('active');
+        if (tabConfiguration) tabConfiguration.classList.remove('active');
         if (viewEngines) viewEngines.style.display = 'none';
         if (viewHf) viewHf.style.display = 'flex';
-        if (titleEl) titleEl.textContent = "Hugging Face Model Discovery Hub";
-        if (badgeEl) badgeEl.textContent = "HUGGING FACE REPOSITORY";
-        if (subEl) subEl.textContent = "Download, benchmark, and register open-weights models directly from Hugging Face";
+        if (viewConfiguration) viewConfiguration.style.display = 'none';
+        if (titleEl) titleEl.textContent = "Model Hub";
+        if (badgeEl) badgeEl.textContent = "LOCAL + CLOUD DEPLOYMENT";
+        if (subEl) subEl.textContent = "Discover models for local download or provider-neutral cloud deployment";
         if (hfCatalogModels.length === 0) {
           loadHfCatalog();
         }
+      } else if (tab === 'configuration') {
+        if (tabEngines) tabEngines.classList.remove('active');
+        if (tabHf) tabHf.classList.remove('active');
+        if (tabConfiguration) tabConfiguration.classList.add('active');
+        if (viewEngines) viewEngines.style.display = 'none';
+        if (viewHf) viewHf.style.display = 'none';
+        if (viewConfiguration) viewConfiguration.style.display = 'flex';
+        if (titleEl) titleEl.textContent = 'Configuration';
+        if (badgeEl) badgeEl.textContent = 'RUNTIME SETTINGS';
+        if (subEl) subEl.textContent = 'Manage reusable cloud worker profiles and default model storage';
+        loadConfigurationTab();
       }
+    }
+
+    function escapeHtml(value) {
+      const node = document.createElement('span');
+      node.textContent = String(value ?? '');
+      return node.innerHTML;
+    }
+
+    async function loadConfigurationTab() {
+      const storageInput = document.getElementById('modelStoragePath');
+      const profiles = document.getElementById('cloudConfigurationProfiles');
+      try {
+        const response = await fetch(`${API_URL}/settings/model-storage`);
+        const data = await response.json();
+        if (response.ok && storageInput) storageInput.value = data.model_store_dir || '';
+      } catch (_) { if (storageInput) storageInput.value = ''; }
+      try {
+        const response = await fetch(`${API_URL}/remote-endpoints`);
+        const data = await response.json();
+        const endpoints = data.endpoints || [];
+        if (!profiles) return;
+        profiles.innerHTML = endpoints.length ? endpoints.map(profile => `
+          <article class="hf-model-card">
+            <div class="hf-card-header"><div><div class="hf-model-title">${escapeHtml(profile.name || profile.id)}</div><div class="hf-model-repo">${escapeHtml(profile.base_url || '')}</div></div><span class="hf-capability-badge">CLOUD</span></div>
+            <div class="hf-card-meta">${(profile.capabilities || []).map(cap => `<span class="hf-tag">${escapeHtml(cap)}</span>`).join('') || '<span class="hf-tag">No capabilities</span>'}</div>
+            <div class="profile-btn-row" style="margin-top:14px;"><button class="btn-action-sm delete" onclick="deleteCloudConfigurationProfile('${profile.id}')">Delete Profile</button></div>
+          </article>`).join('') : '<div style="font-size:13px; color:var(--text-muted); padding:10px 2px;">No cloud profiles yet. Create one above, then choose Cloud on a model to deploy it.</div>';
+      } catch (_) { if (profiles) profiles.innerHTML = '<div style="font-size:13px; color:var(--text-muted); padding:10px 2px;">Could not load cloud profiles.</div>'; }
+    }
+
+    async function saveModelStorage(event) {
+      event.preventDefault();
+      const modelStoreDir = document.getElementById('modelStoragePath').value.trim();
+      const response = await fetch(`${API_URL}/settings/model-storage`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ model_store_dir: modelStoreDir }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) { showToast(data.error || 'Could not save model storage location', 'error'); return; }
+      document.getElementById('modelStoragePath').value = data.model_store_dir || modelStoreDir;
+      showToast('Default model storage location saved', 'success');
+    }
+
+    async function saveCloudConfigurationProfile(event) {
+      event.preventDefault();
+      const capabilities = Array.from(document.querySelectorAll('input[name="cloudProfileCapability"]:checked')).map(input => input.value);
+      if (!capabilities.length) { showToast('Choose at least one capability for this cloud profile', 'error'); return; }
+      const body = { name:document.getElementById('cloudProfileName').value.trim(), base_url:document.getElementById('cloudProfileUrl').value.trim(), auth_token_env:document.getElementById('cloudProfileTokenEnv').value.trim(), capabilities };
+      const response = await fetch(`${API_URL}/remote-endpoints`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) { showToast(data.error || 'Could not create cloud profile', 'error'); return; }
+      event.target.reset();
+      showToast('Cloud configuration profile created', 'success');
+      loadConfigurationTab();
+    }
+
+    async function deleteCloudConfigurationProfile(endpointId) {
+      if (!window.confirm('Delete this cloud configuration profile?')) return;
+      const response = await fetch(`${API_URL}/remote-endpoints/${encodeURIComponent(endpointId)}`, { method:'DELETE' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) { showToast(data.error || 'Could not delete cloud profile', 'error'); return; }
+      showToast('Cloud configuration profile deleted', 'success');
+      loadConfigurationTab();
     }
 
     // ─── Custom Dropdown Controller ────────────────────────────────────────────
@@ -6427,6 +6734,9 @@
 
     // Close dropdowns when clicking anywhere outside
     document.addEventListener('click', function(e) {
+      if (!e.target.closest('.engine-overflow-menu') && !e.target.closest('.btn-engine-menu')) {
+        document.querySelectorAll('.engine-overflow-menu').forEach(menu => { menu.style.display = 'none'; });
+      }
       const insideAny = e.target.closest('.custom-select-container');
       if (!insideAny) {
         document.querySelectorAll('.custom-dropdown-menu.open').forEach(m => m.classList.remove('open'));

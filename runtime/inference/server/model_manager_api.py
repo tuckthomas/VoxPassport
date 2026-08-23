@@ -380,6 +380,17 @@ class ModelManagerController:
         self.registry._save()
         return True
 
+    def set_pipeline_enabled(self, model_id: str, enabled: bool) -> bool:
+        canonical = self.canonical_model_id(model_id)
+        entry = self.registry.get_entry(canonical)
+        if not entry:
+            return False
+        if not enabled and entry.is_active:
+            raise ValueError("Switch this active model before removing it from the pipeline")
+        entry.is_pipeline_enabled = bool(enabled)
+        self.registry._save()
+        return True
+
     def save_known_good_set(self, version: str = "0.1.0") -> KnownGoodModelSet:
         return self.registry.save_known_good_set(app_version=version)
 

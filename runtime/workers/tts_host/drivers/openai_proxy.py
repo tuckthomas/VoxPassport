@@ -27,6 +27,10 @@ _LANGUAGE_NAMES = {
 class OpenAiSpeechProxyDriver(TtsDriver):
     """Reuse one driver for compatible HTTP TTS servers via manifest mapping."""
 
+    def __init__(self, manifest) -> None:
+        super().__init__(manifest)
+        self._loaded = False
+
     def _options(self) -> dict:
         return self.manifest.driver_options
 
@@ -46,14 +50,16 @@ class OpenAiSpeechProxyDriver(TtsDriver):
             with urlrequest.urlopen(req, timeout=3) as response:
                 if int(getattr(response, "status", 200)) >= 500:
                     raise RuntimeError(f"Backend health returned HTTP {response.status}")
+            self._loaded = True
         except Exception as exc:
+            self._loaded = False
             raise RuntimeError(
                 f"{self.manifest.display_name} backend is not reachable at {self._backend_url()}"
             ) from exc
 
     def unload(self) -> None:
         # The proxy does not own the backend process or its model residency.
-        return
+        self._loaded = False
 
     @staticmethod
     def _audio_data_uri(path: Path) -> str:
@@ -107,11 +113,13 @@ class OpenAiSpeechProxyDriver(TtsDriver):
         try:
             return urlrequest.urlopen(req, timeout=float(self._options().get("timeout_seconds", 300)))
         except urlerror.HTTPError as exc:
+            self._loaded = False
             detail = exc.read(1500).decode("utf-8", errors="replace")
             raise RuntimeError(
                 f"{self.manifest.display_name} backend returned HTTP {exc.code}: {detail}"
             ) from exc
         except Exception as exc:
+            self._loaded = False
             raise RuntimeError(
                 f"{self.manifest.display_name} backend request failed: {exc}"
             ) from exc
@@ -142,8 +150,4 @@ class OpenAiSpeechProxyDriver(TtsDriver):
         return body
 
     def health_check(self) -> bool:
-        try:
-            self.load()
-            return True
-        except Exception:
-            return False
+        return self._loaded

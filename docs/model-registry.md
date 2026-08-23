@@ -4,11 +4,11 @@
 
 `ModelRegistry` is the persistent source of installation state, active capability slots, benchmark metadata, pinning, and known-good configurations. It is deliberately separate from model weight files and from model-specific runtime implementation code.
 
-The registry does **not** own local TTS implementation details. Local TTS identity, aliases, capabilities, driver entrypoints, and runtime metadata originate in `runtime/tts_manifests/*.json` and are bridged into the registry at startup.
+For local TTS, model declaration originates in `runtime/tts_manifests/*.json`. The registry stores the stable model lifecycle state; the TTS runtime supervisor owns ephemeral process/endpoint state.
 
 ## Registry entry schema
 
-A registry entry tracks fields such as:
+A registry entry tracks cross-model lifecycle metadata such as:
 
 ```json
 {
@@ -19,38 +19,24 @@ A registry entry tracks fields such as:
   "capability": "ASR",
   "upstream_id": "nvidia/parakeet-tdt-0.6b-v3",
   "revision": "main",
-  "supported_source_languages": ["en", "ro", "..."],
-  "supported_target_languages": [],
   "supports_english": true,
   "supports_romanian": true,
   "streaming_support": true,
   "voice_cloning_support": false,
-  "cross_lingual_voice_cloning": false,
   "required_runtime": "transformers",
-  "min_runtime_version": "",
-  "quantization_options": ["fp16", "bf16"],
   "estimated_download_size_gb": 1.2,
-  "installed_size_gb": null,
   "expected_vram_tiers": {"fp16": "~3GB"},
-  "expected_ram_gb": 2.0,
-  "license": "CC-BY-4.0",
-  "commercial_use": "yes",
-  "redistribution": "yes",
-  "local_benchmarks": {},
   "installation_status": "not_installed",
-  "last_used": null,
-  "last_benchmarked": null,
   "is_active": false,
-  "is_pinned": false,
-  "eligible_for_cleanup": true
+  "is_pinned": false
 }
 ```
 
-The exact serialized fields can evolve, but the architectural split should remain: the registry stores cross-model lifecycle state; model-specific TTS declaration remains in manifests.
+The exact serialized fields can evolve, but the architectural split should remain: the registry stores stable model lifecycle information, while local TTS driver/profile declaration remains in manifests.
 
 ## Capability-based model selection
 
-Application business logic should request active models by capability rather than branch on model names:
+Application business logic requests active models by capability rather than branching on model names:
 
 ```python
 registry.get_active_model(capability="ASR", language="en")
@@ -66,90 +52,114 @@ registry.get_active_model(capability="VAD")
 
 | Capability | Direction | Runtime slot |
 | --- | --- | --- |
-| ASR | Local/source language | `asr_en` or corresponding source slot |
-| ASR | Remote/source language | `asr_ro` or corresponding source slot |
+| ASR | Local/source | `asr_en` or corresponding source slot |
+| ASR | Remote/source | `asr_ro` or corresponding source slot |
 | Translation | EN → RO | `translation_en_ro` |
 | Translation | RO → EN | `translation_ro_en` |
 | TTS | Romanian output | `tts_ro` |
 | TTS | English output | `tts_en` |
 | VAD | Shared | `vad` |
 
-Logical slots do not imply duplicate physical model instances. The current low-VRAM architecture can point both ASR directions to one shared Parakeet model, both translation directions to one MiLMMT model, and both TTS directions to one active TTS model.
+Logical slots do not imply duplicate physical weights. Both TTS slots may point to one active supervised TTS model.
 
-## Local TTS registry ownership
-
-Local TTS is special only in where its declaration originates—not in how it appears to the rest of the application.
+## Local TTS ownership
 
 ```text
 runtime/tts_manifests/*.json
           │
-          ▼
-manifest loader / registry bridge
-          │
-          ▼
-ModelRegistry
-          │
-          ├── Model Settings / Model Hub metadata
-          ├── active tts_en / tts_ro slots
-          └── ManifestTtsAdapter construction
+          ├── stable model ID / aliases
+          ├── capabilities
+          ├── driver declaration
+          └── runtime_profile
+                    │
+                    ├──────────────► TTS Runtime Supervisor
+                    │                process / endpoint / residency
+                    │
+                    ▼
+             registry bridge
+                    │
+                    ▼
+               ModelRegistry
+                    │
+                    ├── installation state
+                    ├── active tts_en / tts_ro slots
+                    ├── pinning / cleanup state
+                    └── benchmark / known-good state
 ```
 
-`ModelManagerController` must not maintain a second hard-coded alias table for local TTS models. Native Higgs is not separately registered by detection logic; it is an ordinary manifest-driven model whose driver knows how to use the native DLL/runtime.
+`ModelManagerController` must not maintain a second local-TTS alias catalog. Native Higgs is an ordinary manifest-driven model; XTTS is an ordinary manifest-driven model assigned to a different dependency profile.
 
-## TTS runtime profiles and endpoints
+## TTS runtime profiles are not registry identity
 
-Today, TTS manifests include enough worker endpoint information for the application to reach the current generic hosts:
+The current architecture is:
 
 ```text
-primary environment -> generic host :8098
-XTTS environment    -> generic host :8099
+Registry:    active TTS model = xtts-v2-romanian-v2
+Manifest:    runtime_profile = coqui-xtts
+Supervisor:  coqui-xtts worker = PID/ephemeral endpoint at this moment
 ```
 
-That is current deployment metadata, not a fundamental property of the models.
+Only the first two are stable configuration/model declaration. The supervisor's process ID and localhost port are transient runtime state.
 
-The preferred future design is to add a `runtime_profile` concept and let a TTS runtime supervisor resolve the actual interpreter, environment, process, and endpoint. At that point the registry should continue to store the active **model ID**, not transient worker ports or process IDs.
+Therefore:
 
-Example future separation:
-
-```text
-Registry:  active TTS = xtts-v2-romanian-v2
-Manifest:  runtime_profile = coqui-xtts
-Supervisor: coqui-xtts currently running at ephemeral localhost endpoint X
-```
-
-This preserves stable model identity while allowing runtime topology to change independently.
+- registry active slots persist **model IDs**, not worker ports;
+- known-good sets persist model IDs, not process topology;
+- the same model may run at a different ephemeral localhost endpoint after restart;
+- Model Settings obtains live runtime-profile/process health from resource diagnostics rather than persisting it into registry identity.
 
 ## Hot-swap lifecycle
 
-A conceptual swap is:
+For local TTS the implemented lifecycle is:
 
 ```text
-REQUESTED
-    ↓
-RESOLVE MODEL / MANIFEST
-    ↓
-DRAIN COMMITTED WORK
-    ↓
-LOAD / HEALTH-CHECK TARGET
-    ↓
-SWITCH ACTIVE SLOT
-    ↓
-UNLOAD OLD MODEL WHEN NO LONGER SHARED
-    ↓
-ACTIVE
+REQUESTED MODEL
+      ↓
+resolve manifest + runtime_profile
+      ↓
+if needed, drain current committed utterance
+      ↓
+unload old supervised TTS model
+      ↓
+terminate old worker if profile-incompatible
+      ↓
+start/reuse target profile worker
+      ↓
+load + health-check target driver/model
+      ↓
+activate target model
+      ↓
+rollback prior manifest on activation failure when possible
 ```
 
 Important policies:
 
-- A committed spoken utterance should not be interrupted by a routine model swap.
-- If memory permits, compatible models may preload before activation.
-- On constrained hardware, draining and unloading the old model before loading the new heavyweight model is safer than forcing simultaneous residency.
-- A cross-host TTS switch must release the old worker-side model so an inactive process does not continue occupying VRAM.
-- On failure, keep or restore the prior known-good model whenever possible.
+- a committed utterance is not interrupted by a routine same-host swap;
+- same-profile models can reuse one generic worker process;
+- cross-profile TTS changes do not keep the incompatible old process/model resident;
+- on constrained hardware, avoiding simultaneous heavyweight TTS residency is the default;
+- worker crashes do not change the stable model identity; the supervisor recreates the process when recovery is appropriate.
+
+## Installation state versus runtime-profile state
+
+These are separate questions:
+
+```text
+Model installed?
+  -> checkpoint/package state tracked by the model registry
+
+Runtime profile installed?
+  -> interpreter/dependency environment tracked by runtime-profile diagnostics
+
+Worker running?
+  -> ephemeral supervisor process state
+```
+
+A model can therefore be downloaded while its required runtime profile is missing. Activation should fail clearly until that dependency profile is provisioned.
 
 ## Known-good model sets
 
-A known-good set captures model identities, not process topology. Example:
+A known-good set captures model identities, not process topology:
 
 ```json
 {
@@ -167,12 +177,12 @@ A known-good set captures model identities, not process topology. Example:
 }
 ```
 
-A future runtime supervisor should be free to launch those same model IDs under different compatible worker endpoints without invalidating the known-good set.
+The supervisor is free to recreate those models under new ephemeral worker endpoints without invalidating the set.
 
 ## Session stability policy
 
-- Do not auto-replace models during an active conference call solely because a newly discovered model exists.
-- A model discovered during a call should be staged for later evaluation.
-- Automatic failover is appropriate only when the active model fails and a validated fallback exists.
+- Do not auto-replace models during an active call solely because a new model exists.
+- Stage newly discovered candidates for later evaluation.
+- Automatic recovery/failover is appropriate when the active runtime fails and a validated fallback exists.
 - Voice profiles remain independent from the active TTS model.
-- Transcript requirements are model capabilities and are not stored as a permanent property of the voice profile itself.
+- Reference-transcript requirements come from TTS capabilities, not from permanent voice-profile schema.

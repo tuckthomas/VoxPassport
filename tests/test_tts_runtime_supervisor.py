@@ -9,6 +9,7 @@ import pytest
 
 from runtime.inference.adapters.tts.manifest_tts_adapter import ManifestTtsAdapter
 from runtime.inference.protocol import LanguageCode, VoiceSpec
+from runtime.inference.tts_plugins.backend_runtime import BackendRuntimeCatalog
 from runtime.inference.tts_plugins.manifest import TtsManifestCatalog
 from runtime.inference.tts_plugins.runtime_profiles import RuntimeProfileCatalog
 from runtime.inference.tts_plugins.runtime_supervisor import TtsRuntimeSupervisor
@@ -16,6 +17,7 @@ from runtime.inference.tts_plugins.runtime_supervisor import TtsRuntimeSuperviso
 FAKE_DRIVER = "tests.support.supervisor_fake_tts_driver:SupervisorFakeTtsDriver"
 PROXY_DRIVER = "runtime.workers.tts_host.drivers.openai_proxy:OpenAiSpeechProxyDriver"
 FAKE_BACKEND = Path(__file__).resolve().parent / "support" / "supervisor_fake_backend.py"
+TEST_REMOTE_URL_ENV = "VOXPASSPORT_TEST_TTS_BACKEND_URL"
 
 
 def _write_profiles(tmp_path: Path, *, idle_timeout: float = 0.2) -> RuntimeProfileCatalog:
@@ -47,9 +49,52 @@ def _write_profiles(tmp_path: Path, *, idle_timeout: float = 0.2) -> RuntimeProf
     return RuntimeProfileCatalog(path).load()
 
 
+def _backend_runtime_payload() -> dict:
+    return {
+        "schema_version": 1,
+        "backend_runtime_id": "fake-openai-server",
+        "runtime_profile": "alpha",
+        "launch": {
+            "command": [
+                "{python}",
+                str(FAKE_BACKEND),
+                "--host",
+                "{host}",
+                "--port",
+                "{port}",
+                "--checkpoint",
+                "{checkpoint}",
+                "--restart-health-marker",
+                "{restart_health_marker}",
+                "--launch-record",
+                "{launch_record}",
+            ]
+        },
+        "remote_url_env": TEST_REMOTE_URL_ENV,
+        "health_path": "/v1/models",
+        "startup_timeout_seconds": 8,
+        "endpoint_driver_option": "backend_url",
+        "arguments": {
+            "checkpoint": {"required": True},
+            "restart_health_marker": {"default": ""},
+            "launch_record": {"default": ""},
+        },
+    }
+
+
+def _write_backend_runtimes(tmp_path: Path, payloads: list[dict] | None = None) -> BackendRuntimeCatalog:
+    runtime_dir = tmp_path / "backend-runtimes"
+    runtime_dir.mkdir()
+    for payload in payloads or [_backend_runtime_payload()]:
+        (runtime_dir / f"{payload['backend_runtime_id']}.json").write_text(
+            json.dumps(payload), encoding="utf-8"
+        )
+    return BackendRuntimeCatalog(runtime_dir).load()
+
+
 def _manifest_payload(model_id: str, profile: str, options: dict | None = None) -> dict:
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "model_id": model_id,
         "display_name": model_id,
         "aliases": [],
@@ -71,8 +116,9 @@ def _proxy_manifest_payload(
     model_id: str,
     profile: str = "alpha",
     *,
-    managed: bool = True,
+    checkpoint: str | None = None,
     restart_health_marker: Path | None = None,
+    launch_record: Path | None = None,
 ) -> dict:
     options: dict[str, object] = {
         "health_path": "/v1/models",
@@ -84,42 +130,46 @@ def _proxy_manifest_payload(
         "reference_audio_field": "ref_audio",
         "reference_text_field": "ref_text",
     }
-    if managed:
-        command = [
-            "{python}",
-            str(FAKE_BACKEND),
-            "--host",
-            "{host}",
-            "--port",
-            "{port}",
-        ]
-        if restart_health_marker is not None:
-            command.extend(["--restart-health-marker", str(restart_health_marker)])
-        options["backend_process"] = {
-            "command": command,
-            "startup_timeout_seconds": 8,
-        }
-    else:
-        options["backend_url"] = "http://127.0.0.1:65530"
     payload = _manifest_payload(model_id, profile)
+    payload["backend_runtime"] = "fake-openai-server"
+    payload["backend_args"] = {
+        "checkpoint": checkpoint or f"checkpoint/{model_id}",
+        "restart_health_marker": str(restart_health_marker) if restart_health_marker else "",
+        "launch_record": str(launch_record) if launch_record else "",
+    }
     payload["driver"] = {"entrypoint": PROXY_DRIVER, "options": options}
     return payload
 
 
-def _write_manifests(tmp_path: Path, payloads: list[dict]) -> TtsManifestCatalog:
+def _write_manifests(
+    tmp_path: Path,
+    payloads: list[dict],
+    backend_catalog: BackendRuntimeCatalog,
+) -> TtsManifestCatalog:
     manifest_dir = tmp_path / "manifests"
     manifest_dir.mkdir()
     for payload in payloads:
         (manifest_dir / f"{payload['model_id']}.json").write_text(
             json.dumps(payload), encoding="utf-8"
         )
-    return TtsManifestCatalog(manifest_dir).load()
+    return TtsManifestCatalog(
+        manifest_dir,
+        backend_runtime_catalog=backend_catalog,
+    ).load()
 
 
-def _supervisor(tmp_path: Path, payloads: list[dict], *, idle_timeout: float = 0.2) -> TtsRuntimeSupervisor:
+def _supervisor(
+    tmp_path: Path,
+    payloads: list[dict],
+    *,
+    idle_timeout: float = 0.2,
+    backend_payloads: list[dict] | None = None,
+) -> TtsRuntimeSupervisor:
+    backend_catalog = _write_backend_runtimes(tmp_path, backend_payloads)
     return TtsRuntimeSupervisor(
-        manifest_catalog=_write_manifests(tmp_path, payloads),
+        manifest_catalog=_write_manifests(tmp_path, payloads, backend_catalog),
         profile_catalog=_write_profiles(tmp_path, idle_timeout=idle_timeout),
+        backend_runtime_catalog=backend_catalog,
         project_root=Path(__file__).resolve().parents[1],
         log_dir=tmp_path / "logs",
     )
@@ -194,11 +244,7 @@ def test_cross_profile_switch_terminates_previous_worker(tmp_path: Path):
 
 
 def test_release_unloads_then_idle_shutdown_stops_worker(tmp_path: Path):
-    supervisor = _supervisor(
-        tmp_path,
-        [_manifest_payload("one", "alpha")],
-        idle_timeout=0.1,
-    )
+    supervisor = _supervisor(tmp_path, [_manifest_payload("one", "alpha")], idle_timeout=0.1)
 
     async def exercise():
         await supervisor.activate("one")
@@ -285,6 +331,7 @@ def test_managed_proxy_backend_uses_dynamic_endpoint_and_is_killed_on_switch(tmp
         assert len(first["backends"]) == 1
         backend = first["backends"][0]
         assert backend["model_id"] == "proxy"
+        assert backend["backend_runtime_id"] == "fake-openai-server"
         assert backend["managed"] is True
         assert backend["running"] is True
         assert backend["endpoint"].startswith("http://127.0.0.1:")
@@ -296,6 +343,42 @@ def test_managed_proxy_backend_uses_dynamic_endpoint_and_is_killed_on_switch(tmp
         second = await supervisor.status()
         assert second["active_model_id"] == "direct"
         assert second["backends"] == []
+        await supervisor.shutdown()
+
+    asyncio.run(exercise())
+
+
+def test_two_models_hot_swap_through_one_backend_runtime_definition(tmp_path: Path):
+    first_record = tmp_path / "first-checkpoint.txt"
+    second_record = tmp_path / "second-checkpoint.txt"
+    supervisor = _supervisor(
+        tmp_path,
+        [
+            _proxy_manifest_payload(
+                "proxy-one",
+                checkpoint="vendor/model-one",
+                launch_record=first_record,
+            ),
+            _proxy_manifest_payload(
+                "proxy-two",
+                checkpoint="vendor/model-two",
+                launch_record=second_record,
+            ),
+        ],
+    )
+
+    async def exercise():
+        await supervisor.activate("proxy-one")
+        assert first_record.read_text(encoding="utf-8") == "vendor/model-one"
+        first = await supervisor.status()
+        first_backend_pid = first["backends"][0]["pid"]
+
+        await supervisor.activate("proxy-two")
+        assert second_record.read_text(encoding="utf-8") == "vendor/model-two"
+        second = await supervisor.status()
+        assert second["active_model_id"] == "proxy-two"
+        assert second["backends"][0]["backend_runtime_id"] == "fake-openai-server"
+        assert second["backends"][0]["pid"] != first_backend_pid
         await supervisor.shutdown()
 
     asyncio.run(exercise())
@@ -344,11 +427,12 @@ def test_managed_proxy_backend_is_recycled_when_process_is_alive_but_unhealthy(t
     asyncio.run(exercise())
 
 
-def test_unmanaged_loopback_proxy_backend_is_rejected(tmp_path: Path):
-    supervisor = _supervisor(tmp_path, [_proxy_manifest_payload("proxy", managed=False)])
+def test_unmanaged_loopback_backend_runtime_override_is_rejected(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv(TEST_REMOTE_URL_ENV, "http://127.0.0.1:65530")
+    supervisor = _supervisor(tmp_path, [_proxy_manifest_payload("proxy")])
 
     async def exercise():
-        with pytest.raises(RuntimeError, match="unmanaged local backend"):
+        with pytest.raises(RuntimeError, match="unmanaged local"):
             await supervisor.activate("proxy")
         state = await supervisor.status()
         assert state["active_model_id"] is None
@@ -357,3 +441,19 @@ def test_unmanaged_loopback_proxy_backend_is_rejected(tmp_path: Path):
         await supervisor.shutdown()
 
     asyncio.run(exercise())
+
+
+def test_unknown_backend_runtime_fails_catalog_validation(tmp_path: Path):
+    backend_catalog = _write_backend_runtimes(tmp_path)
+    payload = _proxy_manifest_payload("proxy")
+    payload["backend_runtime"] = "does-not-exist"
+    with pytest.raises(Exception, match="unknown backend_runtime"):
+        _write_manifests(tmp_path, [payload], backend_catalog)
+
+
+def test_missing_required_backend_arg_fails_catalog_validation(tmp_path: Path):
+    backend_catalog = _write_backend_runtimes(tmp_path)
+    payload = _proxy_manifest_payload("proxy")
+    payload["backend_args"] = {}
+    with pytest.raises(Exception, match="requires backend_args.checkpoint"):
+        _write_manifests(tmp_path, [payload], backend_catalog)

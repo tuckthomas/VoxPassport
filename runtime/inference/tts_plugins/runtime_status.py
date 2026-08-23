@@ -88,6 +88,8 @@ def tts_runtime_status_snapshot() -> dict[str, Any]:
         }
         backends.append({
             "model_id": model_id,
+            "backend_runtime_id": handle.backend_runtime_id,
+            "runtime_profile": handle.profile_id,
             "managed": True,
             "running": running,
             "unexpected_exit": unexpected_exit,

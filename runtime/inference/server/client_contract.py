@@ -93,15 +93,17 @@ def build_client_bootstrap(
 ) -> dict:
     """Build the stable bootstrap document consumed by the Expo client."""
 
+    base = api_base_url.rstrip("/")
     payload = {
         "protocol_version": CLIENT_PROTOCOL_VERSION,
         "runtime": "local",
-        "api_base_url": api_base_url.rstrip("/"),
+        "api_base_url": base,
         "captions_websocket_url": captions_websocket_url,
         "resources_websocket_url": resources_websocket_url,
         "capabilities": sorted({str(value) for value in capabilities if str(value).strip()}),
-        "audio_status_url": f"{api_base_url.rstrip('/')}/api/audio/status",
-        "audio_devices_url": f"{api_base_url.rstrip('/')}/api/audio/devices",
+        "audio_status_url": f"{base}/api/audio/status",
+        "audio_devices_url": f"{base}/api/audio/devices",
+        "translation_strategies_url": f"{base}/api/translation/strategies",
     }
     if app_version:
         payload["app_version"] = str(app_version)

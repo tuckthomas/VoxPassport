@@ -1,37 +1,70 @@
 # XTTS-v2 Romanian Low-VRAM Voice Cloning
 
-VoxPassport can use `eduardem/xtts-v2-romanian-v2` as an English/Romanian cloned-voice TTS engine intended for 8 GB-class GPUs. XTTS uses the same `voxpassport.tts.v1` protocol and `ManifestTtsAdapter` as every other local TTS model. Coqui-specific behavior remains entirely inside the XTTS worker-side driver.
+VoxPassport can use `eduardem/xtts-v2-romanian-v2` as an English/Romanian cloned-voice TTS candidate for 8 GB-class GPUs. XTTS uses the same `ManifestTtsAdapter`, `voxpassport.tts.v1` protocol, generic worker host, and runtime supervisor as every other local TTS model. Coqui-specific behavior remains inside the XTTS driver.
 
-## Why XTTS has a separate Python environment
+## Runtime profile
 
-XTTS is intentionally isolated from the primary VoxPassport Python environment.
+XTTS declares:
 
-The primary runtime currently follows Hugging Face Transformers from Git source because the active ASR stack may need unreleased model support. The XTTS/Coqui environment constrains Transformers to the version range supported by Coqui. Those are independent dependency lifecycles, and forcing them into one environment would make an ASR/Transformers upgrade capable of breaking XTTS or make XTTS constraints pin the rest of VoxPassport.
+```json
+"runtime_profile": "coqui-xtts"
+```
 
-A separate virtual environment is therefore the right **dependency-isolation boundary**. It does not mean XTTS uses a different application architecture.
+It does **not** declare a localhost worker port.
 
-The current fixed-port arrangement is an intermediate implementation. The preferred future topology is a runtime-profile supervisor that launches the same generic TTS host under the required environment on demand and assigns/discovers the endpoint dynamically. See `docs/tts-plugin-architecture.md`.
+The supervisor resolves `coqui-xtts` to its isolated interpreter, starts the generic TTS host on an available `127.0.0.1` port when XTTS is actually needed, loads the XTTS driver, and releases the worker when it becomes idle or another incompatible TTS runtime becomes active.
+
+Current isolated environment path:
+
+```text
+runtime/profiles/coqui-xtts/.venv
+```
+
+That environment is a dependency boundary, not a separate VoxPassport architecture.
+
+## Why XTTS is isolated
+
+The primary VoxPassport environment currently follows Hugging Face Transformers from Git because the ASR stack can require unreleased model support. Coqui XTTS constrains Transformers to the range it supports. Those dependency lifecycles should not be forced into one Python environment.
+
+Keeping the dependencies separate prevents an ASR/Transformers update from breaking XTTS and prevents XTTS from pinning the rest of VoxPassport to an older dependency graph.
 
 ## Installation
 
-Run once from the repository root:
+The old model-specific `install_xtts_worker.bat` has been removed. Provision XTTS through the generic runtime-profile manager:
 
 ```bat
-install_xtts_worker.bat
+.venv\Scripts\python.exe scripts\manage_runtime_profile.py status coqui-xtts
+.venv\Scripts\python.exe scripts\manage_runtime_profile.py install coqui-xtts
 ```
 
-This creates `.venv-xtts`, installs the CUDA/PyTorch generation used by VoxPassport plus `coqui-tts`, and leaves the primary `.venv` unchanged.
+To recreate a damaged environment:
 
-`run.bat` currently starts two instances of the same generic TTS host implementation when XTTS is installed:
+```bat
+.venv\Scripts\python.exe scripts\manage_runtime_profile.py repair coqui-xtts
+```
+
+The profile is an independent uv project at:
 
 ```text
-primary .venv     -> http://127.0.0.1:8098
-isolated XTTS env -> http://127.0.0.1:8099
+runtime/profiles/coqui-xtts/pyproject.toml
 ```
 
-The second host exists only to isolate Coqui's Python dependencies. The XTTS manifest currently selects port 8099 automatically.
+When `uv` is installed, the manager uses `uv sync`, which creates the profile-local `.venv` and generates/updates `uv.lock`. The lockfile should be committed after it is generated in a connected development environment.
 
-The Romanian checkpoint is downloaded into `models/xtts-v2-romanian-v2` on first XTTS activation if it is not already present. `VOXPASSPORT_XTTS_MODEL_DIR` can point the XTTS driver at an existing local copy instead.
+If uv is unavailable, the manager falls back to ordinary venv/pip provisioning using the declarative steps in `runtime/profiles/runtime_profiles.json` and `runtime/workers/tts_host/requirements-xtts.txt`.
+
+The Romanian checkpoint is downloaded into `models/xtts-v2-romanian-v2` on first XTTS model load if it is not already present. `VOXPASSPORT_XTTS_MODEL_DIR` can point the driver at an existing local copy instead.
+
+## Startup behavior
+
+`run.bat` starts only the main VoxPassport daemon. It does not start a primary TTS host or an XTTS host.
+
+`ManifestTtsAdapter.load()` is a cheap logical activation. The `coqui-xtts` worker is spawned only when:
+
+- XTTS is explicitly activated and health-validated; or
+- synthesis actually starts.
+
+A captions-only session therefore does not launch XTTS just because it is the selected/default TTS model.
 
 ## Voice conditioning modes
 
@@ -45,11 +78,11 @@ data/voice_profiles/<profile>/reference.wav
 
 XTTS derives both its speaker embedding and GPT conditioning latent from that real recording. This is the baseline path and should be tested first.
 
-XTTS does not require the reference transcript for ordinary cloning. A profile may still contain `reference.txt` because other TTS models can require it; transcript validation is driven by the selected manifest rather than a global enrollment rule.
+XTTS does not require the reference transcript for ordinary cloning. A profile may still contain `reference.txt` because other TTS models can require it; transcript validation is capability-driven.
 
 ### Cross-lingual conditioning bridge
 
-If a real English reference preserves identity poorly when XTTS speaks Romanian, VoxPassport supports a second, derived reference:
+If a real English reference preserves identity poorly when XTTS speaks Romanian, VoxPassport supports an optional derived Romanian conditioning reference:
 
 ```text
 data/voice_profiles/<profile>/conditioning/ro.wav
@@ -60,28 +93,28 @@ The two references have different jobs:
 ```text
 real reference.wav
     -> XTTS speaker embedding
-    -> identity / timbre source
+    -> canonical speaker identity / timbre
 
 derived conditioning/ro.wav
     -> XTTS GPT conditioning latent
     -> Romanian acoustic/language conditioning
 ```
 
-The derived file never replaces `reference.wav`. The real recording remains the canonical identity source.
+The derived file never replaces `reference.wav`.
 
-A heavier teacher such as MOSS-TTS v1.5 can create the Romanian reference offline:
+A heavier teacher such as MOSS-TTS v1.5 can generate the Romanian reference offline:
 
 ```bat
 .venv\Scripts\python.exe scripts\create_xtts_target_conditioning.py <profile_id>
 ```
 
-The utility explicitly unloads XTTS from the generic host on port 8099 before loading MOSS through the primary generic host on port 8098. MOSS generates a Romanian reference in the cloned voice, the resulting WAV is saved only under the profile's `conditioning` directory, and MOSS is unloaded afterward. MOSS is not required during later XTTS calls.
+The utility no longer knows anything about XTTS/MOSS worker ports. It asks the runtime supervisor to activate the MOSS manifest. The supervisor evicts any incompatible active TTS runtime first, supplies the teacher's ephemeral worker endpoint, and releases MOSS after the conditioning WAV is written.
 
-Use `--text` to supply a different Romanian conditioning passage. If the MOSS backend is not on the default `127.0.0.1:8096`, set `VOXPASSPORT_MOSS_TTS_URL` before starting `run.bat`; backend URLs are driver configuration rather than application-adapter parameters.
+Use `--text` to provide a different Romanian conditioning passage. A true MOSS backend URL, if externally configured, remains a driver option such as `VOXPASSPORT_MOSS_TTS_URL`; that is distinct from VoxPassport worker topology.
 
 ## Romanian text normalization
 
-Romanian comma-below characters are distinct Unicode code points from legacy cedilla variants. Before XTTS tokenization VoxPassport normalizes:
+Before XTTS tokenization VoxPassport normalizes legacy Romanian cedilla characters to comma-below forms:
 
 ```text
 ş -> ș
@@ -92,56 +125,33 @@ Romanian comma-below characters are distinct Unicode code points from legacy ced
 
 The XTTS driver also sets the Romanian tokenizer character limit to 250. Live text is kept in short clauses and Romanian generation receives a dynamic `max_new_tokens` limit because this fine-tune does not have a reliable explicit Romanian stop token.
 
-## Streaming
+## Streaming and shared model use
 
-The XTTS driver calls `inference_stream()` directly and the generic host returns 24 kHz mono PCM as chunks become available. VoxPassport does not synthesize a complete WAV and then pretend it was streamed.
+The XTTS driver calls `inference_stream()` directly and returns 24 kHz mono PCM as chunks become available. VoxPassport does not synthesize a complete WAV and then simulate streaming.
 
-Both conversation directions share the one XTTS model instance resident in the XTTS host and use different cached speaker conditioning. Two-way conversation therefore uses two logical TTS request streams, not two copies of XTTS weights.
+Both conversation directions share one XTTS model instance and use different cached speaker conditioning. Bilateral translation therefore uses two logical request streams, not two copies of XTTS weights.
 
-The host serializes a committed utterance against hot-swap, while the main `ManifestTtsAdapter` holds VoxPassport's heavy-GPU coordinator for the duration of each request.
+The generic worker serializes a committed utterance against a model swap. `ManifestTtsAdapter` also holds VoxPassport's heavyweight GPU coordinator during actual synthesis so ASR and XTTS do not intentionally launch heavyweight GPU work simultaneously on an 8 GB GPU.
 
-When VoxPassport switches to a different TTS model, the orchestrator unloads the prior adapter. If that prior adapter is XTTS, the XTTS host unloads the model and releases its GPU allocations before the replacement TTS model is used on the shared GPU.
+Conditioning tensors are cached on CPU with a bounded LRU cache. Updating the canonical reference or target-language conditioning reference changes the cache key automatically.
 
-Conditioning tensors are cached on CPU with a small bounded LRU cache. Updating either the canonical reference or target-language reference changes the cache key automatically.
+## Worker recovery
 
-## Current topology vs. preferred topology
+If the XTTS worker exits while idle, the supervisor recreates the `coqui-xtts` worker when XTTS is next needed.
 
-The current topology is deliberately simple:
-
-```text
-main daemon
-   │
-   ├── ManifestTtsAdapter -> primary generic host :8098
-   └── ManifestTtsAdapter -> XTTS generic host    :8099
-```
-
-This is acceptable while XTTS is the only model family that needs a conflicting dependency environment.
-
-The preferred scalable design is:
-
-```text
-main daemon
-   │
-   ▼
-TTS runtime supervisor
-   │
-   ├── runtime profile "core"       -> primary Python environment
-   └── runtime profile "coqui-xtts" -> isolated XTTS environment
-```
-
-The supervisor should start the required worker on demand, assign its endpoint, enforce cross-process GPU residency, and stop idle workers. Under that design, `8099` is no longer part of XTTS's model identity; `coqui-xtts` is merely the runtime profile required by its driver.
-
-Do **not** merge XTTS into the main environment merely to eliminate `.venv-xtts`. The better cleanup is to generalize environment isolation so it is centrally managed.
+If the worker disconnects during synthesis **before any audio has been emitted**, the generic adapter restarts the runtime profile and retries the utterance once. VoxPassport does not automatically replay a sentence after partial audio was already delivered because that could duplicate audible speech.
 
 ## Validation on the RTX 2070
 
-The model's real peak VRAM and long-running allocator behavior must be measured on the target machine rather than inferred from checkpoint size. Run:
+The model's real peak VRAM and long-running allocator behavior must be measured on the target machine rather than inferred from checkpoint size.
+
+Run:
 
 ```bat
 .venv\Scripts\python.exe benchmarks\xtts_romanian_soak.py <profile_id> --turns 50
 ```
 
-The benchmark defaults to the XTTS-capable generic host at `http://127.0.0.1:8099`, loads `xtts-v2-romanian-v2` through `voxpassport.tts.v1`, alternates English and Romanian cloned turns, and records:
+The benchmark resolves XTTS through its manifest and runtime profile. There is no `--endpoint` argument and no fixed-port assumption. It alternates English and Romanian cloned turns and records:
 
 - time to first streamed audio byte;
 - total synthesis latency;
@@ -156,13 +166,13 @@ Reports are written under `benchmarks/xtts_romanian/results/` and ignored by Git
 
 Do not replace the current TTS default solely because XTTS loads successfully. Compare at minimum:
 
-1. English reference -> Romanian identity similarity with ordinary XTTS conditioning.
-2. English reference -> Romanian identity similarity with the target-language conditioning bridge.
-3. Romanian reference -> English identity similarity.
+1. English reference → Romanian identity similarity with ordinary XTTS conditioning.
+2. English reference → Romanian identity similarity with the target-language conditioning bridge.
+3. Romanian reference → English identity similarity.
 4. Romanian pronunciation/naturalness against Higgs and MOSS.
 5. first-audio latency and real-time factor during bilateral use.
 6. 50+ alternating turns without material VRAM growth or OOM behavior.
 
-If the ordinary zero-shot path is already good, do not create a synthetic conditioning reference. The MOSS bridge is a fallback for the specific cross-lingual identity-retention problem, not a mandatory enrollment step.
+If ordinary zero-shot conditioning already works well, do not create a synthetic conditioning reference. The MOSS bridge is a fallback for cross-lingual identity retention, not a mandatory enrollment step.
 
-For the generic model-integration architecture, see `docs/tts-plugin-architecture.md`.
+For the shared architecture, see `docs/tts-plugin-architecture.md`.

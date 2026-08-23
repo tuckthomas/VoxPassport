@@ -1,3 +1,4 @@
+import { requestLocalRuntime } from '@/desktop/bridge';
 import type {
   LanguageConfiguration,
   ModelEntry,
@@ -7,14 +8,37 @@ import type {
   VoiceProfilesResponse,
 } from './contracts';
 
+export type VoxPassportApiOptions = {
+  nativeLocal?: boolean;
+};
+
 export class VoxPassportApi {
   readonly baseUrl: string;
+  private readonly nativeLocal: boolean;
 
-  constructor(baseUrl: string) {
+  constructor(baseUrl: string, options: VoxPassportApiOptions = {}) {
     this.baseUrl = baseUrl.trim().replace(/\/+$/, '');
+    this.nativeLocal = options.nativeLocal === true;
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
+    const method = String(init?.method ?? 'GET').toUpperCase();
+    const body = typeof init?.body === 'string' ? init.body : null;
+
+    if (this.nativeLocal && (!init?.body || body !== null)) {
+      const nativeResponse = await requestLocalRuntime(this.baseUrl, path, method, body);
+      if (nativeResponse) {
+        if (nativeResponse.status < 200 || nativeResponse.status >= 300) {
+          throw new Error(apiErrorMessage(nativeResponse.status, nativeResponse.body));
+        }
+        try {
+          return JSON.parse(nativeResponse.body) as T;
+        } catch (error) {
+          throw new Error(`Local runtime returned invalid JSON for ${path}: ${String(error)}`);
+        }
+      }
+    }
+
     const response = await fetch(`${this.baseUrl}${path}`, {
       ...init,
       headers: {
@@ -24,14 +48,8 @@ export class VoxPassportApi {
       },
     });
     if (!response.ok) {
-      let message = `${response.status} ${response.statusText}`;
-      try {
-        const body = await response.json() as { error?: string };
-        if (body.error) message = body.error;
-      } catch {
-        // Preserve the HTTP error when a response is not JSON.
-      }
-      throw new Error(message);
+      const responseBody = await response.text();
+      throw new Error(apiErrorMessage(response.status, responseBody, response.statusText));
     }
     return response.json() as Promise<T>;
   }
@@ -69,4 +87,17 @@ export class VoxPassportApi {
       body: JSON.stringify({ capability, model_id: modelId }),
     });
   }
+}
+
+function apiErrorMessage(status: number, responseBody: string, statusText = ''): string {
+  try {
+    const payload = JSON.parse(responseBody) as { error?: string; detail?: string };
+    if (payload.error && payload.detail) return `${payload.error}: ${payload.detail}`;
+    if (payload.error) return payload.error;
+  } catch {
+    // Non-JSON errors fall through to the HTTP status/body summary.
+  }
+  const detail = responseBody.trim();
+  const prefix = `${status}${statusText ? ` ${statusText}` : ''}`;
+  return detail ? `${prefix}: ${detail}` : prefix;
 }

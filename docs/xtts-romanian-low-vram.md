@@ -10,7 +10,7 @@ XTTS declares:
 "runtime_profile": "coqui-xtts"
 ```
 
-It does **not** declare a localhost worker port.
+It does **not** declare a localhost worker port or backend runtime. The model runs directly inside its generic worker process.
 
 The supervisor resolves `coqui-xtts` to its isolated interpreter, starts the generic TTS host on an available `127.0.0.1` port when XTTS is actually needed, loads the XTTS driver, and releases the worker when it becomes idle or another incompatible TTS runtime becomes active.
 
@@ -24,9 +24,9 @@ That environment is a dependency boundary, not a separate VoxPassport architectu
 
 ## Why XTTS is isolated
 
-The primary VoxPassport environment currently follows Hugging Face Transformers from Git because the ASR stack can require unreleased model support. Coqui XTTS constrains Transformers to the range it supports. Those dependency lifecycles should not be forced into one Python environment.
+The primary VoxPassport environment and Coqui XTTS have different dependency lifecycles. Those dependency graphs should not be forced into one Python environment.
 
-Keeping the dependencies separate prevents an ASR/Transformers update from breaking XTTS and prevents XTTS from pinning the rest of VoxPassport to an older dependency graph.
+Keeping the dependencies separate prevents an ASR/Transformers update from breaking XTTS and prevents XTTS from pinning the rest of VoxPassport to its dependency constraints.
 
 ## Installation
 
@@ -59,12 +59,9 @@ The Romanian checkpoint is downloaded into `models/xtts-v2-romanian-v2` on first
 
 `run.bat` starts only the main VoxPassport daemon. It does not start a primary TTS host or an XTTS host.
 
-`ManifestTtsAdapter.load()` is a cheap logical activation. The `coqui-xtts` worker is spawned only when:
+`ManifestTtsAdapter.load()` is a cheap logical activation. The `coqui-xtts` worker is spawned only when XTTS is explicitly health-validated or synthesis begins.
 
-- XTTS is explicitly activated and health-validated; or
-- synthesis actually starts.
-
-A captions-only session therefore does not launch XTTS just because it is the selected/default TTS model.
+A captions-only session therefore does not launch XTTS merely because it is the selected/default TTS model.
 
 ## Voice conditioning modes
 
@@ -108,9 +105,23 @@ A heavier teacher such as MOSS-TTS v1.5 can generate the Romanian reference offl
 .venv\Scripts\python.exe scripts\create_xtts_target_conditioning.py <profile_id>
 ```
 
-The utility asks the runtime supervisor to activate the MOSS manifest. For a local MOSS backend, configure `VOXPASSPORT_MOSS_TTS_COMMAND`; the supervisor starts that backend on a dynamic localhost port, waits for health, injects its endpoint into the proxy driver, evicts it after teacher generation, and then permits XTTS to regain residency. No fixed MOSS/XTTS worker or backend port is involved.
+The utility asks the runtime supervisor to activate the ordinary `moss-tts-1.5` model manifest. That manifest references the reusable `moss-openai-server` backend runtime.
 
-`VOXPASSPORT_MOSS_TTS_URL` remains available only for an explicit **non-loopback remote MOSS service**. A loopback URL is intentionally rejected because a local GPU backend must remain supervisor-owned.
+For a local MOSS server, configure the backend family once through:
+
+```text
+VOXPASSPORT_TTS_BACKEND_MOSS_COMMAND
+```
+
+The supervisor then starts the backend on a dynamic localhost port, waits for health, injects the endpoint into the generic proxy driver, evicts it after teacher generation, and permits XTTS to regain residency. A future MOSS model/checkpoint using the same backend runtime will reuse that same family-level launch contract and supply only different `backend_args`.
+
+For a genuinely remote MOSS service, use the family-level non-loopback override:
+
+```text
+VOXPASSPORT_TTS_BACKEND_MOSS_URL
+```
+
+A loopback remote override is rejected because a local GPU backend must remain supervisor-owned.
 
 Use `--text` to provide a different Romanian conditioning passage.
 
@@ -153,7 +164,7 @@ Run:
 .venv\Scripts\python.exe benchmarks\xtts_romanian_soak.py <profile_id> --turns 50
 ```
 
-The benchmark resolves XTTS through its manifest and runtime profile. There is no `--endpoint` argument and no fixed-port assumption. It alternates English and Romanian cloned turns and records:
+The benchmark resolves XTTS through its manifest and runtime profile. There is no fixed-port assumption. It alternates English and Romanian cloned turns and records:
 
 - time to first streamed audio byte;
 - total synthesis latency;

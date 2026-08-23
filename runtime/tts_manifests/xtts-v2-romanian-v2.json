@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "model_id": "xtts-v2-romanian-v2",
   "display_name": "XTTS-v2 Romanian v2",
   "aliases": [
@@ -7,16 +7,13 @@
     "xtts-ro-v2",
     "eduardem/xtts-v2-romanian-v2"
   ],
+  "runtime_profile": "coqui-xtts",
   "driver": {
     "entrypoint": "runtime.workers.tts_host.drivers.xtts_romanian:XttsRomanianDriver",
     "options": {
       "device": "cuda",
       "conditioning_cache_size": 4
     }
-  },
-  "worker": {
-    "base_url": "http://127.0.0.1:8099",
-    "base_url_env": "VOXPASSPORT_XTTS_TTS_HOST_URL"
   },
   "capabilities": {
     "languages": ["en", "ro"],

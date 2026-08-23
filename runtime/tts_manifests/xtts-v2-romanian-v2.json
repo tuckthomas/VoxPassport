@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "model_id": "xtts-v2-romanian-v2",
+  "display_name": "XTTS-v2 Romanian v2",
+  "aliases": [
+    "xtts-romanian-v2",
+    "xtts-ro-v2",
+    "eduardem/xtts-v2-romanian-v2"
+  ],
+  "driver": {
+    "entrypoint": "runtime.workers.tts_host.drivers.xtts_romanian:XttsRomanianDriver",
+    "options": {
+      "device": "cuda",
+      "conditioning_cache_size": 4
+    }
+  },
+  "worker": {
+    "base_url": "http://127.0.0.1:8098",
+    "base_url_env": "VOXPASSPORT_TTS_HOST_URL"
+  },
+  "capabilities": {
+    "languages": ["en", "ro"],
+    "streaming": true,
+    "voice_cloning": true,
+    "cross_lingual_voice_cloning": true
+  },
+  "voice_cloning": {
+    "reference_transcript_required": false,
+    "target_conditioning_pattern": "conditioning/{language}.wav"
+  },
+  "audio": {
+    "sample_rate_hz": 24000,
+    "sample_format": "pcm_s16le"
+  },
+  "registry": {
+    "family": "xtts-v2",
+    "provider": "eduardem / Coqui",
+    "upstream_id": "eduardem/xtts-v2-romanian-v2",
+    "revision": "main",
+    "quantization_options": ["default"],
+    "download_gb": 2.35,
+    "vram": {
+      "default": "~3-4GB planning range; benchmark locally"
+    },
+    "ram_gb": 6.0,
+    "license": "Coqui Public Model License (CPML)",
+    "commercial_use": "verify",
+    "redistribution": "verify",
+    "trust_level": "COMMUNITY_VERIFIED",
+    "recommendation": "RECOMMENDED_FOR_LOCAL_BENCHMARK"
+  }
+}

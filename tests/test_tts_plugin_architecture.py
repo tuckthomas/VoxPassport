@@ -21,6 +21,7 @@ class FakeDriver(TtsDriver):
     def __init__(self, manifest):
         super().__init__(manifest)
         self.loaded = False
+        self.last_request = None
 
     def load(self) -> None:
         self.loaded = True
@@ -31,6 +32,7 @@ class FakeDriver(TtsDriver):
     def synthesize_pcm(self, request: TtsDriverRequest):
         assert self.loaded
         assert request.text
+        self.last_request = request
         yield b"\x00\x00" * 240
         yield b"\x01\x00" * 240
 
@@ -134,23 +136,45 @@ def test_manifest_validation_rejects_missing_driver(tmp_path: Path):
         TtsManifest.load(path)
 
 
-def test_generic_controller_load_stream_wav_capabilities_and_unload(tmp_path: Path, monkeypatch):
+def test_generic_controller_load_stream_wav_capabilities_clone_reference_and_unload(tmp_path: Path, monkeypatch):
     manifest_dir = tmp_path / "manifests"
     manifest_dir.mkdir()
     (manifest_dir / "future.json").write_text(
         json.dumps(_fake_manifest_dict()),
         encoding="utf-8",
     )
-    monkeypatch.setattr(tts_host_server, "create_driver", lambda manifest: FakeDriver(manifest))
+    created_drivers = []
+
+    def create_fake_driver(manifest):
+        driver = FakeDriver(manifest)
+        created_drivers.append(driver)
+        return driver
+
+    monkeypatch.setattr(tts_host_server, "create_driver", create_fake_driver)
     controller = tts_host_server.TtsDriverController(TtsManifestCatalog(manifest_dir).load())
+    reference = tmp_path / "reference.wav"
+    target_conditioning = tmp_path / "conditioning-ro.wav"
+    reference.write_bytes(b"RIFFfake-reference")
+    target_conditioning.write_bytes(b"RIFFfake-conditioning")
 
     async def exercise():
         capabilities = await controller.load("future")
         assert capabilities["protocol"] == "voxpassport.tts.v1"
         assert capabilities["voice_cloning"] is True
-        request = TtsDriverRequest(text="Salut", language="ro")
+        request = TtsDriverRequest(
+            text="Salut",
+            language="ro",
+            reference_audio=reference,
+            reference_text="Reference transcript",
+            target_conditioning_audio=target_conditioning,
+        )
         chunks = list(controller.pcm_iterator("future-tts", request))
         assert chunks and all(len(chunk) % 2 == 0 for chunk in chunks)
+        active_driver = created_drivers[-1]
+        assert active_driver.last_request is not None
+        assert active_driver.last_request.reference_audio == reference
+        assert active_driver.last_request.reference_text == "Reference transcript"
+        assert active_driver.last_request.target_conditioning_audio == target_conditioning
         wav = controller.wav_bytes("future-tts", request)
         assert wav[:4] == b"RIFF"
         assert controller.metrics()["fake"] is True

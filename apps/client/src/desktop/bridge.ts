@@ -9,6 +9,19 @@ export type DesktopAudioCapabilities = {
   note: string;
 };
 
+export type DesktopAudioDeviceRole =
+  | 'physical_microphone'
+  | 'render_output'
+  | 'loopback_source'
+  | 'virtual_microphone_sink';
+
+export type DesktopAudioDevice = {
+  id: string;
+  name: string;
+  role: DesktopAudioDeviceRole;
+  is_default: boolean;
+};
+
 export type DesktopRuntimeProcessStatus = {
   base_url: string;
   owned_by_desktop: boolean;
@@ -28,6 +41,10 @@ async function invokeDesktop<T>(command: string): Promise<T | null> {
 
 export function getDesktopAudioCapabilities() {
   return invokeDesktop<DesktopAudioCapabilities>('desktop_audio_capabilities');
+}
+
+export function getDesktopAudioDevices() {
+  return invokeDesktop<DesktopAudioDevice[]>('desktop_audio_devices');
 }
 
 export function getDesktopRuntimeStatus() {

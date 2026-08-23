@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 
 from runtime.workers.tts_host.protocol import TtsDriver, TtsDriverRequest
-from runtime.workers.tts_host.drivers.xtts_runtime import XttsRomanianRuntime
 
 
 class XttsRomanianDriver(TtsDriver):
@@ -19,6 +18,10 @@ class XttsRomanianDriver(TtsDriver):
     def _runtime_instance(self):
         if self._runtime is not None:
             return self._runtime
+        # Keep NumPy, Coqui, Torch, and XTTS imports out of manifest discovery
+        # and out of the primary Python environment's integrity tests.
+        from runtime.workers.tts_host.drivers.xtts_runtime import XttsRomanianRuntime
+
         project_root = Path(__file__).resolve().parents[4]
         options = self.manifest.driver_options
         model_dir = Path(

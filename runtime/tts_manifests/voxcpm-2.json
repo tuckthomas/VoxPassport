@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "model_id": "voxcpm-2",
   "display_name": "VoxCPM 2",
   "aliases": [
@@ -7,6 +7,7 @@
     "openbmb-voxcpm2",
     "openbmb/VoxCPM2"
   ],
+  "runtime_profile": "core",
   "driver": {
     "entrypoint": "runtime.workers.tts_host.drivers.openai_proxy:OpenAiSpeechProxyDriver",
     "options": {
@@ -29,10 +30,6 @@
       "reference_text_field": "ref_text",
       "timeout_seconds": 300
     }
-  },
-  "worker": {
-    "base_url": "http://127.0.0.1:8098",
-    "base_url_env": "VOXPASSPORT_TTS_HOST_URL"
   },
   "capabilities": {
     "languages": [

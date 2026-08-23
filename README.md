@@ -94,7 +94,7 @@ Speech in the enrolled speaker's voice
 
 The transcript is optional unless the selected TTS manifest declares that its cloning method requires one. Model-specific conditioning is derived from the canonical profile and does not replace the saved source recording.
 
-## Manifest-Driven Local TTS
+## Truly Hot-Swappable Local TTS
 
 Every local TTS model uses the same application boundary:
 
@@ -112,66 +112,105 @@ TTS Runtime Supervisor
         │          ▼
         │       TtsDriver
         │
-        └── Managed local proxy backend, when required
-                   (separate ephemeral localhost endpoint)
+        └── Optional reusable BackendRuntime
+                   │
+                   ▼
+              managed backend process
+              (ephemeral localhost endpoint)
 ```
 
-Current local manifests include:
+Current local model manifests include OmniVoice, full Higgs TTS 3, native Higgs Q4_K_M, MOSS-TTS v1.5, VoxCPM2, and XTTS-v2 Romanian v2.
 
-- OmniVoice;
-- full Higgs TTS 3;
-- native Higgs Q4_K_M / `audiocpp_engine.dll`;
-- MOSS-TTS v1.5;
-- VoxCPM2;
-- XTTS-v2 Romanian v2.
-
-There are no model-specific local TTS application adapters and no permanent VoxPassport TTS worker or local proxy-backend ports in model manifests.
-
-See [`docs/tts-plugin-architecture.md`](docs/tts-plugin-architecture.md).
-
-## Supervisor-Managed Runtime Profiles
-
-A TTS manifest declares a logical dependency family:
+The model manifest does **not** own worker/backend ports or launch commands. A model that needs an external local server references a reusable backend runtime definition. For example:
 
 ```json
 {
-  "model_id": "xtts-v2-romanian-v2",
-  "runtime_profile": "coqui-xtts"
+  "schema_version": 3,
+  "model_id": "moss-tts-1.5",
+  "runtime_profile": "core",
+  "backend_runtime": "moss-openai-server",
+  "backend_args": {
+    "checkpoint": "OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5"
+  }
 }
 ```
 
-The runtime supervisor then:
+The intended integration rule is:
 
-- resolves the required Python interpreter/environment;
-- starts the generic TTS host only when needed;
-- assigns an available `127.0.0.1` worker port dynamically;
-- starts and health-checks a declared local proxy backend on its own dynamic port when required;
-- injects that ephemeral backend endpoint into the proxy driver at runtime;
-- owns local TTS residency across dependency profiles and managed proxy processes;
-- reuses a worker for models sharing one profile;
-- unloads the prior driver and terminates its managed backend before replacement activation;
-- evicts incompatible prior workers before cross-profile activation;
-- restarts crashed supervised processes when recovery is safe;
-- shuts released idle workers down.
+```text
+New model on an existing backend family
+    -> model manifest only
 
-A proxy may instead use an explicit **non-loopback remote backend URL**. An unmanaged localhost proxy backend is intentionally rejected because it could retain local GPU memory outside supervisor control.
+New dependency family
+    -> runtime profile
 
-Current profiles:
+New backend server implementation
+    -> one reusable backend runtime definition
+
+New protocol semantics
+    -> one reusable TtsDriver if necessary
+
+New application/supervisor routing code
+    -> almost never
+```
+
+That means adding another MOSS-compatible checkpoint does **not** require another model-specific command variable, local port, adapter, or supervisor branch.
+
+See [`docs/tts-plugin-architecture.md`](docs/tts-plugin-architecture.md).
+
+## Backend Runtime Families
+
+Reusable backend server definitions live under `runtime/tts_backend_runtimes/`. They own family-level lifecycle details such as:
+
+- backend dependency/runtime profile;
+- reusable launch command template or one deployment-level family override;
+- required/optional model arguments;
+- health endpoint and startup timeout;
+- endpoint injection option;
+- optional explicit non-loopback remote service override.
+
+Current proxy families are:
+
+- `higgs-openai-server`;
+- `moss-openai-server`;
+- `voxcpm-openai-server`.
+
+A backend-family command override is configured once for that server implementation, not once for every model using it.
+
+## Supervisor-Managed Runtime Profiles
+
+A runtime profile is a dependency-compatible environment family:
 
 | Profile | Environment | Purpose |
 | :--- | :--- | :--- |
-| `core` | primary `.venv` | TTS drivers compatible with the main Python stack |
+| `core` | primary `.venv` | drivers/backends compatible with the main Python stack |
 | `coqui-xtts` | `runtime/profiles/coqui-xtts/.venv` | Coqui/XTTS dependency family |
 
-Runtime profiles are **dependency families**, not one virtual environment per model.
+A backend runtime can select its own runtime profile independently from the generic worker model. This prevents a future server family's dependencies from contaminating the worker or another model family.
 
-XTTS is isolated because the primary runtime currently follows Hugging Face Transformers from Git while Coqui constrains Transformers to its supported range. Keeping those dependency graphs separate prevents unrelated ASR/TTS upgrades from pinning or breaking each other.
+The supervisor:
+
+- resolves worker and backend runtime profiles;
+- starts processes only when needed;
+- assigns available localhost ports dynamically;
+- builds reusable backend commands from the family definition plus model `backend_args`;
+- health-checks workers and managed backends;
+- injects ephemeral endpoints into drivers at runtime;
+- owns local TTS residency;
+- reuses compatible workers;
+- unloads/replaces models transactionally;
+- recycles crashed or alive-but-unhealthy processes;
+- shuts released idle workers down.
+
+An explicit **non-loopback remote backend URL** is valid because it cannot occupy the local GPU. An unmanaged localhost backend is rejected.
+
+XTTS remains isolated because the primary runtime and Coqui have different dependency constraints. That isolation is a dependency boundary, not another application architecture.
 
 ## True On-Demand TTS
 
-`run.bat` starts only the main VoxPassport daemon. It does not prestart TTS worker hosts or proxy backends.
+`run.bat` starts only the main VoxPassport daemon. It does not prestart TTS workers or proxy backends.
 
-`ManifestTtsAdapter.load()` is a cheap logical activation. Physical TTS processes are created only when explicit model activation performs a health validation or actual synthesis begins. A `CAPTIONS_ONLY` session therefore pays no TTS process overhead.
+`ManifestTtsAdapter.load()` is a cheap logical activation. Physical TTS processes are created only for explicit activation health validation or actual synthesis. A `CAPTIONS_ONLY` session therefore pays no TTS process overhead.
 
 ## Model Hub and Hot-Swappable Stack
 
@@ -184,7 +223,7 @@ Capability slots include:
 - **TTS** — speech synthesis and voice cloning
 - **Diarization** — optional speaker clustering for inbound multi-speaker audio
 
-Local TTS metadata is sourced from TTS manifests and bridged into the registry; it is not duplicated in the general built-in model catalog.
+Local TTS metadata is sourced from TTS manifests and bridged into the registry; backend runtime definitions remain deployment metadata rather than separate models.
 
 ## Speaker Diarization
 
@@ -203,7 +242,7 @@ Caption events are published over a localhost WebSocket service. The repository 
 | **VAD** | Silero VAD v6.2.1 | Future VAD adapters | Lightweight runtime model |
 | **ASR** | NVIDIA Parakeet TDT 0.6B v3 | Meta OmniASR; NVIDIA Canary | One physical model can serve both directions |
 | **Translation** | Xiaomi MiLMMT-46 1B v1.0 | MiLMMT 4B; Riva Translate; watchlist models | CPU placement is useful on low-VRAM systems |
-| **TTS / Voice Cloning** | OmniVoice reference integration | native/full Higgs, MOSS, VoxCPM, XTTS Romanian | All local options use manifests + runtime profiles + `voxpassport.tts.v1` |
+| **TTS / Voice Cloning** | OmniVoice reference integration | native/full Higgs, MOSS, VoxCPM, XTTS Romanian | Model manifests + reusable backend runtimes + runtime profiles + `voxpassport.tts.v1` |
 | **Direct Speech Translation** | Experimental | NVIDIA Canary-1B-v2 | Benchmark before replacing ASR → NMT |
 | **Diarization** | Optional | NVIDIA Streaming Sortformer 4-Speaker v2.1 | Parallel inbound sidecar |
 
@@ -220,7 +259,7 @@ On constrained GPUs VoxPassport prioritizes controlled residency over keeping ev
 - audio capture and VAD continue while heavyweight GPU work runs;
 - only one supervised local TTS model is active across runtime profiles by default;
 - managed local proxy backends are terminated whenever their model is released or replaced, including same-profile switches;
-- cross-profile TTS switches also terminate the incompatible prior generic worker before loading the replacement;
+- cross-profile TTS switches terminate the incompatible prior generic worker before loading the replacement;
 - native Higgs runtime memory is treated as more than its GGUF file size because caches, activations, CUDA workspaces, and scratch buffers also consume VRAM.
 
 Higher-memory systems can adopt more aggressive residency after it is measured safe.
@@ -246,18 +285,14 @@ Higher-memory systems can adopt more aggressive residency after it is measured s
 ┌──────────────────────────────────────────────────────────────┐
 │                    Main VoxPassport Runtime                  │
 │ VAD → ASR → Translation → ManifestTtsAdapter → Audio Output │
-│              │                                               │
-│              ├── Model Registry / Hot-Swap                   │
-│              ├── Caption Events                              │
-│              └── Optional Diarization                        │
 └──────────────┬───────────────────────────────────────────────┘
                │ logical TTS model request
                ▼
 ┌──────────────────────────────────────────────────────────────┐
 │                   TTS Runtime Supervisor                     │
-│ runtime profile + worker + optional managed proxy backend   │
+│ manifest + runtime profiles + backend runtime catalog       │
 └──────────────┬───────────────────────────┬───────────────────┘
-               │ voxpassport.tts.v1        │ backend API
+               │ voxpassport.tts.v1        │ reusable backend runtime
                ▼                           ▼
 ┌──────────────────────────────┐   ┌───────────────────────────┐
 │ Generic TTS Worker Host      │   │ Managed Proxy Backend     │
@@ -282,13 +317,17 @@ VoxPassport/
 │   │   ├── model_registry/
 │   │   ├── pipeline/
 │   │   ├── server/
-│   │   └── tts_plugins/                # manifests bridge + runtime profiles + supervisor
+│   │   └── tts_plugins/                 # manifests/backend/runtime supervision
 │   ├── profiles/
 │   │   ├── runtime_profiles.json
-│   │   └── coqui-xtts/pyproject.toml   # independent isolated profile project
-│   ├── tts_manifests/                  # local TTS declarations
-│   └── workers/tts_host/               # generic protocol host + TTS drivers
+│   │   └── coqui-xtts/pyproject.toml
+│   ├── tts_backend_runtimes/             # reusable local/remote server families
+│   ├── tts_manifests/                    # model declarations
+│   └── workers/tts_host/                 # generic protocol host + TTS drivers
 ├── .agents/plans/
+│   ├── pending/
+│   ├── in-progress/
+│   └── completed/
 ├── benchmarks/
 ├── tests/
 ├── scripts/
@@ -333,8 +372,6 @@ This creates `.venv` and installs the primary inference/runtime dependencies.
 
 ## 3. Optional: provision XTTS/Coqui
 
-XTTS uses the generic runtime-profile manager rather than a model-specific installer:
-
 ```bat
 .venv\Scripts\python.exe scripts\manage_runtime_profile.py status coqui-xtts
 .venv\Scripts\python.exe scripts\manage_runtime_profile.py install coqui-xtts
@@ -368,24 +405,36 @@ Persistent local services include:
 | **Local API** | `http://127.0.0.1:8766` | Runtime/model/voice endpoints |
 | **Caption WebSocket** | `ws://127.0.0.1:8765/ws/captions` | Live caption and translation events |
 
-TTS worker/backend endpoints are intentionally **not** listed because they are ephemeral and assigned by the supervisor at runtime.
+TTS worker/backend endpoints are intentionally not listed because they are ephemeral.
 
-### Proxy TTS Runtime Options
+### Proxy TTS backend-family configuration
 
-Full Higgs, MOSS, and VoxCPM use the reusable HTTP proxy driver. For local execution their manifests declare supervisor launch-command environments:
+Full Higgs, MOSS, and VoxCPM currently use reusable OpenAI-style backend runtime families. Their deployment-level command overrides are:
 
 ```text
-VOXPASSPORT_HIGGS_TTS_COMMAND
-VOXPASSPORT_MOSS_TTS_COMMAND
-VOXPASSPORT_VOXCPM_TTS_COMMAND
+VOXPASSPORT_TTS_BACKEND_HIGGS_COMMAND
+VOXPASSPORT_TTS_BACKEND_MOSS_COMMAND
+VOXPASSPORT_TTS_BACKEND_VOXCPM_COMMAND
 ```
 
-The supervisor assigns `{host}` and `{port}` dynamically and terminates the backend process tree when the model is released/replaced. The corresponding `*_TTS_URL` variables are reserved for explicit non-loopback remote services; unmanaged loopback proxy URLs are rejected.
+These variables configure a **backend server family once**. They are not model-specific integration requirements. A second model/checkpoint using the same backend runtime needs only another model manifest with different `backend_args`.
+
+The corresponding family remote URL overrides are:
+
+```text
+VOXPASSPORT_TTS_BACKEND_HIGGS_URL
+VOXPASSPORT_TTS_BACKEND_MOSS_URL
+VOXPASSPORT_TTS_BACKEND_VOXCPM_URL
+```
+
+Remote overrides must be non-loopback. Local backend processes are launched and owned by the supervisor.
+
+When a canonical launch command is known and portable for a backend family, it can be stored directly in the backend runtime definition and no command environment variable is needed.
 
 ### Higgs TTS Runtime Options
 
-- **Full Higgs TTS 3** uses the reusable HTTP proxy driver and the supervisor-managed backend contract above.
-- **Native Q4_K_M Higgs** uses `HiggsNativeDriver` around `audiocpp_engine.dll` and the `higgs-tts-3-q4_k_m` GGUF package.
+- **Full Higgs TTS 3** uses the reusable HTTP proxy driver plus `higgs-openai-server`.
+- **Native Q4_K_M Higgs** uses `HiggsNativeDriver` around `audiocpp_engine.dll` and does not require a backend runtime.
 
 The repository includes `native/audiocpp_engine.dll`; multi-GB model weights are excluded from Git.
 
@@ -401,13 +450,13 @@ Open **Voice Profile Studio**, record or import a clean reference, and generate 
 
 # TTS Runtime Diagnostics
 
-The Model Settings resource monitor includes a **TTS Runtime Profiles** row. Backend telemetry reports each profile plus managed proxy-backend state, including active model, worker/backend PIDs, ephemeral endpoints, and short health status. An unexpected exit or unreachable managed backend marks the active runtime **broken**.
+The Model Settings resource monitor includes a **TTS Runtime Profiles** row. Backend telemetry reports profile state plus managed backend model ID, backend runtime ID, backend runtime profile, PID, ephemeral endpoint, and health. An unexpected exit or unreachable managed backend marks the active runtime **broken**.
 
 Logs are written under:
 
 ```text
 data/logs/tts-worker-<profile>.log
-data/logs/tts-backend-<model-id>.log
+data/logs/tts-backend-<backend-runtime>-<model-id>.log
 ```
 
 ---
@@ -428,13 +477,13 @@ See [`docs/privacy-security.md`](docs/privacy-security.md).
 
 # Development and Validation
 
-Runtime Integrity covers routing, manifest/driver boundaries, runtime-profile resolution, worker/backend process lifecycle, registry state, low-VRAM policies, XTTS helpers, and TTS supervisor recovery without downloading heavyweight TTS weights.
+Runtime Integrity covers routing, manifest/driver boundaries, backend runtime definitions, runtime-profile resolution, worker/backend process lifecycle, registry state, low-VRAM policies, XTTS helpers, and TTS supervisor recovery without downloading heavyweight TTS weights.
 
 Useful local checks:
 
 ```bat
 .venv\Scripts\python.exe -m compileall -q runtime agents tests benchmarks scripts
-.venv\Scripts\python.exe -m pytest -q tests/integration tests/test_tts_plugin_architecture.py tests/test_tts_runtime_supervisor.py tests/test_tts_residency_contract.py tests/test_xtts_romanian.py
+.venv\Scripts\python.exe -m pytest -q tests/integration tests/test_tts_backend_runtime_catalog.py tests/test_tts_plugin_architecture.py tests/test_tts_runtime_supervisor.py tests/test_tts_residency_contract.py tests/test_xtts_romanian.py
 ```
 
 Hardware acceptance still requires the target GPU. Native Higgs, XTTS, and managed proxy backends should be measured on the RTX 2070 before treating VRAM/latency assumptions as validated.
@@ -444,7 +493,7 @@ Hardware acceptance still requires the target GPU. Native Higgs, XTTS, and manag
 # Documentation
 
 - [Architecture](docs/architecture.md)
-- [TTS Plugin & Runtime Profiles](docs/tts-plugin-architecture.md)
+- [TTS Plugin, Backend Runtime & Runtime Profiles](docs/tts-plugin-architecture.md)
 - [XTTS Romanian Low-VRAM](docs/xtts-romanian-low-vram.md)
 - [Audio Routing](docs/audio-routing.md)
 - [Model Bakeoff](docs/model-bakeoff.md)
@@ -464,6 +513,6 @@ VoxPassport assumes speech AI will keep changing quickly. Model-specific behavio
 
 For local TTS the rule is:
 
-> **manifest = model declaration/lifecycle requirements; runtime profile = dependency family; supervisor = local process topology/residency; driver = model/backend implementation; `ManifestTtsAdapter` = application boundary.**
+> **model manifest = model declaration; backend runtime = reusable server-family lifecycle; runtime profile = dependency family; supervisor = process topology/residency; driver = protocol/model implementation; `ManifestTtsAdapter` = application boundary.**
 
-Adding another compatible TTS model should not require rewriting the main daemon, assigning a permanent localhost port, or introducing an unmanaged local GPU process.
+A new model on an already-supported backend family should require **one model manifest and nothing else**.

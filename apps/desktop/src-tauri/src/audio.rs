@@ -12,21 +12,26 @@ pub struct DesktopAudioCapabilities {
     pub note: &'static str,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct DesktopAudioDevice {
+    pub id: String,
+    pub name: String,
+    pub role: &'static str,
+    pub is_default: bool,
+}
+
 pub fn capabilities() -> DesktopAudioCapabilities {
     #[cfg(target_os = "windows")]
     {
-        // A Windows-specific crate and portable audio contract exist, but the
-        // current crate does not yet enumerate or open real WASAPI endpoints.
-        // Keep every executable capability false until implementation/validation.
         return DesktopAudioCapabilities {
             platform: "windows",
             native_audio_boundary: true,
-            microphone_enumeration: false,
+            microphone_enumeration: true,
             microphone_capture: false,
-            render_enumeration: false,
+            render_enumeration: true,
             loopback_capture: false,
             virtual_microphone_output: false,
-            note: "WASAPI endpoint enumeration/capture and virtual-mic output are not yet implemented",
+            note: "WASAPI endpoint enumeration implemented; executable/hardware validation and realtime capture/output remain pending",
         };
     }
 
@@ -68,5 +73,38 @@ pub fn capabilities() -> DesktopAudioCapabilities {
         loopback_capture: false,
         virtual_microphone_output: false,
         note: "unsupported desktop platform",
+    }
+}
+
+pub fn devices() -> Result<Vec<DesktopAudioDevice>, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use livetranslator_audio_core::{AudioEndpointRole, AudioPlatform};
+        use livetranslator_audio_windows::WindowsAudioPlatform;
+
+        return WindowsAudioPlatform::new()
+            .enumerate_endpoints()
+            .map(|devices| {
+                devices
+                    .into_iter()
+                    .map(|device| DesktopAudioDevice {
+                        id: device.id,
+                        name: device.name,
+                        role: match device.role {
+                            AudioEndpointRole::PhysicalMicrophone => "physical_microphone",
+                            AudioEndpointRole::RenderOutput => "render_output",
+                            AudioEndpointRole::LoopbackSource => "loopback_source",
+                            AudioEndpointRole::VirtualMicrophoneSink => "virtual_microphone_sink",
+                        },
+                        is_default: device.is_default,
+                    })
+                    .collect()
+            })
+            .map_err(|error| error.to_string());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("native audio endpoint enumeration is not implemented on this platform".to_string())
     }
 }

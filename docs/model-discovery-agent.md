@@ -2,76 +2,80 @@
 
 ## Purpose
 
-`ModelResearchAgent` periodically watches the fast-changing open-model ecosystem and surfaces credible improvements without destabilizing a working installation.
+`ModelResearchAgent` watches the fast-changing open-model ecosystem and surfaces credible improvements without destabilizing a working installation.
 
-Discovery is **research and recommendation**, not automatic architectural integration. A newly discovered TTS model does not justify adding a model-specific application adapter or daemon branch.
+Discovery is research/recommendation, not automatic architectural integration. A newly discovered TTS model must not justify a model-specific application adapter, command environment, fixed port, or daemon/supervisor branch.
 
-## Schedule
+## Candidate filters
 
-- Default: periodic/weekly research cadence when enabled.
-- Can be disabled or run manually.
-- Must not disrupt an active conference session.
-- GPU-intensive local benchmarking is deferred while live use has priority.
+Before recommending a model, evaluate:
 
-## Discovery sources
+- target-language coverage;
+- licensing;
+- package and runtime memory requirements;
+- latency and real streaming support;
+- dependency compatibility;
+- official/community/remote-code trust level;
+- whether it fits an existing driver, backend runtime, and runtime profile.
 
-Prefer primary or authoritative sources:
+English/Romanian remains the primary benchmark pair, but the model system is not limited to that pair.
 
-- official model repositories;
-- official model cards;
-- official GitHub releases/tags;
-- research papers;
-- benchmark leaderboards with disclosed methodology;
-- upstream runtime/library documentation.
+## TTS integration classification
 
-Community reports can be useful for identifying candidates or operational problems, but should not by themselves justify promotion.
+Classify every local TTS candidate in this order.
 
-## Candidate identification
+### 1. Existing driver + existing backend/runtime profiles
 
-Search areas include:
+Best case. Add a schema-v3 model manifest and benchmark it.
 
-- streaming/multilingual ASR;
-- machine translation;
-- text-to-speech and voice cloning;
-- direct speech translation;
-- diarization;
-- VAD/endpointing.
+For a proxy-backed model this means referencing an existing reusable `backend_runtime` and supplying model-specific `backend_args`, usually a checkpoint.
 
-Filters before recommendation should include:
+No new launch command or environment variable is permitted merely because the checkpoint/model ID changed.
 
-- required target-language coverage;
-- usable licensing for the intended deployment;
-- download and runtime memory requirements;
-- latency/streaming suitability;
-- dependency/runtime compatibility;
-- whether required code is official, community, or remote-code execution;
-- whether the model can fit an existing integration boundary.
+### 2. Existing driver + new backend server family
 
-English/Romanian remains the primary project benchmark pair, but the model system itself is not limited to that pair.
+Use when inference HTTP semantics already fit a driver such as `OpenAiSpeechProxyDriver`, but the server implementation/lifecycle is genuinely new.
 
-## TTS candidate integration classification
+Add one reusable backend runtime definition under `runtime/tts_backend_runtimes/`. That family definition may specify its dependency profile, launch template/family override, argument contract, health endpoint, and remote override policy.
 
-For every local TTS candidate, classify integration cost before recommending implementation:
+Future models on that server family should then be manifest-only.
 
-### 1. Existing driver + existing runtime profile
+### 3. New driver + existing runtime/backend family
 
-Best case. Add a manifest and benchmark the model. No new application adapter or daemon routing is permitted.
+Use only when the model's inference semantics cannot be expressed by an existing driver.
 
-### 2. New driver + existing runtime profile
+The new code belongs behind the generic worker `TtsDriver` boundary, never in the main application adapter layer.
 
-Use when the model library has genuinely different inference semantics but its dependencies are compatible with an existing local worker environment.
+### 4. New dependency family
 
-### 3. Existing/new driver + new runtime profile
+Add/reuse a runtime profile only when Python/PyTorch/CUDA/Transformers/native-library constraints genuinely conflict with existing environments.
 
-Use when dependency constraints, Python version, native libraries, or fault isolation make the model unsafe to install into existing environments.
+A runtime profile is dependency topology, not a new application architecture.
 
-The new environment should still run the same generic TTS host and `voxpassport.tts.v1` protocol. A runtime profile is dependency topology, not a new application architecture.
+### 5. Explicit remote deployment
 
-### 4. Separate upstream backend / remote deployment
+A backend runtime may use a non-loopback remote URL override. The local application still consumes the same model manifest and generic driver contract. Unmanaged localhost GPU backends are invalid.
 
-Use the appropriate proxy or remote-worker contract when the model is naturally served by an external process or machine.
+## Integration rule
 
-The discovery agent should never recommend `New FooTtsAdapter` as the normal local-TTS integration strategy. Local TTS application code should continue to see only `ManifestTtsAdapter`.
+```text
+new model on supported backend family
+    -> model manifest only
+
+new dependency family
+    -> runtime profile
+
+new backend server implementation
+    -> one reusable backend runtime definition
+
+new protocol/model-library semantics
+    -> reusable TtsDriver
+
+new application adapter / model-name supervisor routing
+    -> almost never
+```
+
+The discovery agent should treat any proposal such as `NewFooTtsAdapter`, `VOXPASSPORT_FOO_MODEL_TTS_COMMAND`, or `localhost:81xx for Foo` as an architectural regression unless the proposal is actually a new reusable backend/runtime primitive rather than one model's integration.
 
 ## Recommendation states
 
@@ -80,52 +84,34 @@ The discovery agent should never recommend `New FooTtsAdapter` as the normal loc
 | `IGNORE` | Not relevant or fails filters |
 | `WATCH` | Interesting but not ready for benchmarking |
 | `CANDIDATE` | Passes initial filters |
-| `RECOMMENDED_FOR_LOCAL_BENCHMARK` | Strong enough evidence to justify local evaluation |
-| `RECOMMENDED_UPGRADE` | Wins the required local benchmark/acceptance criteria |
+| `RECOMMENDED_FOR_LOCAL_BENCHMARK` | Strong enough evidence for local evaluation |
+| `RECOMMENDED_UPGRADE` | Wins required local acceptance criteria |
 
-`RECOMMENDED_UPGRADE` should not be set solely from vendor-published benchmarks.
+Do not assign `RECOMMENDED_UPGRADE` solely from vendor benchmarks.
 
-## Promotion policy
+## TTS metadata to record
 
-A candidate should be recommended for activation only if it does not introduce an unacceptable regression in the dimensions relevant to its capability, including:
+For a TTS candidate record:
 
-- target-language quality;
-- p95/first-output latency;
-- streaming stability;
-- licensing;
-- dependency/runtime compatibility;
-- VRAM/RAM pressure;
-- storage;
-- voice identity/naturalness for cloning-capable TTS.
-
-At least one material benefit should justify the swap.
-
-For TTS, also record whether the candidate:
-
-- requires a reference transcript;
-- supports cross-lingual voice cloning;
-- can use existing model-independent voice profiles;
-- needs a separate runtime profile;
-- requires a native DLL or separate backend;
-- supports real streaming PCM rather than post-hoc chunking.
+- target languages;
+- voice cloning and cross-lingual cloning support;
+- whether a reference transcript is required;
+- real streaming behavior;
+- compatible `TtsDriver`;
+- compatible reusable backend runtime, if any;
+- required worker/backend dependency profiles;
+- checkpoint/model arguments;
+- package size and measured runtime memory;
+- first-audio latency and RTF;
+- licensing and distribution constraints.
 
 ## User control
 
-For every credible candidate, surface:
+The discovery agent may recommend benchmark/install work, but must not silently:
 
-- which active capability/model it could replace;
-- why it may be better;
-- published evidence;
-- package/weight size;
-- estimated and observed runtime memory where available;
-- dependency/runtime-profile requirements;
-- license information;
-- benchmark/install action.
-
-The agent should not silently:
-
-- download multi-GB models unless explicitly configured to do so;
+- download multi-GB models unless configured to do so;
 - activate a newly discovered model;
-- create a new runtime profile without an explicit installation action;
-- rewrite the TTS architecture to accommodate one model;
+- create a dependency profile without an installation action;
+- add a backend runtime when an existing family already fits;
+- rewrite TTS application routing for one model;
 - promote a model without local verification.

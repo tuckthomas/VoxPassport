@@ -1,8 +1,7 @@
-"""Built-in VoxPassport model catalog.
+"""Built-in non-TTS VoxPassport model catalog.
 
-Catalog entries are discovery/install metadata, not a claim that a model is
-already installed or production-approved. Production defaults remain the
-low-latency Parakeet -> MiLMMT cascade until local benchmarks justify a swap.
+TTS discovery/install metadata lives exclusively in ``runtime/tts_manifests``.
+This catalog owns the remaining model capabilities.
 """
 
 from __future__ import annotations
@@ -25,8 +24,6 @@ def _entry(
     supports_english: bool = True,
     supports_romanian: bool = True,
     streaming: bool = False,
-    voice_cloning: bool = False,
-    cross_lingual_voice_cloning: bool = False,
     runtime: str = "pytorch",
     min_runtime_version: str = "",
     quantization: list[str] | None = None,
@@ -53,8 +50,8 @@ def _entry(
         supports_english=supports_english,
         supports_romanian=supports_romanian,
         streaming_support=streaming,
-        voice_cloning_support=voice_cloning,
-        cross_lingual_voice_cloning=cross_lingual_voice_cloning,
+        voice_cloning_support=False,
+        cross_lingual_voice_cloning=False,
         required_runtime=runtime,
         min_runtime_version=min_runtime_version,
         quantization_options=quantization or [],
@@ -73,7 +70,6 @@ def _entry(
 
 def get_builtin_catalog() -> list[ModelRegistryEntry]:
     return [
-        # VAD: runtime-managed through the official pinned torch.hub tag.
         _entry(
             model_id="silero-vad-v6.2.1",
             name="Silero VAD v6.2.1",
@@ -93,8 +89,6 @@ def get_builtin_catalog() -> list[ModelRegistryEntry]:
             redistribution="yes",
             recommendation=RecommendationState.RECOMMENDED_UPGRADE,
         ),
-
-        # Primary production ASR.
         _entry(
             model_id="nvidia-parakeet-tdt-0.6b-v3",
             name="NVIDIA Parakeet TDT 0.6B v3",
@@ -118,8 +112,6 @@ def get_builtin_catalog() -> list[ModelRegistryEntry]:
             redistribution="yes",
             recommendation=RecommendationState.RECOMMENDED_FOR_LOCAL_BENCHMARK,
         ),
-
-        # Legacy research candidate kept in the catalog but not the default.
         _entry(
             model_id="nvidia-nemotron-3.5-asr-streaming-0.6b",
             name="NVIDIA Nemotron 3.5 ASR Streaming 0.6B",
@@ -138,9 +130,6 @@ def get_builtin_catalog() -> list[ModelRegistryEntry]:
             trust_level="UNVERIFIED",
             recommendation=RecommendationState.WATCH,
         ),
-
-        # Meta Omnilingual ASR official Hugging Face checkpoints: directly
-        # downloadable from the Model Hub and useful as benchmark comparators.
         _entry(
             model_id="meta-omniasr-ctc-300m",
             name="Meta OmniASR CTC 300M",
@@ -177,10 +166,6 @@ def get_builtin_catalog() -> list[ModelRegistryEntry]:
             redistribution="yes",
             recommendation=RecommendationState.RECOMMENDED_FOR_LOCAL_BENCHMARK,
         ),
-        # Meta's December-2025 v2 asset exists in the official omnilingual-asr
-        # package, but there is not currently a Meta-owned v2 HF repository.
-        # Keep it visible as WATCH rather than silently downloading a community
-        # conversion under an official-looking model ID.
         _entry(
             model_id="meta-omniasr-ctc-1b-v2",
             name="Meta OmniASR CTC 1B v2 (official package asset; HF pending)",
@@ -199,9 +184,6 @@ def get_builtin_catalog() -> list[ModelRegistryEntry]:
             redistribution="yes",
             recommendation=RecommendationState.WATCH,
         ),
-
-        # Direct speech -> translated text experimental path. It does not replace
-        # the Parakeet -> MiLMMT cascade until it wins local latency/quality tests.
         _entry(
             model_id="nvidia-canary-1b-v2",
             name="NVIDIA Canary-1B-v2",
@@ -222,9 +204,6 @@ def get_builtin_catalog() -> list[ModelRegistryEntry]:
             redistribution="yes",
             recommendation=RecommendationState.CANDIDATE,
         ),
-
-        # Optional inbound-only diarization sidecar. Downloading it does not put
-        # it in front of ASR; the orchestrator runs it in parallel when present.
         _entry(
             model_id="nvidia-diar-streaming-sortformer-4spk-v2.1",
             name="NVIDIA Streaming Sortformer 4-Speaker v2.1",
@@ -243,8 +222,6 @@ def get_builtin_catalog() -> list[ModelRegistryEntry]:
             redistribution="verify",
             recommendation=RecommendationState.CANDIDATE,
         ),
-
-        # Primary and quality translation modes.
         _entry(
             model_id="xiaomi-milmmt-46-1b-v1.0",
             name="Xiaomi MiLMMT-46-1B-v1.0",
@@ -302,8 +279,6 @@ def get_builtin_catalog() -> list[ModelRegistryEntry]:
             license_name="NVIDIA-OpenModel",
             recommendation=RecommendationState.CANDIDATE,
         ),
-        # Research/watch entry only: no public official model weights are wired to
-        # the HF download button yet.
         _entry(
             model_id="meta-omnilingual-mt",
             name="Meta Omnilingual MT (watchlist - official weights pending)",
@@ -317,45 +292,5 @@ def get_builtin_catalog() -> list[ModelRegistryEntry]:
             license_name="verify",
             trust_level="OFFICIAL_RESEARCH_ONLY",
             recommendation=RecommendationState.WATCH,
-        ),
-
-        # TTS entries retained from the existing stack.
-        _entry(
-            model_id="omnivoice-stock",
-            name="k2-fsa OmniVoice (stock voice)",
-            family="omnivoice",
-            provider="k2-fsa",
-            capability=ModelCapability.TTS,
-            upstream_id="k2-fsa/OmniVoice",
-            target_languages=["en", "ro", "*"],
-            streaming=True,
-            voice_cloning=True,
-            cross_lingual_voice_cloning=True,
-            runtime="omnivoice_native",
-            download_gb=2.45,
-            ram_gb=4.0,
-            license_name="CC-BY-NC weights / Apache-2.0 code",
-            commercial_use="no",
-            redistribution="verify",
-            recommendation=RecommendationState.RECOMMENDED_FOR_LOCAL_BENCHMARK,
-        ),
-        _entry(
-            model_id="higgs-tts-3",
-            name="Higgs TTS 3",
-            family="higgs-tts",
-            provider="bosonai",
-            capability=ModelCapability.TTS,
-            upstream_id="bosonai/higgs-tts-3-4b",
-            target_languages=["en", "ro", "*"],
-            streaming=True,
-            voice_cloning=True,
-            cross_lingual_voice_cloning=True,
-            runtime="sglang-omni",
-            download_gb=9.31,
-            ram_gb=12.0,
-            license_name="research/non-commercial; separate production license",
-            commercial_use="verify",
-            redistribution="verify",
-            recommendation=RecommendationState.CANDIDATE,
         ),
     ]

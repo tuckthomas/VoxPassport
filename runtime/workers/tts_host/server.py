@@ -2,8 +2,8 @@
 
 The host exposes one stable local protocol (`voxpassport.tts.v1`) and lazily
 loads a driver selected by model manifest. Only drivers know model-library or
-backend-specific semantics. The supervisor supplies both the model-manifest and
-backend-runtime catalogs so custom/test catalogs remain internally consistent.
+backend-specific semantics. Backend-runtime lifecycle metadata is supervisor
+state and is intentionally not loaded inside the worker.
 """
 
 from __future__ import annotations
@@ -23,7 +23,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from runtime.inference.tts_plugins.backend_runtime import BackendRuntimeCatalog
 from runtime.inference.tts_plugins.manifest import TtsManifest, TtsManifestCatalog
 from runtime.workers.tts_host.driver_loader import create_driver
 from runtime.workers.tts_host.protocol import TtsDriver, TtsDriverRequest
@@ -355,15 +354,10 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--manifest-dir", default=str(PROJECT_ROOT / "runtime" / "tts_manifests"))
-    parser.add_argument(
-        "--backend-runtime-dir",
-        default=str(PROJECT_ROOT / "runtime" / "tts_backend_runtimes"),
-    )
     args = parser.parse_args()
-    backend_catalog = BackendRuntimeCatalog(Path(args.backend_runtime_dir)).load()
     catalog = TtsManifestCatalog(
         Path(args.manifest_dir),
-        backend_runtime_catalog=backend_catalog,
+        validate_backend_runtimes=False,
     ).load()
     controller = TtsDriverController(catalog)
     web.run_app(create_app(controller), host=args.host, port=args.port, print=None)

@@ -108,9 +108,11 @@ A heavier teacher such as MOSS-TTS v1.5 can generate the Romanian reference offl
 .venv\Scripts\python.exe scripts\create_xtts_target_conditioning.py <profile_id>
 ```
 
-The utility no longer knows anything about XTTS/MOSS worker ports. It asks the runtime supervisor to activate the MOSS manifest. The supervisor evicts any incompatible active TTS runtime first, supplies the teacher's ephemeral worker endpoint, and releases MOSS after the conditioning WAV is written.
+The utility asks the runtime supervisor to activate the MOSS manifest. For a local MOSS backend, configure `VOXPASSPORT_MOSS_TTS_COMMAND`; the supervisor starts that backend on a dynamic localhost port, waits for health, injects its endpoint into the proxy driver, evicts it after teacher generation, and then permits XTTS to regain residency. No fixed MOSS/XTTS worker or backend port is involved.
 
-Use `--text` to provide a different Romanian conditioning passage. A true MOSS backend URL, if externally configured, remains a driver option such as `VOXPASSPORT_MOSS_TTS_URL`; that is distinct from VoxPassport worker topology.
+`VOXPASSPORT_MOSS_TTS_URL` remains available only for an explicit **non-loopback remote MOSS service**. A loopback URL is intentionally rejected because a local GPU backend must remain supervisor-owned.
+
+Use `--text` to provide a different Romanian conditioning passage.
 
 ## Romanian text normalization
 

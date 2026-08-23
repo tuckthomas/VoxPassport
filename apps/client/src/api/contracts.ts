@@ -9,6 +9,7 @@ export type RuntimeBootstrap = {
   resources_websocket_url: string;
   audio_status_url: string;
   audio_devices_url: string;
+  translation_strategies_url: string;
   capabilities: string[];
   app_version?: string;
 };
@@ -56,6 +57,43 @@ export type DesktopAudioDevice = {
 export type DesktopAudioDevicesResponse = {
   schema_version: number;
   devices: DesktopAudioDevice[];
+};
+
+export type TranslationStrategyExecutionMode =
+  | 'local'
+  | 'byo_api'
+  | 'self_hosted'
+  | 'managed_cloud';
+
+export type TranslationStrategyAuthKind =
+  | 'none'
+  | 'api_key'
+  | 'oauth'
+  | 'session_token';
+
+export type TranslationStrategyDescriptor = {
+  strategy_id: string;
+  display_name: string;
+  provider: string;
+  model_id: string;
+  kind: 'direct_speech_translation';
+  capability: 'DIRECT_SPEECH_TRANSLATION';
+  execution_mode: TranslationStrategyExecutionMode;
+  transport: string;
+  auth_kind: TranslationStrategyAuthKind;
+  auth_env?: string | null;
+  streaming: boolean;
+  bidirectional: boolean;
+  voice_preservation: boolean;
+  language_discovery: string;
+  confirmed_languages: string[];
+  lifecycle: string;
+  metadata: Record<string, unknown>;
+};
+
+export type TranslationStrategiesResponse = {
+  schema_version: number;
+  strategies: TranslationStrategyDescriptor[];
 };
 
 export type LanguageConfiguration = {

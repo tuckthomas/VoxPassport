@@ -1,5 +1,11 @@
-//! LiveTranslator — Audio Core Engine (Rust)
-//! Real-time audio processing, ring buffering, and RMS/peak calculation.
+//! VoxPassport audio core engine.
+//! Real-time audio processing, platform contracts, ring buffering, and level calculation.
+
+pub mod platform;
+pub use platform::{
+    AudioEndpointDescriptor, AudioEndpointRole, AudioPlatform, AudioPlatformCapabilities,
+    AudioPlatformError,
+};
 
 use livetranslator_protocol::{AudioBus, AudioFrame, SampleFormat};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -37,6 +43,12 @@ impl AudioLevelMeter {
         let rms = (sum_sq / n_samples as f64).sqrt() as f32;
         self.rms_db = if rms > 1e-5 { 20.0 * rms.log10() } else { -100.0 };
         self.peak_db = if max_abs > 1e-5 { 20.0 * max_abs.log10() } else { -100.0 };
+    }
+}
+
+impl Default for AudioLevelMeter {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -82,5 +94,13 @@ impl AudioChunker {
 
     pub fn get_levels(&self) -> (f32, f32) {
         (self.meter.rms_db, self.meter.peak_db)
+    }
+
+    pub fn chunk_samples(&self) -> usize {
+        self.chunk_samples
+    }
+
+    pub fn bus(&self) -> AudioBus {
+        self.bus
     }
 }

@@ -28,7 +28,7 @@ jobs:
           python -m pip install pytest pytest-asyncio aiohttp
 
       - name: Compile Python sources
-        run: python -m compileall -q runtime agents tests
+        run: python -m compileall -q runtime agents tests benchmarks scripts
 
       - name: Run runtime-routing integrity tests
         run: >-
@@ -36,3 +36,4 @@ jobs:
           tests/integration/test_tts_adapter_integrity.py
           tests/integration/test_runtime_state_integrity.py
           tests/integration/test_low_vram_integrity.py
+          tests/test_xtts_romanian.py

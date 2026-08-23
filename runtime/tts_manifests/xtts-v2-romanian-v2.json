@@ -15,8 +15,8 @@
     }
   },
   "worker": {
-    "base_url": "http://127.0.0.1:8098",
-    "base_url_env": "VOXPASSPORT_TTS_HOST_URL"
+    "base_url": "http://127.0.0.1:8099",
+    "base_url_env": "VOXPASSPORT_XTTS_TTS_HOST_URL"
   },
   "capabilities": {
     "languages": ["en", "ro"],

@@ -50,6 +50,7 @@ class TranslationProviderDescriptor:
     capability: ModelCapability
     execution_mode: ExecutionMode
     transport: str
+    adapter_entrypoint: str
     auth_kind: ProviderAuthKind
     auth_env: str | None
     streaming: bool
@@ -61,6 +62,8 @@ class TranslationProviderDescriptor:
     metadata: dict[str, Any]
 
     def to_dict(self) -> dict[str, Any]:
+        # adapter_entrypoint is intentionally runtime-internal and is not exposed
+        # through the client discovery contract.
         return {
             "strategy_id": self.strategy_id,
             "display_name": self.display_name,
@@ -124,6 +127,20 @@ class TranslationProviderCatalog:
             raise TranslationProviderCatalogError(f"{path.name}: missing {key}")
         return value
 
+    @staticmethod
+    def _validate_adapter_entrypoint(value: Any, path: Path) -> str:
+        entrypoint = str(value or "").strip()
+        if not entrypoint or ":" not in entrypoint:
+            raise TranslationProviderCatalogError(
+                f"{path.name}: adapter must use 'python.module:ClassName' format"
+            )
+        module_name, symbol_name = entrypoint.rsplit(":", 1)
+        if not module_name or not symbol_name or any(ch.isspace() for ch in entrypoint):
+            raise TranslationProviderCatalogError(
+                f"{path.name}: invalid adapter entrypoint {entrypoint!r}"
+            )
+        return entrypoint
+
     def _load_manifest(self, path: Path) -> TranslationProviderDescriptor:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
@@ -150,8 +167,8 @@ class TranslationProviderCatalog:
         features = data.get("features") or {}
         known = {
             "schema_version", "strategy_id", "display_name", "provider", "model_id",
-            "kind", "capability", "execution_mode", "transport", "auth", "languages",
-            "features", "lifecycle", "metadata",
+            "kind", "capability", "execution_mode", "transport", "adapter", "auth",
+            "languages", "features", "lifecycle", "metadata",
         }
         unknown = sorted(set(data) - known)
         if unknown:
@@ -168,6 +185,9 @@ class TranslationProviderCatalog:
             capability=capability,
             execution_mode=ExecutionMode(self._required(data, "execution_mode", path)),
             transport=str(self._required(data, "transport", path)),
+            adapter_entrypoint=self._validate_adapter_entrypoint(
+                self._required(data, "adapter", path), path
+            ),
             auth_kind=ProviderAuthKind(auth.get("kind", "none")),
             auth_env=str(auth["environment_variable"]) if auth.get("environment_variable") else None,
             streaming=bool(features.get("streaming", False)),

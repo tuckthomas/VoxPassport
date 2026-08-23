@@ -4,7 +4,6 @@ members = [
     "audio-core",
     "audio-windows",
     "protocol",
-    "ipc-client",
 ]
 
 [workspace.package]

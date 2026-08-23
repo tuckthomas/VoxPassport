@@ -41,3 +41,40 @@ jobs:
           tests/test_tts_plugin_architecture.py
           tests/test_tts_runtime_supervisor.py
           tests/test_tts_residency_contract.py
+          tests/test_repository_architecture.py
+          tests/test_translation_provider_catalog.py
+
+  desktop-client:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/client/package.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install shared client dependencies
+        run: npm install --prefix apps/client --no-audit --no-fund
+
+      - name: Type-check shared Expo client
+        run: npm run --prefix apps/client typecheck
+
+      - name: Export shared web client for Tauri
+        run: npm run --prefix apps/client export:web
+
+      - name: Check portable audio crate
+        run: cargo check --manifest-path crates/audio-core/Cargo.toml
+
+      - name: Check Windows audio crate
+        run: cargo check --manifest-path crates/audio-windows/Cargo.toml
+
+      - name: Compile and run desktop-shell unit tests
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml

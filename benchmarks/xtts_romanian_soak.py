@@ -17,7 +17,7 @@ from pathlib import Path
 
 import aiohttp
 
-from runtime.workers.xtts_romanian.common import target_conditioning_reference
+from runtime.workers.tts_host.drivers.xtts_common import target_conditioning_reference
 
 MODEL_ID = "xtts-v2-romanian-v2"
 

@@ -64,6 +64,8 @@ Purpose: Refactor VoxPassport TTS integration so the main application depends on
 - [x] Make `run.bat` launch `runtime/inference/server/main.py` directly; remove `tts_plugin_main.py` and `xtts_main.py`.
 - [x] Move XTTS requirements under `runtime/workers/tts_host/requirements-xtts.txt` and update `install_xtts_worker.bat` accordingly.
 
+The isolated XTTS environment is an intentional dependency boundary, not legacy compatibility debt. The fixed port mapping is a current launcher implementation, not the desired permanent scaling mechanism.
+
 ## Registry and UI metadata
 
 - [x] Bridge manifest metadata into the existing model registry while preserving installed/active/pinned/benchmark state.
@@ -114,6 +116,25 @@ Purpose: Refactor VoxPassport TTS integration so the main application depends on
 - [x] Document protocol endpoints, standard synthesis requests, capability negotiation, voice-profile behavior, hot-swap locking, and registry ownership.
 - [x] Remove compatibility shims, compatibility daemon entrypoints, the model-specific XTTS server, native/in-process exceptions, and inherited base-daemon TTS branches.
 - [x] Complete the architectural refactor; only final CI observation remains environment-dependent.
+
+## Follow-on topology evolution
+
+The completed refactor solves the **application/model integration architecture**. It does not require the current fixed `.venv`/`:8098` and `.venv-xtts`/`:8099` launcher topology to remain permanent.
+
+The recommended follow-on is tracked separately in:
+
+- `.agents/plans/tts-runtime-profile-supervisor-plan.md`
+
+That future work should:
+
+- preserve dependency isolation;
+- replace literal model-to-port coupling with manifest `runtime_profile` metadata;
+- launch the generic host under the required interpreter/environment on demand;
+- assign/discover worker endpoints dynamically;
+- own cross-process TTS GPU residency and idle-worker shutdown;
+- group models by dependency compatibility rather than one environment per model.
+
+This is a forward-looking orchestration improvement, not backwards compatibility and not a reason to reopen the deleted adapter architecture.
 
 ## Current implementation files
 

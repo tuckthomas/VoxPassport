@@ -33,7 +33,6 @@ __pycache__/
 *.py[cod]
 *$py.class
 .venv/
-.venv-xtts/
 runtime/profiles/*/.venv/
 .python312/
 .setup-temp/

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import copy
 import logging
 import sys
 import threading
@@ -36,6 +37,7 @@ class TtsDriverController:
         self.catalog = catalog
         self._manifest: TtsManifest | None = None
         self._driver: TtsDriver | None = None
+        self._runtime_driver_options: dict[str, object] = {}
         self._runtime_lock = threading.RLock()
         self._switch_lock = asyncio.Lock()
 
@@ -43,10 +45,32 @@ class TtsDriverController:
     def loaded_model_id(self) -> str | None:
         return self._manifest.model_id if self._manifest is not None else None
 
-    def _load_blocking(self, model_id: str) -> dict:
-        manifest = self.catalog.resolve(model_id)
+    @staticmethod
+    def _with_runtime_driver_options(
+        manifest: TtsManifest,
+        runtime_driver_options: dict[str, object],
+    ) -> TtsManifest:
+        if not runtime_driver_options:
+            return manifest
+        raw = copy.deepcopy(manifest.raw)
+        raw.setdefault("driver", {}).setdefault("options", {}).update(runtime_driver_options)
+        return TtsManifest(path=manifest.path, raw=raw)
+
+    def _load_blocking(
+        self,
+        model_id: str,
+        driver_options_override: dict[str, object] | None = None,
+    ) -> dict:
+        catalog_manifest = self.catalog.resolve(model_id)
         with self._runtime_lock:
-            if self._manifest is not None and self._manifest.model_id == manifest.model_id and self._driver is not None:
+            same_model = self._manifest is not None and self._manifest.model_id == catalog_manifest.model_id
+            if driver_options_override is None and same_model:
+                runtime_options = dict(self._runtime_driver_options)
+            else:
+                runtime_options = dict(driver_options_override or {})
+            manifest = self._with_runtime_driver_options(catalog_manifest, runtime_options)
+
+            if same_model and self._driver is not None and runtime_options == self._runtime_driver_options:
                 if self._driver.health_check():
                     return self._driver.capabilities()
             if self._driver is not None:
@@ -55,6 +79,7 @@ class TtsDriverController:
                 finally:
                     self._driver = None
                     self._manifest = None
+                    self._runtime_driver_options = {}
             driver = create_driver(manifest)
             driver.load()
             if not driver.health_check():
@@ -64,12 +89,21 @@ class TtsDriverController:
                     raise RuntimeError(f"{manifest.display_name} driver failed its health check after load")
             self._manifest = manifest
             self._driver = driver
+            self._runtime_driver_options = runtime_options
             logger.info("Loaded TTS plugin %s via %s", manifest.model_id, manifest.driver_entrypoint)
             return driver.capabilities()
 
-    async def load(self, model_id: str) -> dict:
+    async def load(
+        self,
+        model_id: str,
+        driver_options_override: dict[str, object] | None = None,
+    ) -> dict:
         async with self._switch_lock:
-            return await asyncio.to_thread(self._load_blocking, model_id)
+            return await asyncio.to_thread(
+                self._load_blocking,
+                model_id,
+                driver_options_override,
+            )
 
     def _unload_blocking(self, requested_model_id: str | None = None) -> None:
         with self._runtime_lock:
@@ -85,6 +119,7 @@ class TtsDriverController:
                 logger.info("Unloaded TTS plugin %s", self.loaded_model_id)
                 self._driver = None
                 self._manifest = None
+                self._runtime_driver_options = {}
 
     async def unload(self, model_id: str | None = None) -> None:
         async with self._switch_lock:
@@ -104,7 +139,8 @@ class TtsDriverController:
         request could request a hot-swap in the tiny interval between that load
         and the synthesis thread acquiring `_runtime_lock`. Revalidating here
         closes that race and guarantees the requested model owns the complete
-        committed utterance.
+        committed utterance. Runtime-only driver options injected by the
+        supervisor are retained during this revalidation.
         """
         manifest = self.catalog.resolve(model_id)
         if (
@@ -113,7 +149,7 @@ class TtsDriverController:
             or self._manifest.model_id != manifest.model_id
             or not self._driver.health_check()
         ):
-            self._load_blocking(manifest.model_id)
+            self._load_blocking(manifest.model_id, dict(self._runtime_driver_options))
         return self._require_loaded(manifest.model_id)
 
     def pcm_iterator(self, model_id: str, request: TtsDriverRequest) -> Iterator[bytes]:
@@ -206,8 +242,14 @@ def create_app(controller: TtsDriverController) -> web.Application:
         model_id = str(data.get("model_id", "")).strip()
         if not model_id:
             return web.json_response({"success": False, "error": "model_id is required"}, status=400)
+        driver_options_override = data.get("driver_options_override")
+        if driver_options_override is not None and not isinstance(driver_options_override, dict):
+            return web.json_response(
+                {"success": False, "error": "driver_options_override must be an object"},
+                status=400,
+            )
         try:
-            caps = await controller.load(model_id)
+            caps = await controller.load(model_id, driver_options_override)
             return web.json_response({"success": True, "capabilities": caps, "metrics": controller.metrics()})
         except Exception as exc:
             logger.exception("Could not load TTS plugin %s", model_id)
@@ -229,6 +271,9 @@ def create_app(controller: TtsDriverController) -> web.Application:
             return web.json_response({"error": "model is required"}, status=400)
         try:
             manifest = controller.catalog.resolve(model_id)
+            # If the supervisor injected runtime-only driver options during
+            # /load, controller.load() preserves them for the already-selected
+            # model instead of recreating the driver from static manifest data.
             await controller.load(manifest.model_id)
             driver_request = _request_object(data)
             if driver_request.language not in manifest.languages and "*" not in manifest.languages:

@@ -1,0 +1,26 @@
+[project]
+name = "voxpassport-runtime-coqui-xtts"
+version = "0.1.0"
+description = "Dependency-isolated Coqui XTTS runtime profile for VoxPassport"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "torch==2.13.0",
+  "torchaudio==2.11.0",
+  "torchcodec==0.13.0",
+  "coqui-tts==0.27.5",
+  "transformers>=4.45,<5",
+  "aiohttp>=3.9",
+  "huggingface-hub>=0.20",
+  "numpy>=1.24",
+  "soundfile>=0.12",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+torchaudio = { index = "pytorch-cu130" }
+torchcodec = { index = "pytorch-cu130" }
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true

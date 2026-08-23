@@ -8,6 +8,7 @@ import struct
 import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
+from pathlib import Path
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -26,6 +27,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib handler API
         if self.path in {"/health", "/v1/models"}:
+            marker = getattr(self.server, "restart_health_marker", None)
+            if marker is not None and marker.exists():
+                self._json({"status": "degraded", "error": "forced unhealthy backend"}, 503)
+                return
             self._json({"status": "ok", "data": []})
             return
         self._json({"error": "not found"}, 404)
@@ -63,8 +68,15 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, required=True)
+    parser.add_argument("--restart-health-marker", default="")
     args = parser.parse_args()
+    marker = Path(args.restart_health_marker).resolve() if args.restart_health_marker else None
+    # A newly launched replacement becomes healthy again. The already-running
+    # process sees a marker created after startup and returns 503 until killed.
+    if marker is not None and marker.exists():
+        marker.unlink()
     server = ThreadingHTTPServer((args.host, args.port), Handler)
+    server.restart_health_marker = marker
     server.serve_forever()
 
 

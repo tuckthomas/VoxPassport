@@ -24,6 +24,7 @@
         "venv_dir": "runtime/profiles/coqui-xtts/.venv",
         "python_version": "3.12",
         "prefer_uv": true,
+        "uv_project": "runtime/profiles/coqui-xtts",
         "steps": [
           {
             "packages": [
@@ -37,7 +38,7 @@
             "requirements": "runtime/workers/tts_host/requirements-xtts.txt"
           }
         ],
-        "notes": "Coqui/XTTS remains isolated because its dependency constraints must not constrain the main Transformers/Parakeet environment."
+        "notes": "Coqui/XTTS remains isolated because its dependency constraints must not constrain the main Transformers/Parakeet environment. uv sync is preferred; the declared pip steps are the fallback when uv is unavailable."
       }
     }
   }

@@ -109,8 +109,12 @@ def test_runtime_profile_catalog_groups_dependency_families():
     profiles = RuntimeProfileCatalog().load()
     assert {profile.profile_id for profile in profiles.profiles()} == {"core", "coqui-xtts"}
     assert profiles.resolve("core").interpreter.endswith(".venv/Scripts/python.exe")
-    assert profiles.resolve("coqui-xtts").interpreter.endswith(".venv-xtts/Scripts/python.exe")
+    assert profiles.resolve("coqui-xtts").interpreter.endswith(
+        "runtime/profiles/coqui-xtts/.venv/Scripts/python.exe"
+    )
     assert profiles.resolve("coqui-xtts").provisioning["prefer_uv"] is True
+    assert profiles.resolve("coqui-xtts").provisioning["uv_project"] == "runtime/profiles/coqui-xtts"
+    assert (_repo_root() / "runtime" / "profiles" / "coqui-xtts" / "pyproject.toml").exists()
 
 
 def test_every_local_tts_model_uses_one_main_process_adapter():

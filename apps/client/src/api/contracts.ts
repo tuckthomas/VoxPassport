@@ -1,4 +1,5 @@
 export const SESSION_PROTOCOL = 'voxpassport.session.v1' as const;
+export const CLIENT_PROTOCOL = 'voxpassport.client.v1' as const;
 
 export type RuntimeBootstrap = {
   protocol_version: string;
@@ -6,6 +7,8 @@ export type RuntimeBootstrap = {
   api_base_url: string;
   captions_websocket_url: string;
   resources_websocket_url: string;
+  audio_status_url: string;
+  audio_devices_url: string;
   capabilities: string[];
   app_version?: string;
 };
@@ -19,6 +22,40 @@ export type RuntimeStatus = {
   active_slots: Record<string, string>;
   model_residency: string;
   models_loaded: boolean;
+};
+
+export type DesktopAudioCapabilities = {
+  device_enumeration: boolean;
+  physical_microphone_capture: boolean;
+  loopback_capture: boolean;
+  virtual_microphone_output: boolean;
+};
+
+export type DesktopAudioStatus = {
+  schema_version: number;
+  transport: 'runtime_native_service';
+  platform: string;
+  service_connected: boolean;
+  capabilities: DesktopAudioCapabilities;
+  note: string;
+};
+
+export type DesktopAudioDeviceRole =
+  | 'physical_microphone'
+  | 'render_output'
+  | 'loopback_source'
+  | 'virtual_microphone_sink';
+
+export type DesktopAudioDevice = {
+  id: string;
+  name: string;
+  role: DesktopAudioDeviceRole;
+  is_default: boolean;
+};
+
+export type DesktopAudioDevicesResponse = {
+  schema_version: number;
+  devices: DesktopAudioDevice[];
 };
 
 export type LanguageConfiguration = {

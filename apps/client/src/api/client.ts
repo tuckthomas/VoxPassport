@@ -1,4 +1,3 @@
-import { requestLocalRuntime } from '@/desktop/bridge';
 import type {
   LanguageConfiguration,
   ModelEntry,
@@ -8,37 +7,14 @@ import type {
   VoiceProfilesResponse,
 } from './contracts';
 
-export type VoxPassportApiOptions = {
-  nativeLocal?: boolean;
-};
-
 export class VoxPassportApi {
   readonly baseUrl: string;
-  private readonly nativeLocal: boolean;
 
-  constructor(baseUrl: string, options: VoxPassportApiOptions = {}) {
+  constructor(baseUrl: string) {
     this.baseUrl = baseUrl.trim().replace(/\/+$/, '');
-    this.nativeLocal = options.nativeLocal === true;
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
-    const method = String(init?.method ?? 'GET').toUpperCase();
-    const body = typeof init?.body === 'string' ? init.body : null;
-
-    if (this.nativeLocal && (!init?.body || body !== null)) {
-      const nativeResponse = await requestLocalRuntime(this.baseUrl, path, method, body);
-      if (nativeResponse) {
-        if (nativeResponse.status < 200 || nativeResponse.status >= 300) {
-          throw new Error(apiErrorMessage(nativeResponse.status, nativeResponse.body));
-        }
-        try {
-          return JSON.parse(nativeResponse.body) as T;
-        } catch (error) {
-          throw new Error(`Local runtime returned invalid JSON for ${path}: ${String(error)}`);
-        }
-      }
-    }
-
     const response = await fetch(`${this.baseUrl}${path}`, {
       ...init,
       headers: {

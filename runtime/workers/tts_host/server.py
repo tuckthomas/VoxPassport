@@ -1,7 +1,7 @@
 """Generic manifest-driven VoxPassport TTS worker host.
 
 The host exposes one stable local protocol (`voxpassport.tts.v1`) and lazily
-loads a driver selected by model manifest.  Only drivers know model-library or
+loads a driver selected by model manifest. Only drivers know model-library or
 backend-specific semantics.
 """
 
@@ -96,16 +96,36 @@ class TtsDriverController:
             raise RuntimeError(f"TTS plugin {manifest.model_id!r} is not loaded")
         return self._manifest, self._driver
 
+    def _ensure_loaded_under_runtime_lock(self, model_id: str) -> tuple[TtsManifest, TtsDriver]:
+        """Revalidate the selected driver after the utterance lock is acquired.
+
+        `/v1/audio/speech` performs an async load before streaming so failures
+        can be returned as JSON before response headers are committed. A second
+        request could request a hot-swap in the tiny interval between that load
+        and the synthesis thread acquiring `_runtime_lock`. Revalidating here
+        closes that race and guarantees the requested model owns the complete
+        committed utterance.
+        """
+        manifest = self.catalog.resolve(model_id)
+        if (
+            self._manifest is None
+            or self._driver is None
+            or self._manifest.model_id != manifest.model_id
+            or not self._driver.health_check()
+        ):
+            self._load_blocking(manifest.model_id)
+        return self._require_loaded(manifest.model_id)
+
     def pcm_iterator(self, model_id: str, request: TtsDriverRequest) -> Iterator[bytes]:
         # Keep a selected driver resident and immutable for the entire utterance;
         # hot-swap waits until the committed utterance leaves this critical section.
         with self._runtime_lock:
-            _manifest, driver = self._require_loaded(model_id)
+            _manifest, driver = self._ensure_loaded_under_runtime_lock(model_id)
             yield from driver.synthesize_pcm(request)
 
     def wav_bytes(self, model_id: str, request: TtsDriverRequest) -> bytes:
         with self._runtime_lock:
-            _manifest, driver = self._require_loaded(model_id)
+            _manifest, driver = self._ensure_loaded_under_runtime_lock(model_id)
             return driver.synthesize_wav(request)
 
     def capabilities(self, model_id: str | None = None) -> dict:

@@ -28,14 +28,14 @@ call .venv-xtts\Scripts\python.exe -m pip install torch==2.13.0 torchaudio==2.11
 if errorlevel 1 goto :fail
 
 rem Coqui remains isolated because its Transformers compatibility is narrower
-rem than the primary Parakeet environment. The generic TTS host uses this
-rem environment only when an XTTS-capable environment is present.
-call .venv-xtts\Scripts\python.exe -m pip install -r runtime\workers\xtts_romanian\requirements.txt
+rem than the primary Parakeet environment. It still runs the exact same generic
+rem voxpassport.tts.v1 host, on port 8099.
+call .venv-xtts\Scripts\python.exe -m pip install -r runtime\workers\tts_host\requirements-xtts.txt
 if errorlevel 1 goto :fail
 
 echo.
 echo XTTS driver dependencies are installed.
-echo run.bat will start the generic TTS plugin host with XTTS support enabled.
+echo run.bat will start the XTTS-capable generic TTS host on port 8099.
 echo The Romanian checkpoint downloads automatically the first time XTTS is activated.
 echo Worker environment: .venv-xtts
 exit /b 0

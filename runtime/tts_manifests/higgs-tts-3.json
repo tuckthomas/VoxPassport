@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "model_id": "higgs-tts-3",
   "display_name": "Higgs TTS 3",
   "aliases": [
@@ -7,6 +7,7 @@
     "boson",
     "bosonai/higgs-tts-3-4b"
   ],
+  "runtime_profile": "core",
   "driver": {
     "entrypoint": "runtime.workers.tts_host.drivers.openai_proxy:OpenAiSpeechProxyDriver",
     "options": {
@@ -33,10 +34,6 @@
       "reference_audio_encoding": "data_uri",
       "timeout_seconds": 300
     }
-  },
-  "worker": {
-    "base_url": "http://127.0.0.1:8098",
-    "base_url_env": "VOXPASSPORT_TTS_HOST_URL"
   },
   "capabilities": {
     "languages": ["*"],

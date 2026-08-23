@@ -1,22 +1,26 @@
 import { createContext, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react';
 import { getSetting, setSetting } from '@/storage/settingsStorage';
 
-export type RuntimeMode = 'local' | 'cloud';
+export type RuntimeMode = 'local' | 'self_hosted' | 'cloud';
 
 export type RuntimeTarget = {
   mode: RuntimeMode;
   localBaseUrl: string;
+  selfHostedBaseUrl: string;
   cloudBaseUrl: string;
 };
 
 type RuntimeTargetContextValue = RuntimeTarget & {
   ready: boolean;
+  activeBaseUrl: string;
   setMode: (mode: RuntimeMode) => Promise<void>;
   setLocalBaseUrl: (url: string) => Promise<void>;
+  setSelfHostedBaseUrl: (url: string) => Promise<void>;
   setCloudBaseUrl: (url: string) => Promise<void>;
 };
 
 const DEFAULT_LOCAL_URL = 'http://127.0.0.1:8766';
+const DEFAULT_SELF_HOSTED_URL = 'https://voxpassport.example';
 const DEFAULT_CLOUD_URL = 'https://api.voxpassport.com';
 
 const RuntimeTargetContext = createContext<RuntimeTargetContextValue | null>(null);
@@ -29,6 +33,7 @@ function normalizeBaseUrl(value: string, fallback: string): string {
 export function RuntimeTargetProvider({ children }: PropsWithChildren) {
   const [mode, setModeState] = useState<RuntimeMode>('local');
   const [localBaseUrl, setLocalBaseUrlState] = useState(DEFAULT_LOCAL_URL);
+  const [selfHostedBaseUrl, setSelfHostedBaseUrlState] = useState(DEFAULT_SELF_HOSTED_URL);
   const [cloudBaseUrl, setCloudBaseUrlState] = useState(DEFAULT_CLOUD_URL);
   const [ready, setReady] = useState(false);
 
@@ -37,21 +42,26 @@ export function RuntimeTargetProvider({ children }: PropsWithChildren) {
     Promise.all([
       getSetting('runtime.mode'),
       getSetting('runtime.localBaseUrl'),
+      getSetting('runtime.selfHostedBaseUrl'),
       getSetting('runtime.cloudBaseUrl'),
-    ]).then(([savedMode, savedLocal, savedCloud]) => {
+    ]).then(([savedMode, savedLocal, savedSelfHosted, savedCloud]) => {
       if (!active) return;
-      if (savedMode === 'local' || savedMode === 'cloud') setModeState(savedMode);
+      if (savedMode === 'local' || savedMode === 'self_hosted' || savedMode === 'cloud') setModeState(savedMode);
       if (savedLocal) setLocalBaseUrlState(normalizeBaseUrl(savedLocal, DEFAULT_LOCAL_URL));
+      if (savedSelfHosted) setSelfHostedBaseUrlState(normalizeBaseUrl(savedSelfHosted, DEFAULT_SELF_HOSTED_URL));
       if (savedCloud) setCloudBaseUrlState(normalizeBaseUrl(savedCloud, DEFAULT_CLOUD_URL));
       setReady(true);
     }).catch(() => setReady(true));
     return () => { active = false; };
   }, []);
 
+  const activeBaseUrl = mode === 'local' ? localBaseUrl : mode === 'self_hosted' ? selfHostedBaseUrl : cloudBaseUrl;
   const value = useMemo<RuntimeTargetContextValue>(() => ({
     mode,
     localBaseUrl,
+    selfHostedBaseUrl,
     cloudBaseUrl,
+    activeBaseUrl,
     ready,
     async setMode(next) {
       setModeState(next);
@@ -62,12 +72,17 @@ export function RuntimeTargetProvider({ children }: PropsWithChildren) {
       setLocalBaseUrlState(value);
       await setSetting('runtime.localBaseUrl', value);
     },
+    async setSelfHostedBaseUrl(next) {
+      const value = normalizeBaseUrl(next, DEFAULT_SELF_HOSTED_URL);
+      setSelfHostedBaseUrlState(value);
+      await setSetting('runtime.selfHostedBaseUrl', value);
+    },
     async setCloudBaseUrl(next) {
       const value = normalizeBaseUrl(next, DEFAULT_CLOUD_URL);
       setCloudBaseUrlState(value);
       await setSetting('runtime.cloudBaseUrl', value);
     },
-  }), [mode, localBaseUrl, cloudBaseUrl, ready]);
+  }), [mode, localBaseUrl, selfHostedBaseUrl, cloudBaseUrl, activeBaseUrl, ready]);
 
   return <RuntimeTargetContext.Provider value={value}>{children}</RuntimeTargetContext.Provider>;
 }

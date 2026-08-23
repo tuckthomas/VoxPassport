@@ -24,3 +24,5 @@ export const theme = {
     lg: 18,
   },
 } as const;
+
+export const colors = theme.colors;

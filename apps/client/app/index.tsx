@@ -22,8 +22,8 @@ export default function HomeScreen() {
       </Card>
       <View style={{ gap: 12 }}>
         {destinations.map(([href, title, detail]) => (
-          <Link key={href} href={href} asChild>
-            <Card pressable>
+          <Link key={href} href={href} style={{ textDecorationLine: 'none' }}>
+            <Card>
               <Text style={{ color: colors.text, fontSize: 16, fontWeight: '700' }}>{title}</Text>
               <Text style={{ color: colors.muted, marginTop: 6 }}>{detail}</Text>
             </Card>

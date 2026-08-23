@@ -28,8 +28,21 @@ def _worker_health(endpoint: str) -> dict[str, Any]:
         }
 
 
+def _backend_health(endpoint: str, health_path: str) -> dict[str, Any]:
+    try:
+        with urllib.request.urlopen(endpoint.rstrip("/") + health_path, timeout=0.25) as response:
+            response.read(256)
+            status_code = int(getattr(response, "status", 200))
+        return {
+            "reachable": 200 <= status_code < 400,
+            "status_code": status_code,
+        }
+    except Exception:
+        return {"reachable": False, "status_code": None}
+
+
 def tts_runtime_status_snapshot() -> dict[str, Any]:
-    """Return best-effort profile/process/health state without creating workers."""
+    """Return best-effort profile/process/backend state without creating workers."""
     supervisor = supervisor_module._DEFAULT_SUPERVISOR
     if supervisor is None:
         return {
@@ -37,6 +50,7 @@ def tts_runtime_status_snapshot() -> dict[str, Any]:
             "active_profile_id": None,
             "active_model_id": None,
             "profiles": [],
+            "backends": [],
         }
 
     profiles = []
@@ -64,9 +78,30 @@ def tts_runtime_status_snapshot() -> dict[str, Any]:
             "health": health,
         })
 
+    backends = []
+    for model_id, handle in supervisor._backends.items():
+        running = handle.process.poll() is None
+        unexpected_exit = not running
+        health = _backend_health(handle.endpoint, handle.health_path) if running else {
+            "reachable": False,
+            "status_code": None,
+        }
+        backends.append({
+            "model_id": model_id,
+            "managed": True,
+            "running": running,
+            "unexpected_exit": unexpected_exit,
+            "exit_code": handle.process.returncode if unexpected_exit else None,
+            "pid": handle.process.pid if running else None,
+            "endpoint": handle.endpoint if running else None,
+            "health_path": handle.health_path,
+            "health": health,
+        })
+
     return {
         "available": True,
         "active_profile_id": supervisor._active_profile_id,
         "active_model_id": supervisor._active_model_id,
         "profiles": profiles,
+        "backends": backends,
     }

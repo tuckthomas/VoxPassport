@@ -1,4 +1,4 @@
-"""Manifest-configured proxy driver for OpenAI-style local speech backends."""
+"""Manifest-configured proxy driver for OpenAI-style speech backends."""
 
 from __future__ import annotations
 
@@ -39,7 +39,13 @@ class OpenAiSpeechProxyDriver(TtsDriver):
         env_name = str(options.get("backend_url_env", "")).strip()
         if env_name and os.getenv(env_name):
             return str(os.environ[env_name]).rstrip("/")
-        return str(options["backend_url"]).rstrip("/")
+        configured = str(options.get("backend_url", "")).strip()
+        if configured:
+            return configured.rstrip("/")
+        raise RuntimeError(
+            f"{self.manifest.display_name} has no backend endpoint. "
+            "A supervisor-managed local endpoint or explicit remote backend URL is required."
+        )
 
     def _health_url(self) -> str:
         return self._backend_url() + str(self._options().get("health_path", "/v1/models"))
@@ -71,8 +77,9 @@ class OpenAiSpeechProxyDriver(TtsDriver):
                 with urlrequest.urlopen(req, timeout=float(options.get("unload_timeout_seconds", 15))):
                     pass
             except Exception:
-                # The generic host must still release its selected driver even if
-                # an independently managed backend refuses an optional unload.
+                # A supervisor-managed local backend is terminated by the main
+                # runtime after the driver unloads. Remote backends may simply
+                # not expose an unload endpoint.
                 pass
         self._loaded = False
 

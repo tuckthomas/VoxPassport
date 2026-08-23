@@ -2,7 +2,7 @@
 
 Status: Implementation complete; final Runtime Integrity observation pending
 
-Purpose: Keep VoxPassport local TTS model integration genuinely modular: one application adapter, one stable worker protocol, declarative manifests, worker-side drivers, and supervisor-managed dependency/runtime profiles. No model-specific application adapters, native exceptions, compatibility shims, fixed VoxPassport worker ports, or model-specific launcher scripts are retained.
+Purpose: Keep VoxPassport local TTS model integration genuinely modular: one application adapter, one stable worker protocol, declarative manifests, worker-side drivers, and supervisor-managed dependency/runtime/process topology. No model-specific application adapters, native exceptions, compatibility shims, fixed local TTS ports, unmanaged localhost GPU backends, or model-specific launcher scripts are retained.
 
 ## Application boundary
 
@@ -17,19 +17,25 @@ Purpose: Keep VoxPassport local TTS model integration genuinely modular: one app
 
 - [x] Make local TTS manifests the sole built-in local-TTS catalog.
 - [x] Give every current local TTS path a manifest: OmniVoice, full Higgs, native Higgs Q4_K_M, MOSS-TTS v1.5, VoxCPM2, and XTTS Romanian v2.
-- [x] Keep aliases, languages, cloning support, transcript requirements, sample format/rate, driver entrypoint/options, and registry metadata in manifests.
+- [x] Keep aliases, languages, cloning support, transcript requirements, sample format/rate, driver entrypoint/options, registry metadata, runtime profile, and optional local-backend lifecycle requirements in manifests.
 - [x] Make runtime capability discovery authoritative after model load.
-- [x] Keep external backend URLs in driver options only when the driver truly proxies another backend.
+- [x] Keep explicit backend URL overrides only for genuine non-loopback remote services.
+- [x] Declare local proxy-server startup through model-agnostic `backend_process` metadata rather than fixed localhost URLs.
 
-## Runtime-profile evolution
+## Runtime-profile and process supervision
 
-The original generic-driver refactor briefly used two fixed generic hosts. That intermediate topology has now been replaced by the implemented runtime supervisor.
+The original generic-driver refactor briefly used fixed generic hosts and independently managed proxy servers. Those intermediate topologies have been replaced by the implemented runtime supervisor.
 
 - [x] Upgrade TTS manifests to schema version 2.
 - [x] Add `runtime_profile` to manifests.
 - [x] Reject model-owned VoxPassport worker URLs/ports.
 - [x] Add `core` and `coqui-xtts` dependency-compatible runtime profiles.
 - [x] Add `TtsRuntimeSupervisor` to select interpreters, spawn generic workers on demand, assign dynamic localhost ports, health-check, load, recover, unload, and stop workers.
+- [x] Make worker subprocesses use the supervisor's actual manifest catalog path.
+- [x] Add generic managed proxy-backend startup from `backend_process.command` or `backend_process.command_env`.
+- [x] Allocate proxy-backend ports dynamically and inject those endpoints into drivers as runtime-only options.
+- [x] Reject unmanaged loopback proxy URLs.
+- [x] Permit explicit non-loopback remote proxy URLs because they do not occupy the local GPU.
 - [x] Make `run.bat` start only the main daemon.
 - [x] Remove `install_xtts_worker.bat`; isolated environments are provisioned through `scripts/manage_runtime_profile.py`.
 - [x] Move XTTS's isolated environment under `runtime/profiles/coqui-xtts/.venv`.
@@ -44,6 +50,7 @@ See `.agents/plans/tts-runtime-profile-supervisor-plan.md` for the detailed supe
 - [x] Migrate OmniVoice to `OmniVoiceDriver`.
 - [x] Migrate native Higgs/audiocpp Q4 to `HiggsNativeDriver`.
 - [x] Use the reusable `OpenAiSpeechProxyDriver` for full Higgs, MOSS, and VoxCPM where their backends expose compatible HTTP semantics.
+- [x] Allow the supervisor to inject a managed backend endpoint into the reusable proxy driver without mutating the manifest.
 - [x] Migrate XTTS Romanian to `XttsRomanianDriver` plus its internal runtime/helper modules.
 - [x] Preserve XTTS Romanian normalization, true streaming, bounded CPU conditioning cache, metrics, and hybrid real-speaker + target-language GPT conditioning.
 - [x] Remove the old XTTS-specific server and `runtime/workers/xtts_romanian/` package.
@@ -63,13 +70,15 @@ See `.agents/plans/tts-runtime-profile-supervisor-plan.md` for the detailed supe
 - [x] Hold the worker runtime lock for a committed utterance.
 - [x] Reuse one worker process for models sharing a runtime profile.
 - [x] Unload the prior driver before same-profile replacement.
+- [x] Terminate the prior model's managed local proxy-backend process tree on same-profile or cross-profile replacement.
 - [x] Terminate an incompatible previous-profile worker before cross-profile activation.
 - [x] Preserve one active supervised local TTS model by default for low-VRAM systems.
 - [x] Keep `heavy_gpu_inference()` around actual local TTS generation.
-- [x] Roll back the previous TTS manifest when replacement activation fails.
+- [x] Roll back the previous TTS manifest and managed backend when replacement activation fails.
+- [x] Detect a managed backend that is alive but unhealthy and recycle it before synthesis.
 - [x] Restart/retry once when a worker dies before first audio.
 - [x] Do not replay after partial audio was emitted.
-- [x] Shut idle workers down and terminate supervisor-owned children on process exit.
+- [x] Shut idle workers down and terminate supervisor-owned worker/backend children on process exit.
 
 ## Registry and UI
 
@@ -77,14 +86,16 @@ See `.agents/plans/tts-runtime-profile-supervisor-plan.md` for the detailed supe
 - [x] Keep local TTS aliases out of hard-coded model-manager tables.
 - [x] Let Model Settings discover TTS models from backend registry metadata.
 - [x] Keep UI routing model-agnostic.
-- [x] Add supervised TTS runtime-profile state to resource diagnostics.
+- [x] Add supervised TTS runtime-profile and managed-backend state to resource diagnostics.
 - [x] Show TTS runtime profiles in the Model Settings resource monitor as running/ready/missing/broken.
+- [x] Mark the active TTS runtime broken when either its generic worker or managed local backend exits or becomes unreachable.
 
 ## Existing XTTS workflows
 
 - [x] Make the 50-turn XTTS soak benchmark obtain its worker through the runtime supervisor.
 - [x] Remove its fixed endpoint argument/assumption.
 - [x] Make the MOSS teacher utility use the supervisor rather than manually unloading fixed XTTS/MOSS hosts.
+- [x] Make a local MOSS teacher backend supervisor-owned; allow `VOXPASSPORT_MOSS_TTS_URL` only as an explicit non-loopback remote override.
 - [x] Keep only `conditioning/ro.wav` plus its metadata as the derived teacher artifact.
 
 ## Validation
@@ -96,26 +107,31 @@ See `.agents/plans/tts-runtime-profile-supervisor-plan.md` for the detailed supe
 - [x] Test synthetic manifests route without daemon model-name branches.
 - [x] Test generic worker protocol/controller behavior with a fake driver.
 - [x] Test deleted concrete adapters/servers do not reappear.
-- [x] Test runtime-profile resolution and dynamic ports.
-- [x] Test logical adapter load does not spawn an unused worker.
+- [x] Test runtime-profile resolution and dynamic worker ports.
+- [x] Test logical adapter load does not spawn unused TTS processes.
 - [x] Test same-profile worker reuse and cross-profile worker termination.
 - [x] Test idle shutdown.
 - [x] Test worker death during load and during pre-audio synthesis.
+- [x] Test managed proxy-backend dynamic startup and endpoint injection.
+- [x] Test managed proxy-backend termination on release and replacement.
+- [x] Test rejection of unmanaged loopback proxy backends.
+- [x] Test a live-but-unhealthy managed proxy backend is terminated/restarted before reuse.
+- [x] Add source/manifest integrity checks preventing fixed `8095`-`8099` TTS ports and model-specific supervisor branches.
 - [x] Run these tests from Runtime Integrity CI without model downloads.
 - [ ] Observe the final push-triggered Runtime Integrity workflow as green; if the connector does not expose it, run the workflow/equivalent pytest locally.
 
 ## Documentation and acceptance
 
-- [x] Document: adapter = application protocol boundary; manifest = model declaration; runtime profile = dependency family; supervisor = process topology; driver = model/backend implementation.
+- [x] Document: adapter = application protocol boundary; manifest = model/lifecycle declaration; runtime profile = dependency family; supervisor = local process topology/residency; driver = model/backend implementation.
 - [x] Update architecture, XTTS, registry/troubleshooting, README/project documentation, and related plans for the supervisor topology.
-- [x] Remove documentation that treats `:8098`, `:8099`, `.venv-xtts`, or `install_xtts_worker.bat` as current architecture.
+- [x] Remove documentation that treats `:8095`-`:8099`, `.venv-xtts`, `install_xtts_worker.bat`, or independently managed localhost TTS backends as current architecture.
 - [x] Keep explicit historical benchmark results historical rather than rewriting old measurements as current model defaults.
 
 ## Current architectural rule
 
 Adding a new compatible local TTS model should require **only a manifest** when an existing driver and runtime profile fit.
 
-If inference semantics are new, add a small worker-side driver. If dependencies are incompatible, add/reuse a runtime profile. Neither case should require an application adapter, daemon branch, fixed VoxPassport worker port, or model-specific launcher.
+If inference semantics are new, add a small worker-side driver. If dependencies are incompatible, add/reuse a runtime profile. If a reusable proxy driver needs a local backend, declare a supervisor launch contract. None of these cases should require an application adapter, daemon branch, fixed local TTS port, model-specific launcher, or unmanaged localhost GPU process.
 
 ## Removed legacy/intermediate architecture
 
@@ -128,6 +144,8 @@ The following are deliberately absent:
 - `install_xtts_worker.bat`;
 - local TTS model-name dispatch trees;
 - fixed VoxPassport TTS worker ports in manifests or `run.bat`;
+- fixed `8095`/`8096`/`8097` proxy-backend addresses;
+- unmanaged loopback proxy backends;
 - blanket non-OmniVoice transcript rules.
 
 No backwards-compatibility layer is intentionally retained for those paths.

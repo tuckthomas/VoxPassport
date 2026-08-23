@@ -1,6 +1,6 @@
 """Hardware soak test for alternating English/Romanian XTTS cloned turns.
 
-Run only after the generic TTS plugin host and XTTS checkpoint are installed.
+Run only after the XTTS-capable generic TTS host and checkpoint are installed.
 The harness does not download or train anything; it measures streaming latency
 and the active XTTS driver's CUDA allocator over repeated turns.
 """
@@ -123,7 +123,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="XTTS Romanian alternating-turn VRAM soak test")
     parser.add_argument("profile_id")
     parser.add_argument("--profiles-root", default="")
-    parser.add_argument("--endpoint", default="http://127.0.0.1:8098")
+    parser.add_argument("--endpoint", default="http://127.0.0.1:8099")
     parser.add_argument("--turns", type=int, default=50)
     parser.add_argument("--output", default="")
     args = parser.parse_args()

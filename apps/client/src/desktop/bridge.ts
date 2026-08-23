@@ -1,10 +1,12 @@
 export type DesktopAudioCapabilities = {
   platform: string;
-  native_audio: boolean;
-  physical_microphone: boolean;
+  native_audio_boundary: boolean;
+  microphone_enumeration: boolean;
+  microphone_capture: boolean;
+  render_enumeration: boolean;
   loopback_capture: boolean;
   virtual_microphone_output: boolean;
-  virtual_microphone_note: string;
+  note: string;
 };
 
 export type DesktopRuntimeProcessStatus = {

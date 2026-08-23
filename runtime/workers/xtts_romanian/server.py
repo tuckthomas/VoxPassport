@@ -95,7 +95,14 @@ class XttsRomanianRuntime:
         return self.model is not None
 
     def _ensure_model_files(self) -> None:
-        required = ("config.json", "model.pth", "dvae.pth", "mel_stats.pth", "vocab.json")
+        required = (
+            "config.json",
+            "model.pth",
+            "dvae.pth",
+            "mel_stats.pth",
+            "vocab.json",
+            "speakers_xtts.pth",
+        )
         if all((self.model_dir / name).exists() for name in required):
             return
         logger.info("XTTS Romanian checkpoint not present; downloading %s to %s", MODEL_ID, self.model_dir)

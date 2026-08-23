@@ -22,8 +22,10 @@ Purpose: Replace the prototype browser-only frontend architecture with a maintai
 - [x] Preserve a local/self-hosted path that does not require VoxPassport-hosted inference.
 - [x] Keep provider selection open: local modular ASR/NMT/TTS, direct speech-translation providers such as Gemini Live Translate, private workers, and future providers can coexist behind capability contracts.
 - [x] Define `DIRECT_SPEECH_TRANSLATION` as a first-class runtime capability in the shared Python protocol.
-- [ ] Implement a direct-speech translation strategy/provider contract rather than treating audio-to-audio providers as ordinary ASR/NMT/TTS checkpoints.
-- [ ] Add provider metadata that distinguishes local, BYO-key cloud, managed cloud, and private/self-hosted execution.
+- [x] Add a provider-agnostic direct-speech strategy descriptor/catalog rather than treating audio-to-audio providers as ordinary ASR/NMT/TTS checkpoints.
+- [ ] Implement the executable direct-speech streaming provider/session adapter contract.
+- [x] Add provider metadata that distinguishes local, BYO-key cloud, managed cloud, and private/self-hosted execution.
+- [x] Register Gemini 3.5 Live Translate declaratively as a BYO-API direct-speech strategy; keep Google-specific execution outside generic UI/session contracts.
 - [x] Keep licensing/product-tier concerns outside inference implementation; do not hard-code commercial policy into model drivers.
 
 ## Repository organization
@@ -36,6 +38,7 @@ Purpose: Replace the prototype browser-only frontend architecture with a maintai
 - [x] Document ownership boundaries so humans and AI agents can infer where client, desktop shell, local runtime, inference providers, protocols, workers, and browser integration live.
 - [x] Add `docs/development/repository-layout.md` with routing/naming rules.
 - [x] Delete superseded pending frontend/mobile plans once their still-relevant requirements are incorporated here.
+- [x] Remove the stale nonexistent `ipc-client` Rust workspace member rather than retaining historical workspace topology.
 
 ## Shared client foundation
 
@@ -43,9 +46,10 @@ Purpose: Replace the prototype browser-only frontend architecture with a maintai
 - [x] Configure Expo Router/React Native Web dependencies and TypeScript.
 - [x] Add `expo-audio` and native microphone permission configuration without enabling background recording by default.
 - [x] Create shared visual primitives/theme rather than another monolithic HTML page.
-- [x] Add routes/screens for Models/Engines, Voice Profiles, Runtime/Diagnostics, and Settings.
-- [ ] Implement the production Translator workflow in the new client.
-- [ ] Move substantial screen/domain logic under feature-oriented modules as it grows; keep Expo route files thin.
+- [x] Add routes/screens for Translator, Models/Engines, Voice Profiles, Runtime/Diagnostics, and Settings.
+- [x] Implement an initial typed text-translation workflow against the selected runtime target.
+- [ ] Implement the production live-audio Translator workflow in the new client/native runtime path.
+- [x] Move route implementations under feature-oriented `src/features/...` modules and keep Expo route files thin.
 - [x] Keep platform-specific native integration behind a dedicated desktop bridge instead of scattering Tauri checks through screens.
 
 ## Desktop shell
@@ -55,6 +59,8 @@ Purpose: Replace the prototype browser-only frontend architecture with a maintai
 - [x] Track ownership of VoxPassport-started runtime processes and clean them up when the desktop manager is dropped/stopped.
 - [x] Add a native capability bridge for audio status.
 - [x] Add a native command for audio endpoint enumeration.
+- [x] Add a restricted native JSON REST bridge for low-frequency calls to the loopback Python runtime so the installed desktop app does not depend on browser CORS.
+- [x] Restrict the native REST bridge to loopback hosts, `/api/...` paths, GET/POST/DELETE, no embedded credentials, and no redirects.
 - [x] Reuse/extend `crates/audio-core` and platform crates rather than implementing audio logic in the Tauri UI shell.
 - [x] Treat Windows WASAPI/Core Audio as the first executable desktop audio target.
 - [x] Define portable audio platform/endpoint contracts so CoreAudio/PipeWire implementations can be added without changing client code.
@@ -69,15 +75,17 @@ Purpose: Replace the prototype browser-only frontend architecture with a maintai
 - [x] Define a client-side `RuntimeTarget` abstraction with `local`, `self_hosted`, and future `cloud` modes.
 - [x] Centralize active runtime URL selection in `RuntimeTargetContext`.
 - [x] Centralize HTTP/API access in one typed `VoxPassportApi` client.
+- [x] Centralize runtime-aware API construction in `useVoxPassportApi()` so feature modules do not choose browser-vs-Tauri transport.
 - [x] Support configurable local and self-hosted runtime URLs.
-- [x] Keep current screens independent from AWS/model-process/worker-port details.
+- [x] Keep feature screens independent from AWS/model-process/worker-port and desktop transport details.
 - [ ] Centralize live session/media transport behind a session service.
 - [ ] Add authenticated provider/self-hosted session handling without placing tokens in ordinary logs or serialized UI state.
 
 ## Local runtime compatibility
 
-- [ ] Add a versioned `/api/client/bootstrap` endpoint so the shared client can discover capabilities and endpoints generically.
-- [ ] Add explicit CORS handling for approved localhost/Tauri/web development origins instead of relying on same-origin legacy HTML.
+- [ ] Add a versioned `/api/client/bootstrap` endpoint so browser/self-hosted clients can discover capabilities and endpoints generically.
+- [ ] Add explicit CORS handling for approved browser/PWA development origins instead of relying on same-origin legacy HTML.
+- [x] Do not require CORS for the installed desktop app's low-frequency local JSON API calls; use the restricted Tauri loopback bridge.
 - [x] Preserve existing local APIs during migration.
 - [x] Preserve the local Python runtime as owner of models, GPU processes, inference supervision, and TTS runtime management.
 - [x] Move desktop system-audio ownership toward native Rust audio contracts rather than browser media APIs.
@@ -86,21 +94,24 @@ Purpose: Replace the prototype browser-only frontend architecture with a maintai
 ## Translation-engine abstraction
 
 - [x] Keep `DIRECT_SPEECH_TRANSLATION` distinct from ASR, TRANSLATION, and TTS capability types.
-- [ ] Define translation strategies independently from communication transport.
-- [ ] Keep the existing modular pipeline (`VAD -> ASR -> NMT -> TTS`) as one explicit strategy.
-- [ ] Add direct speech-to-speech strategy metadata suitable for Gemini Live Translate and future equivalents.
-- [ ] Do not hard-code Google/Gemini assumptions into generic session or UI components.
+- [x] Define provider/strategy metadata independently from communication transport.
+- [ ] Define the executable session interface shared by modular and direct-speech translation strategies.
+- [x] Keep the existing modular pipeline (`VAD -> ASR -> NMT -> TTS`) as a distinct existing runtime path.
+- [x] Add direct speech-to-speech strategy metadata suitable for Gemini Live Translate and future equivalents.
+- [x] Do not hard-code Google/Gemini assumptions into generic client/session UI components.
 - [ ] Show execution/provider information to users: local, BYO provider API, private endpoint, or managed service.
-- [ ] Allow provider adapters to expose languages, voice-preservation capability, streaming support, cost/usage metadata, and authentication requirements.
+- [x] Provider descriptors can expose execution mode, language discovery, voice-preservation, streaming, lifecycle, transport, and authentication requirements.
 
 ## Desktop audio architecture
 
 - [x] Existing protocol/audio buses distinguish physical microphone, remote conference audio, translated TTS, virtual microphone, and local monitor paths.
+- [x] Audit current Python audio code: `AudioCaptureEngine` uses `sounddevice`, while `AudioPlaybackEngine(bus=VIRTUAL_MIC)` currently opens an ordinary output stream; the virtual-mic bus is logical and is not an OS virtual microphone.
 - [x] Keep raw high-frequency audio off Tauri/React IPC; native/runtime code owns realtime buffers and sends only UI-safe state/device metadata/events to the client.
 - [x] Add portable device enumeration and stable OS endpoint identifiers to the audio platform contract.
 - [x] Implement Windows Core Audio endpoint enumeration code for active capture/render devices, friendly names, and default endpoint detection.
 - [x] Wire endpoint enumeration through Tauri to the shared Runtime & Audio screen.
 - [ ] Compile/execute the Windows endpoint enumeration implementation against the pinned `windows` crate and real hardware.
+- [ ] Define the native-audio-to-Python/session transport explicitly; do not resurrect the stale/nonexistent `ipc-client` workspace entry.
 - [ ] Implement physical microphone WASAPI capture.
 - [ ] Implement WASAPI loopback capture for communication-app output.
 - [ ] Add translated-output sink abstraction for a virtual microphone/system endpoint.
@@ -133,7 +144,8 @@ For every legacy `*-fixes.js` behavior, classify it before touching it:
 - [x] New model catalog rendering reads backend model entries through the typed API instead of mutating legacy global arrays.
 - [x] New voice-profile rendering reads backend profile state rather than legacy DOM/global state.
 - [x] New desktop runtime/audio state uses typed Tauri/API state rather than `runtime-fixes.js` lexical `eval` synchronization.
-- [ ] Replace all remaining `runtime-fixes.js` request interception by constructing correct requests at their source in new feature services.
+- [x] New text translation constructs its `/api/translate` request correctly at the typed API source instead of relying on fetch interception.
+- [ ] Replace remaining voice-enrollment/synthesis `runtime-fixes.js` request interception when those workflows move to typed feature services.
 - [ ] Eliminate the hidden `studioCloneModelSelect` compatibility sentinel rather than recreating it.
 - [ ] Retire the Silero v4-to-v6 legacy UI repair after new client parity confirms canonical backend metadata is sufficient.
 - [ ] Replace `stack-upgrade-fixes.js` hard-coded install exceptions with generic backend-provided installation state/reason metadata.
@@ -141,31 +153,33 @@ For every legacy `*-fixes.js` behavior, classify it before touching it:
 
 ## Frontend structure and maintainability
 
-- [x] No monolithic replacement for the current ~288 KB `studio.html`; new UI is split across routes, components, API/config/storage, and native bridge modules.
-- [x] Separate reusable visual components, API services, runtime-target state, storage, and desktop/native integration.
+- [x] No monolithic replacement for the current ~288 KB `studio.html`; new UI is split across thin routes, feature modules, components, API/config/storage, and native bridge modules.
+- [x] Separate reusable visual components, API services, runtime-target state, storage, feature code, and desktop/native integration.
 - [x] Avoid model-name routing logic in new UI components.
 - [x] Add repository-layout/naming rules for human and AI developers.
-- [ ] Continue extracting feature-oriented modules as Translator/Voice enrollment/model actions are migrated.
+- [ ] Continue extracting service/state modules as live Translator, voice enrollment, and model actions are migrated.
 
 ## Tests and validation
 
 - [x] Add static architecture tests that forbid new patch-history files in canonical client/desktop code.
+- [x] Add direct-translation provider-catalog tests.
+- [x] Add Tauri native-loopback proxy unit tests for host/path/method restrictions.
 - [x] Add a TypeScript `typecheck` command for `apps/client`.
 - [x] Add an Expo `doctor` command for documented local validation.
-- [ ] Add local-runtime contract tests for bootstrap/CORS behavior.
-- [ ] Add Rust unit/build checks for the desktop shell and audio capability contracts.
-- [ ] Add client/desktop checks to CI when Node/Rust dependency installation is available.
+- [ ] Add browser local-runtime contract tests for bootstrap/CORS behavior.
+- [x] Add Rust unit/build commands for the desktop shell and audio crates to CI.
+- [x] Add Expo typecheck/web-export plus Windows Rust/Tauri checks as a `windows-latest` CI job.
+- [ ] Observe the new CI job complete successfully; combined commit statuses are currently empty through the available GitHub status endpoint.
 - [ ] Run Python compile/tests against the final desktop-refactor state.
-- [ ] Run `npm install`/typecheck/Expo doctor and validate the web export.
-- [ ] Run Cargo checks for `crates/audio-core`, `crates/audio-windows`, and `apps/desktop/src-tauri`.
-- [ ] Validate the Expo web export consumed by Tauri.
+- [ ] Run `npm install`/typecheck/Expo doctor and validate the web export outside CI if needed.
+- [ ] Run Cargo checks for `crates/audio-core`, `crates/audio-windows`, and `apps/desktop/src-tauri` outside CI if needed.
 - [ ] Validate Tauri development/build packaging on Windows.
 - [ ] Validate physical microphone/render endpoint enumeration on the development Windows machine.
 - [ ] Validate actual WASAPI loopback capture.
 - [ ] Validate a real virtual-microphone endpoint/output path before marking system-wide conference integration complete.
 - [x] Keep plan in `in-progress` while executable/hardware/platform validation remains outstanding.
 
-Validation note: the current execution container could not clone GitHub (`Could not resolve host: github.com`), so no local Node/Rust/Python build result is being inferred from source edits.
+Validation note: the current execution container could not clone GitHub (`Could not resolve host: github.com`), so no local Node/Rust/Python build result is being inferred from source edits. A Windows GitHub Actions validation job has been added, but its result has not yet been observed through the available status interface.
 
 ## Immediate desktop acceptance path
 

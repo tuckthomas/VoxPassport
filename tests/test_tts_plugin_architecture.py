@@ -7,6 +7,7 @@ import pytest
 from runtime.inference.adapters.tts.manifest_tts_adapter import ManifestTtsAdapter
 from runtime.inference.model_registry.catalog import get_builtin_catalog
 from runtime.inference.protocol import ModelCapability
+from runtime.inference.tts_plugins.backend_runtime import BackendRuntimeCatalog
 from runtime.inference.tts_plugins.manifest import (
     TtsManifest,
     TtsManifestCatalog,
@@ -26,6 +27,11 @@ LOCAL_TTS_MODELS = {
     "moss-tts-1.5",
     "voxcpm-2",
     "xtts-v2-romanian-v2",
+}
+PROXY_BACKEND_RUNTIMES = {
+    "higgs-tts-3": "higgs-openai-server",
+    "moss-tts-1.5": "moss-openai-server",
+    "voxcpm-2": "voxcpm-openai-server",
 }
 
 
@@ -63,9 +69,13 @@ def _manifest_dir() -> Path:
     return _repo_root() / "runtime" / "tts_manifests"
 
 
+def _backend_runtime_dir() -> Path:
+    return _repo_root() / "runtime" / "tts_backend_runtimes"
+
+
 def _fake_manifest_dict(entrypoint: str = PROXY_ENTRYPOINT, runtime_profile: str = "core") -> dict:
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "model_id": "future-tts",
         "display_name": "Future TTS",
         "aliases": ["future"],
@@ -87,8 +97,39 @@ def test_all_local_tts_models_are_manifests():
     catalog = TtsManifestCatalog(_manifest_dir()).load()
     assert {manifest.model_id for manifest in catalog.manifests()} == LOCAL_TTS_MODELS
     assert all(entry.capability != ModelCapability.TTS for entry in get_builtin_catalog())
-    assert all(manifest.schema_version == 2 for manifest in catalog.manifests())
+    assert all(manifest.schema_version == 3 for manifest in catalog.manifests())
     assert all("worker" not in manifest.raw for manifest in catalog.manifests())
+
+
+def test_backend_runtime_catalog_is_reusable_and_separate_from_models():
+    runtime_catalog = BackendRuntimeCatalog(_backend_runtime_dir()).load()
+    assert {runtime.backend_runtime_id for runtime in runtime_catalog.runtimes()} == {
+        "higgs-openai-server",
+        "moss-openai-server",
+        "voxcpm-openai-server",
+    }
+    catalog = TtsManifestCatalog(
+        _manifest_dir(), backend_runtime_catalog=runtime_catalog
+    ).load()
+    for model_id, runtime_id in PROXY_BACKEND_RUNTIMES.items():
+        manifest = catalog.resolve(model_id)
+        assert manifest.backend_runtime == runtime_id
+        assert manifest.backend_args.get("checkpoint")
+        assert "backend_process" not in manifest.driver_options
+        assert "backend_url" not in manifest.driver_options
+        assert "backend_url_env" not in manifest.driver_options
+        runtime = runtime_catalog.resolve(runtime_id)
+        assert runtime.command_env.startswith("VOXPASSPORT_TTS_BACKEND_")
+        assert runtime.remote_url_env.startswith("VOXPASSPORT_TTS_BACKEND_")
+        assert runtime.resolve_args(manifest.backend_args)["checkpoint"] == manifest.backend_args["checkpoint"]
+
+
+def test_direct_worker_models_do_not_invent_backend_runtimes():
+    catalog = TtsManifestCatalog(_manifest_dir()).load()
+    for model_id in ("omnivoice-stock", "higgs-tts-3-q4_k_m", "xtts-v2-romanian-v2"):
+        manifest = catalog.resolve(model_id)
+        assert manifest.backend_runtime is None
+        assert manifest.backend_args == {}
 
 
 def test_manifest_catalog_resolves_models_aliases_and_runtime_profiles():
@@ -180,8 +221,9 @@ def test_orchestrator_tts_hot_swap_is_manifest_only():
 def test_runtime_supervisor_owns_dynamic_ports_and_has_no_model_name_dispatch():
     source = (_repo_root() / "runtime" / "inference" / "tts_plugins" / "runtime_supervisor.py").read_text(encoding="utf-8")
     assert 'sock.bind(("127.0.0.1", 0))' in source
+    assert "BackendRuntimeCatalog" in source
+    assert "backend_runtime_catalog.resolve" in source
     assert "subprocess.Popen" in source
-    assert "runtime_profile" in source
     assert "8098" not in source
     assert "8099" not in source
     for model_name in ("omnivoice", "higgs", "moss", "voxcpm", "xtts"):
@@ -244,7 +286,7 @@ def test_synthetic_new_manifest_routes_without_daemon_model_branch(tmp_path: Pat
     assert "future-tts" not in supervisor_source
 
 
-def test_manifest_validation_rejects_missing_driver_and_worker_topology(tmp_path: Path):
+def test_manifest_validation_rejects_missing_driver_worker_and_backend_topology(tmp_path: Path):
     raw = _fake_manifest_dict()
     raw.pop("driver")
     path = tmp_path / "bad.json"
@@ -257,6 +299,13 @@ def test_manifest_validation_rejects_missing_driver_and_worker_topology(tmp_path
     path.write_text(json.dumps(raw), encoding="utf-8")
     with pytest.raises(TtsManifestError):
         TtsManifest.load(path)
+
+    for deprecated in ("backend_process", "backend_url", "backend_url_env"):
+        raw = _fake_manifest_dict()
+        raw["driver"]["options"][deprecated] = {} if deprecated == "backend_process" else "legacy"
+        path.write_text(json.dumps(raw), encoding="utf-8")
+        with pytest.raises(TtsManifestError, match="deprecated backend topology"):
+            TtsManifest.load(path)
 
 
 def test_generic_controller_load_stream_wav_capabilities_clone_reference_and_unload(tmp_path: Path, monkeypatch):

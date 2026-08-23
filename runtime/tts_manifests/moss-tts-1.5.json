@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "model_id": "moss-tts-1.5",
   "display_name": "MOSS-TTS v1.5",
   "aliases": [
@@ -8,14 +8,13 @@
     "OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5"
   ],
   "runtime_profile": "core",
+  "backend_runtime": "moss-openai-server",
+  "backend_args": {
+    "checkpoint": "OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5"
+  },
   "driver": {
     "entrypoint": "runtime.workers.tts_host.drivers.openai_proxy:OpenAiSpeechProxyDriver",
     "options": {
-      "backend_url_env": "VOXPASSPORT_MOSS_TTS_URL",
-      "backend_process": {
-        "command_env": "VOXPASSPORT_MOSS_TTS_COMMAND",
-        "startup_timeout_seconds": 120
-      },
       "health_path": "/v1/models",
       "speech_path": "/v1/audio/speech",
       "static_payload": {

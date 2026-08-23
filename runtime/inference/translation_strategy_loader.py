@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import importlib
+import inspect
 from typing import Type
 
 from runtime.inference.translation_provider_catalog import (
     TranslationProviderCatalog,
-    TranslationProviderCatalogError,
     TranslationProviderDescriptor,
 )
 from runtime.inference.translation_session import SpeechTranslationStrategyAdapter
@@ -27,12 +27,11 @@ def load_translation_strategy_adapter(
     provider_catalog = catalog or TranslationProviderCatalog().load()
     descriptor = provider_catalog.resolve(strategy_id)
     adapter_class = _resolve_adapter_class(descriptor)
-    try:
+    signature = inspect.signature(adapter_class)
+    if "descriptor" in signature.parameters:
         adapter = adapter_class(descriptor=descriptor)
-    except TypeError as exc:
-        raise TranslationStrategyLoadError(
-            f"Translation adapter {descriptor.adapter_entrypoint!r} must accept descriptor=..."
-        ) from exc
+    else:
+        adapter = adapter_class()
     if not isinstance(adapter, SpeechTranslationStrategyAdapter):
         raise TranslationStrategyLoadError(
             f"Translation adapter {descriptor.adapter_entrypoint!r} does not implement "

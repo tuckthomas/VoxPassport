@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import uuid
@@ -52,32 +53,48 @@ class XttsRomanianTtsAdapter(TtsAdapter):
 
     async def _worker_post(self, path: str, **kwargs):
         timeout = kwargs.pop("timeout", aiohttp.ClientTimeout(total=300, sock_read=240))
+        session: aiohttp.ClientSession | None = None
         try:
             session = aiohttp.ClientSession(timeout=timeout)
             response = await session.post(f"{self._endpoint_url}{path}", **kwargs)
             return session, response
         except Exception:
-            try:
-                await session.close()  # type: ignore[possibly-undefined]
-            except Exception:
-                pass
+            if session is not None:
+                await session.close()
             raise
 
-    async def load(self) -> None:
-        try:
-            session, response = await self._worker_post("/load", json={})
+    async def _wait_for_worker(self, attempts: int = 20, delay_seconds: float = 0.25) -> None:
+        last_error: BaseException | None = None
+        for _ in range(max(1, attempts)):
             try:
-                body = await response.json(content_type=None)
-                if response.status != 200 or not body.get("success"):
-                    raise RuntimeError(body.get("error") or f"XTTS worker load returned HTTP {response.status}")
-            finally:
-                response.release()
-                await session.close()
-            self._loaded = True
-        except (aiohttp.ClientError, TimeoutError, OSError) as exc:
-            raise RuntimeError(
-                "XTTS Romanian worker is not reachable. Run install_xtts_worker.bat once, then start VoxPassport again."
-            ) from exc
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=2)) as session:
+                    async with session.get(f"{self._endpoint_url}/health") as response:
+                        if response.status == 200:
+                            return
+            except (aiohttp.ClientError, TimeoutError, OSError) as exc:
+                last_error = exc
+            await asyncio.sleep(delay_seconds)
+        raise RuntimeError(
+            "XTTS Romanian worker is not reachable. Run install_xtts_worker.bat once, then start VoxPassport again."
+        ) from last_error
+
+    async def load(self) -> None:
+        await self._wait_for_worker()
+        # First activation may include a ~2.35 GB checkpoint download, so model
+        # load has a deliberately long timeout while normal synthesis stays tight.
+        session, response = await self._worker_post(
+            "/load",
+            json={},
+            timeout=aiohttp.ClientTimeout(total=1800, sock_read=1800),
+        )
+        try:
+            body = await response.json(content_type=None)
+            if response.status != 200 or not body.get("success"):
+                raise RuntimeError(body.get("error") or f"XTTS worker load returned HTTP {response.status}")
+        finally:
+            response.release()
+            await session.close()
+        self._loaded = True
 
     async def unload(self) -> None:
         self._loaded = False
@@ -119,6 +136,7 @@ class XttsRomanianTtsAdapter(TtsAdapter):
 
         utterance_id, segment_id = str(uuid.uuid4()), str(uuid.uuid4())
         sequence = 0
+        sample_rate = self._NATIVE_SAMPLE_RATE_HZ
         timeout = aiohttp.ClientTimeout(total=300, sock_read=240)
         try:
             # Holding the existing coordinator while the worker executes keeps
@@ -164,15 +182,13 @@ class XttsRomanianTtsAdapter(TtsAdapter):
                         if not emitted:
                             raise RuntimeError("XTTS Romanian worker returned no PCM audio")
         except (aiohttp.ClientError, TimeoutError, OSError) as exc:
-            raise RuntimeError(
-                "XTTS Romanian worker became unavailable during synthesis"
-            ) from exc
+            raise RuntimeError("XTTS Romanian worker became unavailable during synthesis") from exc
 
         yield TtsAudioChunk(
             utterance_id=utterance_id,
             segment_id=segment_id,
             sequence=sequence,
-            sample_rate_hz=self._NATIVE_SAMPLE_RATE_HZ,
+            sample_rate_hz=sample_rate,
             sample_format=SampleFormat.PCM_S16LE,
             data=b"",
             is_final_chunk=True,
@@ -235,6 +251,6 @@ class XttsRomanianTtsAdapter(TtsAdapter):
                     if response.status != 200:
                         return False
                     body = await response.json(content_type=None)
-                    return body.get("status") == "ok"
+                    return body.get("status") == "ok" and bool(body.get("loaded"))
         except Exception:
             return False

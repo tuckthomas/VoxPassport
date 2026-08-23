@@ -29,14 +29,20 @@ export type DesktopRuntimeProcessStatus = {
   pid?: number | null;
 };
 
+export type DesktopRuntimeHttpResponse = {
+  status: number;
+  content_type?: string | null;
+  body: string;
+};
+
 function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
-async function invokeDesktop<T>(command: string): Promise<T | null> {
+async function invokeDesktop<T>(command: string, args?: Record<string, unknown>): Promise<T | null> {
   if (!isTauri()) return null;
   const { invoke } = await import('@tauri-apps/api/core');
-  return invoke<T>(command);
+  return invoke<T>(command, args);
 }
 
 export function getDesktopAudioCapabilities() {
@@ -57,6 +63,20 @@ export function startDesktopRuntime() {
 
 export function stopDesktopRuntime() {
   return invokeDesktop<DesktopRuntimeProcessStatus>('stop_local_runtime');
+}
+
+export function requestLocalRuntime(
+  baseUrl: string,
+  path: string,
+  method: string,
+  body?: string | null,
+) {
+  return invokeDesktop<DesktopRuntimeHttpResponse>('local_runtime_request', {
+    baseUrl,
+    path,
+    method,
+    body: body ?? null,
+  });
 }
 
 export { isTauri };

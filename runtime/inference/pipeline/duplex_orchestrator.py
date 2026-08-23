@@ -57,6 +57,9 @@ class DuplexOrchestrator:
         self.mt_adapter = mt_adapter
         self.tts_adapter_ro = tts_adapter_ro
         self.tts_adapter_en = tts_adapter_en
+        self._tts_profiles_root = Path(
+            getattr(tts_adapter_ro, "_profiles_root", Path("data") / "voice_profiles")
+        )
         self.diarization_adapter: Optional[object] = None
 
         self.mic_capture = AudioCaptureEngine(bus=AudioBus.PHYSICAL_MIC, sample_rate_hz=16000)
@@ -146,21 +149,16 @@ class DuplexOrchestrator:
     async def _load_slot_adapter(self, slot: str, model_id: str) -> object:
         mid = str(model_id).lower()
         if slot.startswith("tts_"):
-            if "higgs-tts-3-q4_k_m" in mid or "higgs-native" in mid:
-                from runtime.inference.adapters.tts.higgs_native_tts_adapter import HiggsNativeTtsAdapter
-                adapter = HiggsNativeTtsAdapter(model_dir=Path("models") / "higgs-tts-3-q4_k_m")
-            elif "higgs" in mid:
-                from runtime.inference.adapters.tts.higgs_tts_adapter import HiggsTtsAdapter
-                adapter = HiggsTtsAdapter()
-            elif "moss" in mid:
-                from runtime.inference.adapters.tts.moss_tts_adapter import MossTtsAdapter
-                adapter = MossTtsAdapter()
-            elif "voxcpm" in mid:
-                from runtime.inference.adapters.tts.voxcpm_tts_adapter import VoxCpmTtsAdapter
-                adapter = VoxCpmTtsAdapter()
-            else:
-                from runtime.inference.adapters.tts.omnivoice_tts_adapter import OmniVoiceTtsAdapter
-                adapter = OmniVoiceTtsAdapter()
+            from runtime.inference.adapters.tts.manifest_tts_adapter import ManifestTtsAdapter
+            from runtime.inference.tts_plugins.manifest import TtsManifestCatalog
+
+            catalog = TtsManifestCatalog().load()
+            manifest = catalog.resolve(model_id)
+            adapter = ManifestTtsAdapter(
+                manifest,
+                profiles_root=self._tts_profiles_root,
+                catalog=catalog,
+            )
         elif slot.startswith("asr_"):
             if "parakeet" not in mid:
                 raise ValueError(f"No production streaming ASR adapter is implemented for {model_id!r}")
@@ -253,7 +251,6 @@ class DuplexOrchestrator:
             await self.start()
 
     async def _maybe_load_diarization_sidecar(self) -> Optional[object]:
-        """Load Sortformer only when explicitly downloaded; never block startup."""
         mode = os.getenv("VOXPASSPORT_DIARIZATION", "auto").strip().lower()
         if mode in {"0", "off", "false", "disabled", "none"}:
             return None
@@ -273,8 +270,6 @@ class DuplexOrchestrator:
             logger.info("Parallel inbound speaker diarization enabled")
             return adapter
         except Exception:
-            # Diarization is intentionally optional and must never take down the
-            # translation path if NeMo/runtime compatibility is unavailable.
             logger.warning("Could not start optional Sortformer diarization sidecar", exc_info=True)
             return None
 
@@ -298,15 +293,14 @@ class DuplexOrchestrator:
                 capture_engine=self.mic_capture,
                 playback_engine=self.virtual_mic_playback,
                 metrics=self.metrics,
-                phrase_config=self._phrase_config,
                 caption_callback=self.caption_callback,
-                voice_spec=VoiceSpec(language=self.remote_language, is_cloned=(self.tts_mode == TtsMode.CLONED)),
+                phrase_config=self._phrase_config,
+                tts_mode=self.tts_mode,
+                voice_spec=self._voice_spec_for_current_mode(),
                 source_language=self.user_language,
                 target_language=self.remote_language,
-                synthesize_audio=speak,
+                speak_enabled=speak,
             )
-            await self.outbound_pipeline.start()
-
         if self.mode in (PipelineMode.FULL_DUPLEX, PipelineMode.INBOUND_TRANSLATION, PipelineMode.CAPTIONS_ONLY):
             self.inbound_pipeline = InboundTranslationPipeline(
                 vad_adapter=self.vad_adapter,
@@ -316,36 +310,26 @@ class DuplexOrchestrator:
                 capture_engine=self.conf_capture,
                 playback_engine=self.local_monitor_playback,
                 metrics=self.metrics,
-                phrase_config=self._phrase_config,
                 caption_callback=self.caption_callback,
-                voice_spec=VoiceSpec(language=self.user_language, is_cloned=(self.tts_mode == TtsMode.CLONED)),
+                phrase_config=self._phrase_config,
+                tts_mode=self.tts_mode,
+                voice_spec=self._voice_spec_for_current_mode(),
                 source_language=self.remote_language,
                 target_language=self.user_language,
-                synthesize_audio=speak,
-                diarization_adapter=self.diarization_adapter,
+                speak_enabled=speak,
             )
+        await self.mic_capture.start()
+        await self.conf_capture.start()
+        await self.virtual_mic_playback.start()
+        await self.local_monitor_playback.start()
+        if self.outbound_pipeline:
+            await self.outbound_pipeline.start()
+        if self.inbound_pipeline:
             await self.inbound_pipeline.start()
         logger.info(
-            "Duplex orchestrator running: user=%s remote=%s mode=%s diarization=%s",
-            self.user_language.value,
-            self.remote_language.value,
-            self.mode.value,
-            bool(self.diarization_adapter),
+            "Duplex orchestrator started: mode=%s tts=%s pair=%s<->%s",
+            self.mode.value, self.tts_mode.value, self.user_language.value, self.remote_language.value,
         )
-
-    async def set_mode(self, new_mode: PipelineMode) -> None:
-        if new_mode == self.mode:
-            return
-        await self.stop()
-        self.mode = new_mode
-        await self.start()
-
-    async def set_tts_mode(self, new_tts_mode: TtsMode) -> None:
-        self.tts_mode = new_tts_mode
-        if self.outbound_pipeline:
-            self.outbound_pipeline.voice_spec.is_cloned = new_tts_mode == TtsMode.CLONED
-        if self.inbound_pipeline:
-            self.inbound_pipeline.voice_spec.is_cloned = new_tts_mode == TtsMode.CLONED
 
     async def stop(self) -> None:
         if not self._is_active:
@@ -353,18 +337,42 @@ class DuplexOrchestrator:
         self._is_active = False
         if self.outbound_pipeline:
             await self.outbound_pipeline.stop()
-            self.outbound_pipeline = None
         if self.inbound_pipeline:
             await self.inbound_pipeline.stop()
-            self.inbound_pipeline = None
-        if self.diarization_adapter and hasattr(self.diarization_adapter, "unload"):
-            try:
-                await self.diarization_adapter.unload()
-            except Exception:
-                logger.exception("Diarization sidecar unload failed")
-        self.diarization_adapter = None
+        self.outbound_pipeline = None
+        self.inbound_pipeline = None
         await self._unload_unique([
-            self.vad_adapter, self.asr_adapter_en, self.asr_adapter_ro,
-            self.mt_adapter, self.tts_adapter_ro, self.tts_adapter_en,
+            self.diarization_adapter, self.tts_adapter_ro, self.tts_adapter_en,
+            self.mt_adapter, self.asr_adapter_en, self.asr_adapter_ro, self.vad_adapter,
         ])
+        self.diarization_adapter = None
+        await self.local_monitor_playback.stop()
+        await self.virtual_mic_playback.stop()
+        await self.conf_capture.stop()
+        await self.mic_capture.stop()
         logger.info("Duplex orchestrator stopped")
+
+    async def set_mode(self, mode: PipelineMode) -> None:
+        if mode == self.mode:
+            return
+        was_active = self._is_active
+        if was_active:
+            await self.stop()
+        self.mode = mode
+        if was_active:
+            await self.start()
+
+    async def set_tts_mode(self, tts_mode: TtsMode) -> None:
+        if tts_mode == self.tts_mode:
+            return
+        was_active = self._is_active
+        if was_active:
+            await self.stop()
+        self.tts_mode = tts_mode
+        if was_active:
+            await self.start()
+
+    def _voice_spec_for_current_mode(self) -> VoiceSpec:
+        if self.tts_mode == TtsMode.CLONED:
+            return VoiceSpec(voice_profile_id="active", is_cloned=True)
+        return VoiceSpec(voice_profile_id="default", is_cloned=False)

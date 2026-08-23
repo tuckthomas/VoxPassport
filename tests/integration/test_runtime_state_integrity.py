@@ -6,6 +6,7 @@ from runtime.inference.model_registry.catalog import get_builtin_catalog
 from runtime.inference.model_registry.registry import ModelRegistry
 from runtime.inference.protocol import CaptionEvent, CaptionEventType, InstallationStatus, LanguageCode, ModelCapability
 from runtime.inference.server.model_manager_api import ModelManagerController
+from runtime.inference.tts_plugins import TtsManifestCatalog, manifest_registry_entry
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -30,19 +31,27 @@ def test_caption_protocol_accepts_legacy_pipeline_fields():
     assert event.created_monotonic_ns == 123
 
 
-def test_model_manager_global_aliases_fill_real_slots(tmp_path):
+def test_model_manager_uses_manifest_aliases_for_tts_slots(tmp_path):
     registry = ModelRegistry(tmp_path / "registry.json")
     registry.load()
     for entry in get_builtin_catalog():
         registry.register(entry)
-    registry.update_installation_status("omnivoice-stock", InstallationStatus.INSTALLED)
+
+    catalog = TtsManifestCatalog().load()
+    manifest = catalog.resolve("omnivoice")
+    registry.register(manifest_registry_entry(manifest))
+    registry.update_installation_status(manifest.model_id, InstallationStatus.INSTALLED)
+
     manager = ModelManagerController(registry, model_store_dir=tmp_path / "models")
+    for alias in (manifest.model_id, *manifest.aliases):
+        manager.register_alias(alias, manifest.model_id)
+
     canonical = manager.set_active_model("TTS", "omnivoice")
     assert canonical == "omnivoice-stock"
     slots = manager.get_active_slots()
     assert slots["tts_en"] == "omnivoice-stock"
     assert slots["tts_ro"] == "omnivoice-stock"
-    assert slots["TTS"] == "omnivoice"
+    assert slots["TTS"] == "omnivoice-stock"
 
 
 def test_empty_active_model_is_rejected(tmp_path):
@@ -75,6 +84,7 @@ def test_voice_profiles_are_engine_agnostic_and_synthesis_uses_active_tts():
     assert '"last_preview_model": preview_model' in main
     assert 'data.get("clone_model") or self._active_tts_model()' in main
     assert 'profile_meta.get("clone_model"' not in main
+    assert "manifest.transcript_required" in main
 
 
 def test_model_activation_does_not_swallow_errors():
@@ -119,6 +129,7 @@ def test_catalog_exposes_new_benchmark_and_diarization_models():
     assert entries["meta-omniasr-ctc-1b"].upstream_id == "facebook/omniASR-CTC-1B"
     assert entries["meta-omniasr-ctc-1b-v2"].upstream_id == ""
     assert entries["meta-omnilingual-mt"].upstream_id == ""
+    assert all(entry.capability != ModelCapability.TTS for entry in entries.values())
     diar = entries["nvidia-diar-streaming-sortformer-4spk-v2.1"]
     assert diar.capability == ModelCapability.DIARIZATION
     assert diar.upstream_id == "nvidia/diar_streaming_sortformer_4spk-v2.1"
@@ -170,3 +181,4 @@ def test_download_manager_promotes_completed_downloads_to_installed_state():
     assert 'if task.phase == "done"' in manager
     assert "InstallationStatus.INSTALLED" in manager
     assert "ModelCapability.DIARIZATION" in manager
+    assert "ensure_native_higgs_registered" not in manager

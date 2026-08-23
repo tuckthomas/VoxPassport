@@ -58,7 +58,22 @@ class OpenAiSpeechProxyDriver(TtsDriver):
             ) from exc
 
     def unload(self) -> None:
-        # The proxy does not own the backend process or its model residency.
+        options = self._options()
+        unload_path = str(options.get("unload_path", "")).strip()
+        if unload_path:
+            try:
+                req = urlrequest.Request(
+                    self._backend_url() + unload_path,
+                    data=b"{}",
+                    headers={"Content-Type": "application/json"},
+                    method=str(options.get("unload_method", "POST")).upper(),
+                )
+                with urlrequest.urlopen(req, timeout=float(options.get("unload_timeout_seconds", 15))):
+                    pass
+            except Exception:
+                # The generic host must still release its selected driver even if
+                # an independently managed backend refuses an optional unload.
+                pass
         self._loaded = False
 
     @staticmethod
@@ -75,9 +90,37 @@ class OpenAiSpeechProxyDriver(TtsDriver):
             return _LANGUAGE_NAMES.get(language, language)
         return language
 
+    def _encoded_reference_audio(self, path: Path) -> str:
+        encoding = str(self._options().get("reference_audio_encoding", "data_uri"))
+        return str(path.resolve()) if encoding == "path" else self._audio_data_uri(path)
+
+    def _map_reference(self, payload: dict, request: TtsDriverRequest) -> None:
+        if request.reference_audio is None:
+            return
+        options = self._options()
+        mode = str(options.get("reference_mode", "flat")).lower()
+        encoded = self._encoded_reference_audio(request.reference_audio)
+        if mode == "references_array":
+            item = {str(options.get("reference_audio_key", "audio_path")): encoded}
+            text_key = str(options.get("reference_text_key", "text"))
+            if text_key and request.reference_text:
+                item[text_key] = request.reference_text
+            payload[str(options.get("references_field", "references"))] = [item]
+            return
+
+        audio_field = str(options.get("reference_audio_field", "ref_audio"))
+        payload[audio_field] = encoded
+        transcript_field = options.get("reference_text_field", "ref_text")
+        if transcript_field and request.reference_text:
+            payload[str(transcript_field)] = request.reference_text
+
     def _payload(self, request: TtsDriverRequest, *, response_format: str, stream: bool) -> dict:
         options = self._options()
         payload = dict(options.get("static_payload", {}))
+        if stream:
+            payload.update(dict(options.get("stream_payload", {})))
+        else:
+            payload.update(dict(options.get("wav_payload", {})))
         payload[str(options.get("text_field", "input"))] = request.text
         payload[str(options.get("response_format_field", "response_format"))] = response_format
         stream_field = options.get("stream_field", "stream")
@@ -89,17 +132,7 @@ class OpenAiSpeechProxyDriver(TtsDriver):
         if language_field and language_value is not None:
             payload[str(language_field)] = language_value
 
-        if request.reference_audio is not None:
-            audio_field = str(options.get("reference_audio_field", "ref_audio"))
-            encoding = str(options.get("reference_audio_encoding", "data_uri"))
-            payload[audio_field] = (
-                str(request.reference_audio.resolve())
-                if encoding == "path"
-                else self._audio_data_uri(request.reference_audio)
-            )
-            transcript_field = options.get("reference_text_field", "ref_text")
-            if transcript_field and request.reference_text:
-                payload[str(transcript_field)] = request.reference_text
+        self._map_reference(payload, request)
         return payload
 
     def _post(self, payload: dict):
@@ -137,9 +170,6 @@ class OpenAiSpeechProxyDriver(TtsDriver):
                 if even:
                     yield data[:even]
                 carry = data[even:]
-        if carry:
-            # A single trailing byte cannot form a signed 16-bit PCM sample.
-            carry = b""
 
     def synthesize_wav(self, request: TtsDriverRequest) -> bytes:
         payload = self._payload(request, response_format="wav", stream=False)

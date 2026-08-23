@@ -21,8 +21,22 @@
       "environment": {},
       "provisioning": {
         "strategy": "isolated-environment",
-        "requirements": "runtime/workers/tts_host/requirements-xtts.txt",
-        "installer": "scripts/manage_runtime_profile.py",
+        "venv_dir": ".venv-xtts",
+        "python_version": "3.12",
+        "prefer_uv": true,
+        "steps": [
+          {
+            "packages": [
+              "torch==2.13.0",
+              "torchaudio==2.11.0",
+              "torchcodec==0.13.0"
+            ],
+            "index_url": "https://download.pytorch.org/whl/cu130"
+          },
+          {
+            "requirements": "runtime/workers/tts_host/requirements-xtts.txt"
+          }
+        ],
         "notes": "Coqui/XTTS remains isolated because its dependency constraints must not constrain the main Transformers/Parakeet environment."
       }
     }

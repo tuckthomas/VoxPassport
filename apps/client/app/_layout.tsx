@@ -14,6 +14,7 @@ export default function RootLayout() {
         }}
       >
         <Stack.Screen name="index" options={{ title: 'VoxPassport' }} />
+        <Stack.Screen name="translator" options={{ title: 'Translator' }} />
         <Stack.Screen name="models" options={{ title: 'Models & Engines' }} />
         <Stack.Screen name="voice-profiles" options={{ title: 'Voice Profiles' }} />
         <Stack.Screen name="runtime" options={{ title: 'Runtime & Audio' }} />

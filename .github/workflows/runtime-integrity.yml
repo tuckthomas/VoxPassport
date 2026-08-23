@@ -37,6 +37,7 @@ jobs:
           tests/integration/test_runtime_state_integrity.py
           tests/integration/test_low_vram_integrity.py
           tests/test_xtts_romanian.py
+          tests/test_tts_backend_runtime_catalog.py
           tests/test_tts_plugin_architecture.py
           tests/test_tts_runtime_supervisor.py
           tests/test_tts_residency_contract.py

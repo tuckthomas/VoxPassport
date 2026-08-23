@@ -43,6 +43,7 @@ jobs:
           tests/test_tts_residency_contract.py
           tests/test_repository_architecture.py
           tests/test_translation_provider_catalog.py
+          tests/test_translation_strategy_loader.py
           tests/test_translation_session.py
           tests/test_gemini_live_translate.py
           tests/test_client_contract.py

@@ -291,8 +291,19 @@
       const metric = this.root.querySelector('[data-resource-metric="tts-runtime"]');
       if (!metric) return;
       const profiles = Array.isArray(runtime.profiles) ? runtime.profiles : [];
+      const backends = Array.isArray(runtime.backends) ? runtime.backends : [];
       const activeProfile = runtime.active_profile_id || '';
       const activeModel = runtime.active_model_id || '';
+      const backendStates = backends.map((backend) => {
+        let state = 'stopped';
+        if (backend.unexpected_exit || (backend.running && backend.health && backend.health.reachable === false)) {
+          state = 'broken';
+        } else if (backend.running) {
+          state = 'running';
+        }
+        return { backend, state };
+      });
+      const activeBackend = backendStates.find(({ backend }) => backend.model_id === activeModel);
       const states = profiles.map((profile) => {
         let state = 'ready';
         if (!profile.installed) {
@@ -302,18 +313,25 @@
         } else if (profile.running) {
           state = 'running';
         }
+        if (profile.profile_id === activeProfile && activeBackend && activeBackend.state === 'broken') {
+          state = 'broken';
+        }
         return { profile, state };
       });
-      const broken = states.some((item) => item.state === 'broken');
+      const broken = states.some((item) => item.state === 'broken')
+        || backendStates.some((item) => item.state === 'broken');
       const missing = states.some((item) => item.state === 'missing');
       const running = states.some((item) => item.state === 'running');
       metric.querySelector('[data-resource-value]').textContent = activeProfile || 'Idle';
-      const detail = states.length
+      const profileDetail = states.length
         ? states.map(({ profile, state }) => `${profile.profile_id}: ${state}`).join(' · ')
         : 'No supervised TTS runtime initialized';
+      const backendDetail = backendStates.length
+        ? ` · backend ${backendStates.map(({ backend, state }) => `${backend.model_id}: ${state}`).join(', ')}`
+        : '';
       metric.querySelector('[data-resource-detail]').textContent = activeModel
-        ? `${activeModel} · ${detail}`
-        : detail;
+        ? `${activeModel} · ${profileDetail}${backendDetail}`
+        : `${profileDetail}${backendDetail}`;
       const fill = metric.querySelector('[data-resource-fill]');
       fill.style.width = running ? '100%' : (missing || broken ? '35%' : '0%');
       fill.dataset.level = broken ? 'critical' : (missing ? 'warning' : 'normal');

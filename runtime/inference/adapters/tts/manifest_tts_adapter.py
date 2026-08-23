@@ -69,18 +69,33 @@ class ManifestTtsAdapter(TtsAdapter):
         return audio, text, target
 
     async def load(self) -> None:
-        endpoint, capabilities = await self._supervisor.activate(self.manifest)
-        if not endpoint:
-            raise RuntimeError(f"Could not acquire a TTS runtime endpoint for {self.manifest.display_name}")
-        self._runtime_capabilities = dict(capabilities or {})
+        # Logical adapter activation is intentionally cheap. The supervisor
+        # starts the runtime profile and loads the physical TTS model only when
+        # synthesis is requested or an explicit health validation is performed.
+        # This keeps CAPTIONS_ONLY and unused TTS profiles process-free.
         self._loaded = True
 
     async def unload(self) -> None:
         self._loaded = False
+        self._runtime_capabilities = {}
         try:
             await self._supervisor.release(self.manifest)
         except Exception:
             logger.debug("Supervised TTS unload failed for %s", self.manifest.model_id, exc_info=True)
+
+    async def _ensure_runtime(self) -> str:
+        endpoint = await self._supervisor.ensure_active(self.manifest)
+        if not self._runtime_capabilities:
+            try:
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=3)) as session:
+                    async with session.get(
+                        f"{endpoint}/v1/capabilities?model_id={self.manifest.model_id}"
+                    ) as response:
+                        if response.status == 200:
+                            self._runtime_capabilities = dict(await response.json(content_type=None) or {})
+            except Exception:
+                logger.debug("Could not refresh runtime TTS capabilities", exc_info=True)
+        return endpoint
 
     def _synthesis_payload(self, text: str, language: str, voice: VoiceSpec, response_format: str) -> dict:
         clean = str(text).strip()
@@ -121,7 +136,7 @@ class ManifestTtsAdapter(TtsAdapter):
         emitted_any = False
 
         for attempt in range(2):
-            endpoint = await self._supervisor.ensure_active(self.manifest)
+            endpoint = await self._ensure_runtime()
             timeout = aiohttp.ClientTimeout(total=300, sock_read=240)
             try:
                 with heavy_gpu_inference():
@@ -174,6 +189,7 @@ class ManifestTtsAdapter(TtsAdapter):
                 if attempt == 0 and not emitted_any:
                     logger.warning("TTS worker failed before audio for %s; restarting runtime profile", self.manifest.model_id)
                     await self._supervisor.recover(self.manifest)
+                    self._runtime_capabilities = {}
                     continue
                 raise RuntimeError(
                     f"Supervised TTS worker became unavailable while using {self.manifest.display_name}"
@@ -223,7 +239,7 @@ class ManifestTtsAdapter(TtsAdapter):
             payload["target_conditioning_path"] = str(target.resolve())
 
         for attempt in range(2):
-            endpoint = await self._supervisor.ensure_active(self.manifest)
+            endpoint = await self._ensure_runtime()
             try:
                 with heavy_gpu_inference():
                     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=300)) as session:
@@ -240,6 +256,7 @@ class ManifestTtsAdapter(TtsAdapter):
             except (aiohttp.ClientError, TimeoutError, OSError) as exc:
                 if attempt == 0:
                     await self._supervisor.recover(self.manifest)
+                    self._runtime_capabilities = {}
                     continue
                 raise RuntimeError("Supervised TTS worker is not reachable") from exc
         raise RuntimeError(f"{self.manifest.display_name} failed to synthesize cloned audio")
@@ -262,7 +279,7 @@ class ManifestTtsAdapter(TtsAdapter):
         if not self._loaded:
             return False
         try:
-            await self._supervisor.ensure_active(self.manifest)
+            await self._ensure_runtime()
             return True
         except Exception:
             return False

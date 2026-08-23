@@ -297,7 +297,7 @@
         let state = 'ready';
         if (!profile.installed) {
           state = 'missing';
-        } else if (profile.running && profile.health && profile.health.reachable === false) {
+        } else if (profile.unexpected_exit || (profile.running && profile.health && profile.health.reachable === false)) {
           state = 'broken';
         } else if (profile.running) {
           state = 'running';

@@ -2,7 +2,7 @@ mod audio;
 mod runtime;
 
 use audio::{DesktopAudioCapabilities, DesktopAudioDevice};
-use runtime::{RuntimeManager, RuntimeProcessStatus};
+use runtime::{RuntimeHttpResponse, RuntimeManager, RuntimeProcessStatus};
 
 #[tauri::command]
 fn desktop_audio_capabilities() -> DesktopAudioCapabilities {
@@ -29,6 +29,19 @@ fn stop_local_runtime(manager: tauri::State<'_, RuntimeManager>) -> Result<Runti
     manager.stop()
 }
 
+#[tauri::command]
+async fn local_runtime_request(
+    manager: tauri::State<'_, RuntimeManager>,
+    base_url: String,
+    path: String,
+    method: String,
+    body: Option<String>,
+) -> Result<RuntimeHttpResponse, String> {
+    manager
+        .request_local_json(&base_url, &path, &method, body.as_deref())
+        .await
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(RuntimeManager::new())
@@ -38,6 +51,7 @@ fn main() {
             local_runtime_status,
             start_local_runtime,
             stop_local_runtime,
+            local_runtime_request,
         ])
         .run(tauri::generate_context!())
         .expect("error while running VoxPassport desktop application");

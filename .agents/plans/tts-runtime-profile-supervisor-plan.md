@@ -2,7 +2,7 @@
 
 Status: Implementation complete; connected-environment lock generation, final CI observation, and RTX 2070 hardware validation pending
 
-Purpose: Manage dependency-compatible TTS runtime families centrally so local TTS models can remain modular without hard-coded worker ports, model-specific launchers, or forced dependency convergence.
+Purpose: Manage dependency-compatible TTS runtime families centrally so local TTS models can remain modular without hard-coded worker ports, model-specific launchers, unmanaged localhost GPU backends, or forced dependency convergence.
 
 ## Implemented architecture
 
@@ -10,7 +10,8 @@ Purpose: Manage dependency-compatible TTS runtime families centrally so local TT
 TTS model manifest
         │
         ├── model / capabilities / driver
-        └── runtime_profile
+        ├── runtime_profile
+        └── optional backend_process contract
                  │
                  ▼
          TtsRuntimeSupervisor
@@ -21,18 +22,20 @@ TTS model manifest
  primary .venv       isolated profile .venv
         │                  │
         └────────┬─────────┘
-                 ▼
-       generic TTS worker host
-       ephemeral localhost port
                  │
-                 ▼
-              TtsDriver
-                 │
-                 ▼
-       model / DLL / backend
+        ┌────────┴────────────────┐
+        ▼                         ▼
+ generic TTS worker       managed local proxy backend
+ ephemeral port           ephemeral port, when required
+        │                         │
+        ▼                         │
+     TtsDriver ───────────────────┘
+        │
+        ▼
+ model / DLL / remote backend
 ```
 
-Model manifests describe **what runtime family a driver requires**. The supervisor decides **where and when that worker runs**. Ephemeral worker endpoints are operational state, not model identity.
+Model manifests describe **what runtime family and backend lifecycle a driver requires**. The supervisor decides **where and when local worker/backend processes run**. Ephemeral endpoints are operational state, not model identity.
 
 ## Runtime profile rules
 
@@ -50,7 +53,9 @@ Model manifests describe **what runtime family a driver requires**. The supervis
 - [x] Require `runtime_profile` in schema-v2 TTS manifests.
 - [x] Remove `worker.base_url` from every local TTS manifest.
 - [x] Reject legacy `worker` topology in manifest validation.
-- [x] Keep true external/backend URLs only in driver options, where they belong.
+- [x] Keep true remote backend URL overrides inside driver options.
+- [x] Remove fixed localhost proxy-backend ports from the Higgs/MOSS/VoxCPM manifests.
+- [x] Add declarative `backend_process.command_env` contracts for local proxy backends.
 - [x] Assign OmniVoice, native Higgs, full Higgs proxy, MOSS, and VoxCPM to `core`.
 - [x] Assign XTTS Romanian to `coqui-xtts`.
 
@@ -60,8 +65,10 @@ Model manifests describe **what runtime family a driver requires**. The supervis
 - [x] Resolve the configured Python interpreter/environment from the runtime profile.
 - [x] Start the same generic `tts_host/server.py` implementation under the selected profile.
 - [x] Allocate a free `127.0.0.1` port dynamically rather than assigning permanent TTS worker ports.
+- [x] Give workers the supervisor's actual manifest catalog path so synthetic/custom catalogs work through the real subprocess path.
 - [x] Wait for `/health` before loading a driver.
 - [x] POST `/load` and verify post-load worker/model health.
+- [x] Support runtime-only driver-option injection so dynamic backend endpoints never need to be persisted in manifests.
 - [x] Reuse one healthy worker when switching between models in the same runtime profile.
 - [x] Unload the prior driver before a same-profile model switch.
 - [x] Unload and terminate an incompatible previous-profile worker before activating a cross-profile replacement.
@@ -72,6 +79,20 @@ Model manifests describe **what runtime family a driver requires**. The supervis
 - [x] Do not automatically replay an utterance after partial audio has already been delivered.
 - [x] Add process-exit cleanup so supervisor-owned workers are terminated even if async idle cleanup cannot complete.
 - [x] Write worker stdout/stderr under `data/logs/tts-worker-<profile>.log`.
+
+## Proxy-backend ownership
+
+- [x] Treat localhost proxy backends as part of supervised local TTS residency rather than externally managed exceptions.
+- [x] Allocate a dynamic localhost backend port when a manifest declares `backend_process`.
+- [x] Resolve a backend launch command generically from a manifest command list or `backend_process.command_env`.
+- [x] Support `{host}`, `{port}`, `{project_root}`, `{model_id}`, and `{python}` command placeholders without model-name branches.
+- [x] Wait for the backend's declared health endpoint before loading the proxy driver.
+- [x] Inject the managed backend endpoint into the worker as a runtime-only driver option.
+- [x] Terminate the complete managed backend process tree on model switch, release, recovery, shutdown, and interpreter-exit cleanup.
+- [x] Relaunch a managed backend when it dies and the active model is recovered.
+- [x] Reject unmanaged loopback proxy URLs instead of allowing local GPU residency outside supervisor control.
+- [x] Allow explicit non-loopback backend URLs as remote resources; they do not consume the local GPU and are outside local process ownership by design.
+- [x] Remove fixed `8095`/`8096`/`8097` backend addresses from current proxy manifests.
 
 ## True on-demand startup
 
@@ -84,13 +105,13 @@ Model manifests describe **what runtime family a driver requires**. The supervis
 
 ## GPU residency and concurrency
 
-- [x] Make the supervisor the explicit owner of supervised local TTS residency across runtime-profile processes.
+- [x] Make the supervisor the explicit owner of supervised local TTS residency across runtime-profile and managed-backend processes.
 - [x] Enforce one active supervised local TTS model across profiles by default.
-- [x] Terminate the incompatible previous TTS profile before loading a replacement, avoiding accidental dual TTS residency on an 8 GB-class GPU.
+- [x] Terminate the incompatible previous TTS profile/backend before loading a replacement, avoiding accidental dual TTS residency on an 8 GB-class GPU.
 - [x] Preserve the existing `heavy_gpu_inference()` coordination around actual local TTS synthesis so heavyweight ASR and TTS work do not intentionally contend.
 - [x] Preserve one physical active TTS model shared by both conversation directions.
 - [x] Do not infer concurrency permission merely because multiple runtime profiles/processes exist.
-- [ ] Verify cross-profile VRAM release with real OmniVoice/native-Higgs/XTTS switches on the RTX 2070.
+- [ ] Verify cross-profile VRAM release with real OmniVoice/native-Higgs/XTTS/proxy-backend switches on the RTX 2070.
 
 ## Runtime profile provisioning
 
@@ -108,13 +129,15 @@ Model manifests describe **what runtime family a driver requires**. The supervis
 
 ## Registry, diagnostics, and Model Settings
 
-- [x] Keep active registry slots model-centric; do not persist worker endpoints as model identity.
+- [x] Keep active registry slots model-centric; do not persist worker/backend endpoints as model identity.
 - [x] Keep local TTS aliases sourced from manifests.
 - [x] Add `tts_runtime` state to the existing resource diagnostics payload.
-- [x] Report active profile/model, profile installation state, process state/PID, ephemeral endpoint, loaded model, idle timeout, and worker health.
-- [x] Distinguish an unexpectedly exited worker from an intentionally stopped profile in diagnostics.
+- [x] Report active profile/model, profile installation state, worker process/PID, ephemeral endpoint, loaded model, idle timeout, and worker health.
+- [x] Report managed proxy backend process/PID, ephemeral endpoint, health path, exit code, and health state.
+- [x] Distinguish unexpectedly exited workers and managed backends from intentionally stopped processes.
 - [x] Add a full-width **TTS Runtime Profiles** row to the existing Model Settings resource monitor.
 - [x] Show profile state as `running`, `ready`, `missing`, or `broken` from backend telemetry rather than a duplicate JavaScript catalog.
+- [x] Mark the active runtime broken when either its generic worker or managed proxy backend fails.
 
 ## Validation
 
@@ -127,7 +150,11 @@ Model manifests describe **what runtime family a driver requires**. The supervis
 - [x] Test idle worker shutdown.
 - [x] Test a worker process crash during model load and verify rollback to the previous model.
 - [x] Test a worker process crash during synthesis before first audio and verify restart/retry.
-- [x] Test dynamic port allocation without 8098/8099 assumptions.
+- [x] Test dynamic worker port allocation without 8098/8099 assumptions.
+- [x] Test managed proxy-backend dynamic endpoint assignment.
+- [x] Test managed proxy-backend termination on model switch.
+- [x] Test managed proxy-backend termination on model release.
+- [x] Test rejection of unmanaged loopback proxy backends.
 - [x] Add the runtime-supervisor lifecycle suite to Runtime Integrity CI.
 - [ ] Observe the final push-triggered Runtime Integrity workflow as green. If GitHub does not expose the final run through the connector, execute the listed compile/pytest checks in the local development environment.
 
@@ -138,6 +165,7 @@ Model manifests describe **what runtime family a driver requires**. The supervis
 - [x] Update `docs/xtts-romanian-low-vram.md` to remove fixed-host and model-specific installer assumptions.
 - [x] Update root/project documentation and related agent plans so fixed `:8098`/`:8099` topology is not described as current architecture.
 - [x] Document generic profile provisioning and the independent uv-project strategy.
+- [x] Document the local-proxy rule: supervisor-owned process or explicit non-loopback remote endpoint; unmanaged localhost backends are invalid.
 
 ## Non-goals
 
@@ -146,6 +174,7 @@ Model manifests describe **what runtime family a driver requires**. The supervis
 - Do not containerize the normal Windows desktop path without a demonstrated operational benefit.
 - Do not create one virtual environment per model when models can share a dependency-compatible runtime profile.
 - Do not persist ephemeral localhost ports in manifests or registry model identity.
+- Do not permit a local GPU-resident proxy backend to outlive or bypass the TTS supervisor.
 
 ## Acceptance criteria
 
@@ -153,8 +182,9 @@ The code migration is complete: adding a new dependency-incompatible local TTS m
 
 1. a model manifest referencing an existing or new `runtime_profile`;
 2. an existing or new runtime-profile dependency definition;
-3. a driver only when existing drivers cannot express the model.
+3. a driver only when existing drivers cannot express the model;
+4. for a proxy requiring a local backend, a declarative supervisor launch command/command environment.
 
-It requires **no application adapter, daemon model branch, fixed VoxPassport worker port, or model-specific launcher/installer**.
+It requires **no application adapter, daemon model branch, fixed VoxPassport worker/backend port, model-specific launcher/installer, or unmanaged localhost GPU process**.
 
 Remaining acceptance work is environmental rather than architectural: generate/commit the initial XTTS uv lock, observe final CI, and run the real RTX 2070 residency/latency checks.

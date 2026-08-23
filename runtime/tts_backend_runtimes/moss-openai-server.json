@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "backend_runtime_id": "moss-openai-server",
+  "runtime_profile": "core",
+  "launch": {
+    "command_env": "VOXPASSPORT_TTS_BACKEND_MOSS_COMMAND"
+  },
+  "remote_url_env": "VOXPASSPORT_TTS_BACKEND_MOSS_URL",
+  "health_path": "/v1/models",
+  "startup_timeout_seconds": 120,
+  "endpoint_driver_option": "backend_url",
+  "arguments": {
+    "checkpoint": {
+      "required": true
+    }
+  }
+}

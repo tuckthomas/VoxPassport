@@ -1,143 +1,160 @@
 # TTS Runtime Profile Supervisor Plan
 
-Status: Future architecture improvement; not required for the completed generic TTS refactor
+Status: Implementation complete; connected-environment lock generation, final CI observation, and RTX 2070 hardware validation pending
 
-Purpose: Generalize the current `.venv` + `.venv-xtts` fixed-host arrangement into centrally managed dependency/runtime profiles without collapsing incompatible model libraries into one Python environment or reintroducing model-specific application routing.
+Purpose: Manage dependency-compatible TTS runtime families centrally so local TTS models can remain modular without hard-coded worker ports, model-specific launchers, or forced dependency convergence.
 
-## Problem statement
-
-The current TTS architecture is clean at the application boundary: every local model uses `ManifestTtsAdapter` → `voxpassport.tts.v1` → `TtsDriver`.
-
-The remaining topology is intentionally simple but does not scale indefinitely:
+## Implemented architecture
 
 ```text
-primary .venv     -> generic host :8098
-isolated XTTS env -> generic host :8099
-```
-
-This works while XTTS is the only model family requiring a conflicting Python dependency graph. If additional model families require different Python versions, Transformers constraints, native libraries, or package sets, assigning another permanent port and launcher branch to each environment would recreate hard-coded topology at a different layer.
-
-The solution is **not** to merge all model dependencies into the primary `.venv`. Dependency isolation is desirable. The solution is to make isolated worker lifecycle generic.
-
-## Architectural target
-
-```text
-ManifestTtsAdapter
+TTS model manifest
         │
-        ▼
-TTS Runtime Supervisor
-        │
-        ├── resolve model manifest
-        ├── resolve runtime_profile
-        ├── choose interpreter/environment
-        ├── start generic worker host on demand
-        ├── assign/discover endpoint
-        ├── load + health-check driver
-        ├── enforce GPU residency policy
-        └── stop/unload idle workers
+        ├── model / capabilities / driver
+        └── runtime_profile
+                 │
+                 ▼
+         TtsRuntimeSupervisor
+                 │
+        ┌────────┴─────────┐
+        ▼                  ▼
+ profile: core       profile: coqui-xtts
+ primary .venv       isolated profile .venv
+        │                  │
+        └────────┬─────────┘
+                 ▼
+       generic TTS worker host
+       ephemeral localhost port
+                 │
+                 ▼
+              TtsDriver
+                 │
+                 ▼
+       model / DLL / backend
 ```
 
-Model manifests should describe runtime requirements. They should not permanently own localhost port numbers.
-
-Example target declaration:
-
-```json
-{
-  "model_id": "xtts-v2-romanian-v2",
-  "runtime_profile": "coqui-xtts",
-  "driver": {
-    "entrypoint": "runtime.workers.tts_host.drivers.xtts_romanian:XttsRomanianDriver"
-  }
-}
-```
-
-Runtime-profile configuration maps the logical profile to an interpreter/environment and provisioning metadata.
+Model manifests describe **what runtime family a driver requires**. The supervisor decides **where and when that worker runs**. Ephemeral worker endpoints are operational state, not model identity.
 
 ## Runtime profile rules
 
-- [ ] Introduce a stable runtime-profile identifier separate from `model_id`.
-- [ ] Group models by dependency compatibility; do not create one environment per model by default.
-- [ ] Keep a `core` profile for drivers that safely share the primary VoxPassport environment.
-- [ ] Keep a `coqui-xtts` profile for XTTS while its dependency graph remains intentionally isolated.
-- [ ] Permit future profiles for genuinely incompatible Python versions, native library stacks, or package constraints.
-- [ ] Keep model weights outside virtual environments so multiple runtime profiles do not duplicate checkpoint storage.
+- [x] Introduce a stable `runtime_profile` identifier separate from `model_id`.
+- [x] Group models by dependency compatibility rather than one environment per model.
+- [x] Define a `core` profile for drivers compatible with the primary VoxPassport environment.
+- [x] Define a `coqui-xtts` profile for XTTS/Coqui's isolated dependency graph.
+- [x] Make future profiles data-driven through `runtime/profiles/runtime_profiles.json` rather than supervisor model branches.
+- [x] Keep model weights outside virtual environments so runtime profiles do not duplicate checkpoints.
+- [x] Permit per-profile interpreter environment-variable overrides for development/testing.
 
-## Manifest/schema evolution
+## Manifest/schema migration
 
-- [ ] Add `runtime_profile` to the TTS manifest schema.
-- [ ] Stop treating `worker.base_url` as permanent model identity.
-- [ ] Keep explicit remote/backend URLs inside driver options only when the underlying model really is a proxy to a separate backend.
-- [ ] Preserve environment-variable overrides where useful for development/testing.
-- [ ] Version the manifest schema if the change cannot be made cleanly within schema version 1.
+- [x] Upgrade local TTS manifests to schema version 2.
+- [x] Require `runtime_profile` in schema-v2 TTS manifests.
+- [x] Remove `worker.base_url` from every local TTS manifest.
+- [x] Reject legacy `worker` topology in manifest validation.
+- [x] Keep true external/backend URLs only in driver options, where they belong.
+- [x] Assign OmniVoice, native Higgs, full Higgs proxy, MOSS, and VoxCPM to `core`.
+- [x] Assign XTTS Romanian to `coqui-xtts`.
 
 ## Supervisor lifecycle
 
-- [ ] Resolve the target model and runtime profile before TTS activation.
-- [ ] Start the required generic host using the profile's Python interpreter.
-- [ ] Prefer an OS-assigned free localhost port or another discoverable local transport rather than permanent per-model ports.
-- [ ] Wait for worker health before sending `/load`.
-- [ ] Load the requested driver/model and verify capabilities.
-- [ ] Drain committed speech before incompatible worker changes.
-- [ ] Unload/terminate the previous worker when required by GPU residency policy.
-- [ ] Keep compatible idle workers alive only when the memory/latency tradeoff justifies it.
-- [ ] Shut down idle workers after a configurable timeout.
-- [ ] Detect crashed workers and return a clear activation failure without corrupting the active registry slot.
+- [x] Resolve the target manifest and runtime profile before worker activation.
+- [x] Resolve the configured Python interpreter/environment from the runtime profile.
+- [x] Start the same generic `tts_host/server.py` implementation under the selected profile.
+- [x] Allocate a free `127.0.0.1` port dynamically rather than assigning permanent TTS worker ports.
+- [x] Wait for `/health` before loading a driver.
+- [x] POST `/load` and verify post-load worker/model health.
+- [x] Reuse one healthy worker when switching between models in the same runtime profile.
+- [x] Unload the prior driver before a same-profile model switch.
+- [x] Unload and terminate an incompatible previous-profile worker before activating a cross-profile replacement.
+- [x] Roll back to the previously active manifest when replacement activation fails.
+- [x] Shut released idle workers down after a per-profile configurable timeout.
+- [x] Detect dead/unhealthy workers before reuse and recreate them when needed.
+- [x] Retry synthesis once when a worker dies before any output audio has been emitted.
+- [x] Do not automatically replay an utterance after partial audio has already been delivered.
+- [x] Add process-exit cleanup so supervisor-owned workers are terminated even if async idle cleanup cannot complete.
+- [x] Write worker stdout/stderr under `data/logs/tts-worker-<profile>.log`.
+
+## True on-demand startup
+
+- [x] Make `ManifestTtsAdapter.load()` a cheap logical activation that does not spawn a worker.
+- [x] Start/load the physical TTS runtime only for explicit activation health validation or actual synthesis.
+- [x] Ensure `CAPTIONS_ONLY` can start without launching a TTS worker.
+- [x] Remove unconditional TTS-host startup from `run.bat`.
+- [x] Make `run.bat` start only the unified VoxPassport daemon.
+- [x] Remove the model-specific `install_xtts_worker.bat` installer.
 
 ## GPU residency and concurrency
 
-- [ ] Make the supervisor the explicit owner of local TTS worker residency across processes.
-- [ ] On low-VRAM systems, enforce one heavyweight local TTS model resident at a time unless measured headroom permits otherwise.
-- [ ] Coordinate with the existing main-process heavyweight GPU inference policy so ASR and TTS do not intentionally contend on an 8 GB GPU.
-- [ ] Preserve one physical TTS model shared by both conversation directions.
-- [ ] Do not interpret multiple worker processes as permission to run multiple heavyweight models concurrently.
+- [x] Make the supervisor the explicit owner of supervised local TTS residency across runtime-profile processes.
+- [x] Enforce one active supervised local TTS model across profiles by default.
+- [x] Terminate the incompatible previous TTS profile before loading a replacement, avoiding accidental dual TTS residency on an 8 GB-class GPU.
+- [x] Preserve the existing `heavy_gpu_inference()` coordination around actual local TTS synthesis so heavyweight ASR and TTS work do not intentionally contend.
+- [x] Preserve one physical active TTS model shared by both conversation directions.
+- [x] Do not infer concurrency permission merely because multiple runtime profiles/processes exist.
+- [ ] Verify cross-profile VRAM release with real OmniVoice/native-Higgs/XTTS switches on the RTX 2070.
 
-## Environment provisioning
+## Runtime profile provisioning
 
-- [ ] Replace ad hoc environment creation with reproducible per-profile dependency definitions and locks.
-- [ ] Evaluate `uv` or another deterministic environment manager for provisioning isolated profiles.
-- [ ] Keep the primary runtime and isolated profiles independently upgradable/testable.
-- [ ] Validate the CUDA/PyTorch wheel set per runtime profile.
-- [ ] Surface profile installation/repair status in Model Settings or diagnostics.
+- [x] Add `RuntimeProfile` / `RuntimeProfileCatalog` and `runtime/profiles/runtime_profiles.json`.
+- [x] Replace model-specific environment installation with `scripts/manage_runtime_profile.py`.
+- [x] Support `status`, `install`, and `repair` commands.
+- [x] Keep `core` tied to the already-installed primary `.venv` rather than duplicating it.
+- [x] Move the XTTS environment under `runtime/profiles/coqui-xtts/.venv`.
+- [x] Add an independent `runtime/profiles/coqui-xtts/pyproject.toml`.
+- [x] Prefer `uv sync` for isolated profiles when uv is available.
+- [x] Pin Torch/TorchAudio/TorchCodec to the explicit PyTorch cu130 package index in the XTTS uv project.
+- [x] Keep a declarative venv/pip fallback when uv is unavailable.
+- [x] Keep incompatible runtime families as independent projects rather than one uv workspace/lock.
+- [ ] Generate and commit the initial `runtime/profiles/coqui-xtts/uv.lock` from a connected development environment and verify `uv sync` on Windows/CUDA.
 
-A single uv workspace is not automatically appropriate if runtime profiles have conflicting requirements, because a workspace shares one resolved dependency set. Independent projects/environments or equivalent per-profile locks are preferable for genuinely conflicting dependency graphs.
+## Registry, diagnostics, and Model Settings
 
-## Startup behavior
-
-- [ ] Replace unconditional second-host startup in `run.bat` with supervisor-driven on-demand XTTS startup.
-- [ ] Keep `install_xtts_worker.bat` only until runtime-profile provisioning has a generic installer.
-- [ ] Eventually replace model-specific installation scripts with a runtime-profile install/repair command.
-- [ ] Ensure normal VoxPassport startup does not pay XTTS process/RAM overhead when XTTS is not selected.
-
-## Registry and UI
-
-- [ ] Keep registry active slots model-centric; do not persist ephemeral worker ports as model identity.
-- [ ] Expose runtime profile and worker health in diagnostics.
-- [ ] Allow Model Settings to show when a model's runtime profile is installed, missing, broken, or running.
-- [ ] Keep local TTS model aliases sourced from manifests.
+- [x] Keep active registry slots model-centric; do not persist worker endpoints as model identity.
+- [x] Keep local TTS aliases sourced from manifests.
+- [x] Add `tts_runtime` state to the existing resource diagnostics payload.
+- [x] Report active profile/model, profile installation state, process state/PID, ephemeral endpoint, loaded model, idle timeout, and worker health.
+- [x] Distinguish an unexpectedly exited worker from an intentionally stopped profile in diagnostics.
+- [x] Add a full-width **TTS Runtime Profiles** row to the existing Model Settings resource monitor.
+- [x] Show profile state as `running`, `ready`, `missing`, or `broken` from backend telemetry rather than a duplicate JavaScript catalog.
 
 ## Validation
 
-- [ ] Unit-test runtime-profile resolution independent of model IDs.
-- [ ] Test two models sharing the same runtime profile without spawning duplicate workers unnecessarily.
-- [ ] Test a cross-profile OmniVoice ↔ XTTS switch and verify the old GPU model is released.
-- [ ] Test worker crash during load and during synthesis.
-- [ ] Test port assignment/discovery without fixed 8098/8099 assumptions.
-- [ ] Test startup with XTTS installed but unused; XTTS worker should remain stopped until needed.
-- [ ] Add Runtime Integrity checks preventing new model-name branches in the supervisor.
+- [x] Unit-test runtime-profile resolution independently from model IDs.
+- [x] Assert all local TTS manifests are schema v2, contain `runtime_profile`, and contain no worker topology.
+- [x] Assert the supervisor contains no model-specific local TTS names or dispatch branches.
+- [x] Test that logical adapter load does not spawn an unused TTS worker.
+- [x] Test two models sharing one profile and verify they reuse one worker process.
+- [x] Test a cross-profile switch and verify the previous worker process is terminated.
+- [x] Test idle worker shutdown.
+- [x] Test a worker process crash during model load and verify rollback to the previous model.
+- [x] Test a worker process crash during synthesis before first audio and verify restart/retry.
+- [x] Test dynamic port allocation without 8098/8099 assumptions.
+- [x] Add the runtime-supervisor lifecycle suite to Runtime Integrity CI.
+- [ ] Observe the final push-triggered Runtime Integrity workflow as green. If GitHub does not expose the final run through the connector, execute the listed compile/pytest checks in the local development environment.
+
+## Documentation
+
+- [x] Update `docs/tts-plugin-architecture.md` to describe the implemented supervisor architecture.
+- [x] Update `docs/architecture.md` to include runtime profiles, dynamic workers, crash recovery, and diagnostics.
+- [x] Update `docs/xtts-romanian-low-vram.md` to remove fixed-host and model-specific installer assumptions.
+- [x] Update root/project documentation and related agent plans so fixed `:8098`/`:8099` topology is not described as current architecture.
+- [x] Document generic profile provisioning and the independent uv-project strategy.
 
 ## Non-goals
 
 - Do not reintroduce model-specific application adapters.
-- Do not merge incompatible Python package sets solely to reduce the number of virtual environments.
-- Do not containerize the normal Windows desktop path unless containerization provides a demonstrated operational advantage; local GPU/container packaging would add deployment friction without fixing the core orchestration problem.
-- Do not create one virtual environment per model when several models can safely share one runtime profile.
+- Do not merge incompatible Python package sets solely to reduce virtual-environment count.
+- Do not containerize the normal Windows desktop path without a demonstrated operational benefit.
+- Do not create one virtual environment per model when models can share a dependency-compatible runtime profile.
+- Do not persist ephemeral localhost ports in manifests or registry model identity.
 
 ## Acceptance criteria
 
-The supervisor migration is complete when adding a new dependency-incompatible TTS model requires only:
+The code migration is complete: adding a new dependency-incompatible local TTS model now requires only:
 
-1. a model manifest;
+1. a model manifest referencing an existing or new `runtime_profile`;
 2. an existing or new runtime-profile dependency definition;
-3. a driver only if existing drivers cannot express the model;
+3. a driver only when existing drivers cannot express the model.
 
-and requires **no new application adapter, daemon branch, hard-coded port, or model-specific launcher logic**.
+It requires **no application adapter, daemon model branch, fixed VoxPassport worker port, or model-specific launcher/installer**.
+
+Remaining acceptance work is environmental rather than architectural: generate/commit the initial XTTS uv lock, observe final CI, and run the real RTX 2070 residency/latency checks.

@@ -1,8 +1,9 @@
 """Declarative TTS model manifests.
 
-A manifest describes model identity, capabilities, driver entrypoint/options, and
-its logical runtime profile. Process topology and ephemeral localhost endpoints
-are owned by the TTS runtime supervisor rather than by model metadata.
+A manifest describes model identity, capabilities, driver entrypoint/options, its
+logical worker runtime profile, and optionally a reusable backend runtime ID plus
+model-specific backend arguments. Process topology and ephemeral endpoints are
+owned by the TTS runtime supervisor and backend-runtime catalog.
 """
 
 from __future__ import annotations
@@ -10,7 +11,10 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import TYPE_CHECKING, Any, Iterable, Optional
+
+if TYPE_CHECKING:
+    from runtime.inference.tts_plugins.backend_runtime import BackendRuntimeCatalog
 
 
 class TtsManifestError(ValueError):
@@ -41,6 +45,16 @@ class TtsManifest:
     @property
     def runtime_profile(self) -> str:
         return str(self.raw["runtime_profile"])
+
+    @property
+    def backend_runtime(self) -> Optional[str]:
+        value = self.raw.get("backend_runtime")
+        return str(value).strip() if value else None
+
+    @property
+    def backend_args(self) -> dict[str, Any]:
+        value = self.raw.get("backend_args", {})
+        return dict(value) if isinstance(value, dict) else {}
 
     @property
     def driver_entrypoint(self) -> str:
@@ -114,8 +128,8 @@ def _require(mapping: dict[str, Any], key: str, *, where: str) -> Any:
 def validate_manifest(raw: dict[str, Any], path: Path | str = "<memory>") -> None:
     if not isinstance(raw, dict):
         raise TtsManifestError(f"TTS manifest {path} must contain a JSON object")
-    if int(_require(raw, "schema_version", where="manifest")) != 2:
-        raise TtsManifestError(f"Unsupported TTS manifest schema in {path}; expected schema_version=2")
+    if int(_require(raw, "schema_version", where="manifest")) != 3:
+        raise TtsManifestError(f"Unsupported TTS manifest schema in {path}; expected schema_version=3")
     model_id = str(_require(raw, "model_id", where="manifest")).strip()
     display_name = str(_require(raw, "display_name", where="manifest")).strip()
     runtime_profile = str(_require(raw, "runtime_profile", where="manifest")).strip()
@@ -128,6 +142,15 @@ def validate_manifest(raw: dict[str, Any], path: Path | str = "<memory>") -> Non
             f"TTS manifest {path} must not contain worker topology; endpoints are supervisor-owned"
         )
 
+    backend_runtime = raw.get("backend_runtime")
+    backend_args = raw.get("backend_args", {})
+    if backend_runtime is not None and not str(backend_runtime).strip():
+        raise TtsManifestError(f"backend_runtime in {path} must be a non-empty string")
+    if not isinstance(backend_args, dict):
+        raise TtsManifestError(f"backend_args in {path} must be an object")
+    if backend_args and not backend_runtime:
+        raise TtsManifestError(f"backend_args in {path} require backend_runtime")
+
     driver = _require(raw, "driver", where="manifest")
     capabilities = _require(raw, "capabilities", where="manifest")
     audio = _require(raw, "audio", where="manifest")
@@ -136,6 +159,16 @@ def validate_manifest(raw: dict[str, Any], path: Path | str = "<memory>") -> Non
     entrypoint = str(_require(driver, "entrypoint", where="driver")).strip()
     if ":" not in entrypoint:
         raise TtsManifestError(f"driver.entrypoint in {path} must use 'module:ClassName' syntax")
+    options = driver.get("options", {})
+    if not isinstance(options, dict):
+        raise TtsManifestError(f"driver.options in {path} must be an object")
+    deprecated_topology = {"backend_process", "backend_url", "backend_url_env"}.intersection(options)
+    if deprecated_topology:
+        names = ", ".join(sorted(deprecated_topology))
+        raise TtsManifestError(
+            f"TTS manifest {path} contains deprecated backend topology in driver.options: {names}; "
+            "use backend_runtime/backend_args"
+        )
 
     languages = capabilities.get("languages", [])
     if not isinstance(languages, list) or not languages:
@@ -150,21 +183,47 @@ def validate_manifest(raw: dict[str, Any], path: Path | str = "<memory>") -> Non
 class TtsManifestCatalog:
     """Loads manifests and resolves model IDs/aliases without daemon branches."""
 
-    def __init__(self, manifest_dir: Path | str | None = None) -> None:
+    def __init__(
+        self,
+        manifest_dir: Path | str | None = None,
+        *,
+        backend_runtime_catalog: Optional["BackendRuntimeCatalog"] = None,
+    ) -> None:
         if manifest_dir is None:
             project_root = Path(__file__).resolve().parents[3]
             manifest_dir = project_root / "runtime" / "tts_manifests"
         self.manifest_dir = Path(manifest_dir)
+        self.backend_runtime_catalog = backend_runtime_catalog
         self._by_id: dict[str, TtsManifest] = {}
         self._aliases: dict[str, str] = {}
+
+    def _runtime_catalog(self) -> "BackendRuntimeCatalog":
+        if self.backend_runtime_catalog is None:
+            from runtime.inference.tts_plugins.backend_runtime import BackendRuntimeCatalog
+
+            self.backend_runtime_catalog = BackendRuntimeCatalog().load()
+        return self.backend_runtime_catalog
 
     def load(self) -> "TtsManifestCatalog":
         self._by_id.clear()
         self._aliases.clear()
         if not self.manifest_dir.exists():
             return self
+        runtime_catalog: Optional["BackendRuntimeCatalog"] = None
         for path in sorted(self.manifest_dir.glob("*.json")):
             manifest = TtsManifest.load(path)
+            if manifest.backend_runtime:
+                runtime_catalog = runtime_catalog or self._runtime_catalog()
+                try:
+                    backend_runtime = runtime_catalog.resolve(manifest.backend_runtime)
+                except KeyError as exc:
+                    raise TtsManifestError(
+                        f"TTS manifest {path} references unknown backend_runtime {manifest.backend_runtime!r}"
+                    ) from exc
+                try:
+                    backend_runtime.resolve_args(manifest.backend_args)
+                except Exception as exc:
+                    raise TtsManifestError(f"Invalid backend_args in {path}: {exc}") from exc
             key = manifest.model_id.lower()
             if key in self._by_id:
                 raise TtsManifestError(f"Duplicate TTS manifest model_id: {manifest.model_id}")

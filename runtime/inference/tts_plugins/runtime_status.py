@@ -43,9 +43,10 @@ def tts_runtime_status_snapshot() -> dict[str, Any]:
     for profile in supervisor.profile_catalog.profiles():
         handle = supervisor._workers.get(profile.profile_id)
         running = bool(handle is not None and handle.process.poll() is None)
+        unexpected_exit = bool(handle is not None and not running)
         health = _worker_health(handle.endpoint) if running else {
             "reachable": False,
-            "status": "stopped",
+            "status": "exited" if unexpected_exit else "stopped",
             "loaded_model_id": None,
             "driver_healthy": False,
         }
@@ -54,6 +55,8 @@ def tts_runtime_status_snapshot() -> dict[str, Any]:
             "profile_id": profile.profile_id,
             "installed": interpreter.exists(),
             "running": running,
+            "unexpected_exit": unexpected_exit,
+            "exit_code": handle.process.returncode if unexpected_exit else None,
             "pid": handle.process.pid if running else None,
             "endpoint": handle.endpoint if running else None,
             "loaded_model_id": handle.loaded_model_id if handle else None,

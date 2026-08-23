@@ -25,7 +25,7 @@ if str(PACKAGES_DIR) not in sys.path:
 from runtime.inference.model_discovery_agent import ModelDiscoveryAgent
 from runtime.inference.adapters.asr.parakeet_tdt_v3_asr_adapter import ParakeetTdtV3AsrAdapter
 from runtime.inference.adapters.translation.milmmt46_translation_adapter import MiLMMT46TranslationAdapter
-from runtime.inference.adapters.tts import HiggsNativeTtsAdapter, HiggsTtsAdapter, MossTtsAdapter, OmniVoiceTtsAdapter, VoxCpmTtsAdapter
+from runtime.inference.adapters.tts.manifest_tts_adapter import ManifestTtsAdapter
 from runtime.inference.adapters.vad.silero_vad_adapter import SileroVadAdapter
 from runtime.inference.metrics.latency_metrics import PipelineMetrics
 from runtime.inference.model_registry.catalog import get_builtin_catalog
@@ -44,6 +44,7 @@ from runtime.inference.scheduler.degraded_mode_scheduler import DegradedModeSche
 from runtime.inference.server.caption_server import CaptionServer
 from runtime.inference.server.model_manager_api import ModelManagerController
 from runtime.inference.server.resource_monitor import ResourceSnapshotCollector
+from runtime.inference.tts_plugins import TtsManifestCatalog, manifest_registry_entry
 from runtime.inference.remote_runtime import (
     RemoteAsrAdapter, RemoteEndpoint, RemoteEndpointStore, RemoteTranslationAdapter,
     RemoteTtsAdapter, remote_model_id,
@@ -54,7 +55,7 @@ logger = logging.getLogger("VoxPassportDaemon")
 
 
 class LiveTranslatorApp:
-    """Compatibility class name retained while the remaining source files are renamed."""
+    """Unified VoxPassport runtime and control plane."""
 
     _LANGUAGE_NAMES = {
         "en": "English", "ro": "Romanian", "es": "Spanish", "fr": "French",
@@ -75,9 +76,19 @@ class LiveTranslatorApp:
 
         self.registry = ModelRegistry(self.data_dir / "registry.json")
         self.registry.load()
+        # TTS metadata is manifest-owned. The general catalog continues to own
+        # ASR, translation, VAD, diarization, and direct-speech candidates.
         for entry in get_builtin_catalog():
+            if entry.capability == ModelCapability.TTS:
+                continue
             if not self.registry.get_entry(entry.model_id):
                 self.registry.register(entry)
+
+        self.tts_manifest_catalog = TtsManifestCatalog().load()
+        for manifest in self.tts_manifest_catalog.manifests():
+            existing = self.registry.get_entry(manifest.model_id)
+            self.registry.register(manifest_registry_entry(manifest, existing))
+        self._manifest_tts_adapters: dict[str, ManifestTtsAdapter] = {}
 
         self.metrics = PipelineMetrics()
         self.caption_server = CaptionServer(host="127.0.0.1", port=8765)
@@ -88,15 +99,14 @@ class LiveTranslatorApp:
         self.asr_ro = ParakeetTdtV3AsrAdapter()
         self.mt = MiLMMT46TranslationAdapter(model_size="1b")
 
-        self.tts_omnivoice = OmniVoiceTtsAdapter()
-        self.tts_omnivoice._profiles_root = self.profiles_dir
-        self.tts_higgs = HiggsTtsAdapter(profiles_root=self.profiles_dir)
-        self.tts_higgs_native = HiggsNativeTtsAdapter(
-            model_dir=PROJECT_ROOT / "models" / "higgs-tts-3-q4_k_m",
+        default_tts_manifest = self.tts_manifest_catalog.resolve("omnivoice-stock")
+        default_tts = ManifestTtsAdapter(
+            default_tts_manifest,
+            profiles_root=self.profiles_dir,
+            catalog=self.tts_manifest_catalog,
         )
-        self.tts_moss = MossTtsAdapter(profiles_root=self.profiles_dir)
-        self.tts_voxcpm = VoxCpmTtsAdapter()
-        self._selected_tts_model = "omnivoice"
+        self._manifest_tts_adapters[default_tts_manifest.model_id] = default_tts
+        self._selected_tts_model = default_tts_manifest.model_id
 
         self.orchestrator = DuplexOrchestrator(
             model_registry=self.registry,
@@ -105,8 +115,8 @@ class LiveTranslatorApp:
             asr_adapter_en=self.asr_en,
             asr_adapter_ro=self.asr_ro,
             mt_adapter=self.mt,
-            tts_adapter_ro=self.tts_omnivoice,
-            tts_adapter_en=self.tts_omnivoice,
+            tts_adapter_ro=default_tts,
+            tts_adapter_en=default_tts,
             caption_callback=self.caption_server.broadcast_caption,
             mode=PipelineMode.CAPTIONS_ONLY,
             tts_mode=TtsMode.STOCK,
@@ -120,6 +130,10 @@ class LiveTranslatorApp:
             model_store_dir=self._model_store_dir,
             staging_dir=self._model_store_dir / ".staging",
         )
+        for manifest in self.tts_manifest_catalog.manifests():
+            for alias in (manifest.model_id, *manifest.aliases):
+                self.model_manager._ALIASES[str(alias).strip().lower()] = manifest.model_id
+
         self.remote_endpoints = RemoteEndpointStore(self.data_dir / "remote_endpoints.json")
         self._register_remote_endpoints()
         self.resource_monitor = ResourceSnapshotCollector()
@@ -179,7 +193,6 @@ class LiveTranslatorApp:
         return self.remote_endpoints.get(parts[1])
 
     def _load_runtime_residency(self) -> str:
-        """Load the user's model residency preference; ready is the safe default."""
         try:
             data = json.loads(self._runtime_settings_path.read_text(encoding="utf-8"))
             value = str(data.get("model_residency", "ready")).strip().lower()
@@ -198,7 +211,6 @@ class LiveTranslatorApp:
         self._runtime_last_activity = time.monotonic()
 
     async def _ensure_runtime_ready(self) -> None:
-        """Lazily load the inference stack when On Demand mode receives work."""
         self._touch_runtime_activity()
         if self.orchestrator._is_active:
             return
@@ -242,18 +254,18 @@ class LiveTranslatorApp:
                 await self.orchestrator.stop()
             logger.info("On Demand mode released inference models")
 
-    @staticmethod
-    def _normalize_clone_model(model_name: str | None) -> str:
-        model = str(model_name or "omnivoice").strip().lower()
-        if model in {"higgs-tts-3-q4_k_m", "higgs-q4", "higgs-native", "higgs-native-q4"}:
-            return "higgs-tts-3-q4_k_m"
-        if any(k in model for k in ("higgs", "boson")):
-            return "higgs-tts-3"
-        if any(k in model for k in ("moss", "openmoss")):
-            return "moss-tts-1.5"
-        if any(k in model for k in ("voxcpm", "openbmb")):
-            return "voxcpm-2"
-        return "omnivoice"
+    def _normalize_clone_model(self, model_name: str | None) -> str:
+        raw = str(model_name or "omnivoice-stock").strip()
+        if raw.startswith("remote::"):
+            return raw
+        manifest = self.tts_manifest_catalog.resolve_optional(raw)
+        if manifest is not None:
+            return manifest.model_id
+        canonical = self.model_manager.canonical_model_id(raw)
+        manifest = self.tts_manifest_catalog.resolve_optional(canonical)
+        if manifest is not None:
+            return manifest.model_id
+        raise ValueError(f"No local TTS manifest registered for {raw!r}")
 
     @classmethod
     def _language_name(cls, language_code: str) -> str:
@@ -267,62 +279,26 @@ class LiveTranslatorApp:
             raise ValueError(f"Unsupported runtime language code: {value!r}") from exc
 
     def _tts_engine_for_model(self, model_name: str | None):
-        model = self._normalize_clone_model(model_name)
-        if model == "higgs-tts-3-q4_k_m":
-            return self.tts_higgs_native, "Higgs TTS 3 Q4_K_M (Native CUDA)"
-        if model == "higgs-tts-3":
-            return self.tts_higgs, "Higgs TTS 3"
-        if model == "moss-tts-1.5":
-            return self.tts_moss, "MOSS-TTS v1.5"
-        if model == "voxcpm-2":
-            return self.tts_voxcpm, "VoxCPM 2"
-        return self.tts_omnivoice, "OmniVoice"
+        canonical = self._normalize_clone_model(model_name)
+        if canonical.startswith("remote::"):
+            endpoint = self._remote_endpoint_for_model(canonical, "TTS")
+            if endpoint is None:
+                raise ValueError(f"Unknown remote TTS endpoint for {canonical!r}")
+            return RemoteTtsAdapter(endpoint), endpoint.name
+        manifest = self.tts_manifest_catalog.resolve(canonical)
+        adapter = self._manifest_tts_adapters.get(manifest.model_id)
+        if adapter is None:
+            adapter = ManifestTtsAdapter(
+                manifest,
+                profiles_root=self.profiles_dir,
+                catalog=self.tts_manifest_catalog,
+            )
+            self._manifest_tts_adapters[manifest.model_id] = adapter
+        return adapter, manifest.display_name
 
     def _active_tts_model(self) -> str:
-        active = self.model_manager.get_active_slots().get("TTS")
-        selected = active or self._selected_tts_model
-        return selected if str(selected).startswith("remote::") else self._normalize_clone_model(selected)
-
-    def _register_external_tts_if_needed(self, canonical: str) -> None:
-        if self.registry.get_entry(canonical):
-            return
-        names = {
-            "moss-tts-1.5": ("MOSS-TTS v1.5", "openmoss", "OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5"),
-            "voxcpm-2": ("VoxCPM 2", "openbmb", "openbmb/VoxCPM2"),
-        }
-        if canonical not in names:
-            return
-        name, provider, upstream = names[canonical]
-        self.registry.register(
-            ModelRegistryEntry(
-                model_id=canonical,
-                name=name,
-                family=canonical,
-                provider=provider,
-                capability=ModelCapability.TTS,
-                upstream_id=upstream,
-                revision="main",
-                supported_source_languages=[],
-                supported_target_languages=["*"],
-                supports_english=True,
-                supports_romanian=True,
-                streaming_support=True,
-                voice_cloning_support=True,
-                cross_lingual_voice_cloning=True,
-                required_runtime="local_worker",
-                min_runtime_version="",
-                quantization_options=[],
-                estimated_download_size_gb=0.0,
-                installed_size_gb=None,
-                expected_vram_tiers={},
-                expected_ram_gb=None,
-                license="verify",
-                commercial_use="verify",
-                redistribution="verify",
-                trust_level="OFFICIAL_VERIFIED",
-                recommendation_state=RecommendationState.CANDIDATE,
-            )
-        )
+        selected = self.model_manager.get_active_slots().get("TTS") or self._selected_tts_model
+        return self._normalize_clone_model(selected)
 
     async def _mark_default_runtime_models(self) -> None:
         defaults = [
@@ -348,17 +324,9 @@ class LiveTranslatorApp:
         if not path.exists():
             return {}
         try:
-            meta = json.loads(path.read_text(encoding="utf-8"))
+            return json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             return {}
-        # Migrate old model-bound profiles to universal reference profiles.
-        if "clone_model" in meta:
-            meta.setdefault("last_preview_model", self._normalize_clone_model(meta.pop("clone_model")))
-            try:
-                path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
-            except Exception:
-                pass
-        return meta
 
     @staticmethod
     def _safe_profile_id(name: str) -> str:
@@ -440,23 +408,16 @@ class LiveTranslatorApp:
                 return self.model_manager.set_active_model(cap, canonical)
 
             if cap == "TTS":
-                normalized = self._normalize_clone_model(canonical)
-                engine, _ = self._tts_engine_for_model(normalized)
+                canonical = self._normalize_clone_model(canonical)
+                engine, _ = self._tts_engine_for_model(canonical)
                 await engine.load()
-                if normalized == "omnivoice":
-                    await self.tts_omnivoice._ensure_omnivoice_loaded()
-                    canonical = "omnivoice-stock"
-                else:
-                    healthy = await engine.health_check() if hasattr(engine, "health_check") else True
-                    if not healthy:
-                        raise RuntimeError(f"{normalized} backend is not reachable")
-                    canonical = normalized
-                    self._register_external_tts_if_needed(canonical)
+                if not await engine.health_check():
+                    raise RuntimeError(f"{canonical} TTS plugin is not healthy after load")
                 if self.registry.get_entry(canonical):
                     self.registry.update_installation_status(canonical, InstallationStatus.INSTALLED)
                 canonical = self.model_manager.set_active_model("TTS", canonical)
                 await self.orchestrator.set_tts_adapter(engine)
-                self._selected_tts_model = self._normalize_clone_model(canonical)
+                self._selected_tts_model = canonical
                 return canonical
 
             if cap == "TRANSLATION":
@@ -499,8 +460,6 @@ class LiveTranslatorApp:
 
             raise ValueError(f"Unsupported capability: {cap}")
         except Exception:
-            # Persisted state is changed only after a candidate loads, but restore
-            # a prior registry selection if a later pipeline rebind fails.
             if previous:
                 try:
                     self.model_manager.set_active_model(cap, previous)
@@ -515,10 +474,7 @@ class LiveTranslatorApp:
 
         async def api_status(request):
             slots = self.model_manager.get_active_slots()
-            slots["TTS"] = self.model_manager.ui_model_id(
-                self.model_manager.canonical_model_id(self._active_tts_model())
-                if self._active_tts_model() == "omnivoice" else self._active_tts_model()
-            )
+            slots["TTS"] = self.model_manager.ui_model_id(self._active_tts_model())
             return web.json_response({
                 "status": "online",
                 "mode": self.orchestrator.mode.value,
@@ -657,7 +613,6 @@ class LiveTranslatorApp:
             return web.json_response(snapshot)
 
         async def resource_stream_loop():
-            """Push one shared resource sample to all subscribed Studio clients."""
             try:
                 while self._resource_ws_clients:
                     snapshot = await asyncio.to_thread(self.resource_monitor.snapshot)
@@ -827,7 +782,7 @@ class LiveTranslatorApp:
                         "profile_id": directory.name,
                         "profile_name": directory.name.replace("_", " "),
                         "pitch_hz": 130.0,
-                        "status": "Legacy profile",
+                        "status": "Reference profile",
                     }
                 meta["profile_id"] = directory.name
                 meta["has_audio"] = wav.exists()
@@ -899,6 +854,13 @@ class LiveTranslatorApp:
             preview_lang = str(data.get("preview_lang", "ro")).lower()
             preview_text = str(data.get("preview_text", "Vântul de primăvară adie lin peste dealurile înverzite ale Carpaților.")).strip()
             preview_model = self._normalize_clone_model(data.get("clone_model") or self._active_tts_model())
+            manifest = self.tts_manifest_catalog.resolve_optional(preview_model)
+            if manifest is not None and manifest.transcript_required and not transcript:
+                return web.json_response({
+                    "success": False,
+                    "error": f"{manifest.display_name} requires the exact reference transcript for voice cloning",
+                    "preview_model": preview_model,
+                }, status=422)
             engine, engine_name = self._tts_engine_for_model(preview_model)
             meta = {
                 "profile_id": profile_id,
@@ -1002,11 +964,6 @@ class LiveTranslatorApp:
             data = await request.post()
             raw_name = str(data.get("name", "My Voice Profile")).strip() or "My Voice Profile"
             transcript = str(data.get("transcript", "")).strip()
-            if not transcript:
-                return web.json_response({
-                    "success": False,
-                    "error": "A transcript of uploaded reference audio is required for an engine-agnostic voice profile. Use Voice Profile Studio or supply transcript.",
-                }, status=400)
             audio_file = data.get("audio")
             if not audio_file:
                 return web.json_response({"success": False, "error": "No reference audio supplied"}, status=400)
@@ -1082,16 +1039,17 @@ class LiveTranslatorApp:
             ref_text = ref_text_path.read_text(encoding="utf-8").strip() if ref_text_path.exists() else ""
 
             selected_model = self._normalize_clone_model(data.get("clone_model") or self._active_tts_model())
+            manifest = self.tts_manifest_catalog.resolve_optional(selected_model)
             engine, engine_name = self._tts_engine_for_model(selected_model)
-            if not ref_text and selected_model != "omnivoice":
+            if manifest is not None and manifest.transcript_required and not ref_text:
                 return web.json_response({
-                    "error": "This reference profile has no transcript; the selected TTS backend requires one",
+                    "error": f"{manifest.display_name} requires the exact reference transcript for voice cloning",
                     "engine": engine_name,
                 }, status=422)
             preview_cache_path = None
             if bool(data.get("preview", False)):
                 cache_material = json.dumps({
-                    "version": 3,
+                    "version": 4,
                     "model": selected_model,
                     "target": target,
                     "text": text,
@@ -1271,11 +1229,9 @@ class LiveTranslatorApp:
 
     async def start(self) -> None:
         logger.info("Initializing VoxPassport daemon")
-        self.model_manager.ensure_native_higgs_registered()
         saved_tts = self.model_manager.get_active_slots().get("TTS") or self._selected_tts_model
-        persisted_tts = saved_tts if str(saved_tts).startswith("remote::") else self._normalize_clone_model(saved_tts)
-        remote_tts = self._remote_endpoint_for_model(persisted_tts, "TTS") if str(persisted_tts).startswith("remote::") else None
-        persisted_tts_engine = RemoteTtsAdapter(remote_tts) if remote_tts else self._tts_engine_for_model(persisted_tts)[0]
+        persisted_tts = self._normalize_clone_model(saved_tts)
+        persisted_tts_engine = self._tts_engine_for_model(persisted_tts)[0]
         self.orchestrator.tts_adapter_ro = persisted_tts_engine
         self.orchestrator.tts_adapter_en = persisted_tts_engine
         self._selected_tts_model = persisted_tts
@@ -1292,9 +1248,6 @@ class LiveTranslatorApp:
             self.orchestrator.mt_adapter = self.mt
         logger.info("Restored persisted TTS engine before pipeline startup: %s", persisted_tts)
         await self.caption_server.start()
-        # Bring up the control plane before heavyweight local models finish
-        # loading. This keeps Model Settings reachable for users who need to
-        # move one or more capabilities to a cloud worker because of VRAM.
         await self._setup_http_server()
         if self._runtime_residency == "ready":
             await self.orchestrator.start()

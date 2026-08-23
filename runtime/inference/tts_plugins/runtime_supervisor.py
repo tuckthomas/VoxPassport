@@ -167,7 +167,7 @@ class TtsRuntimeSupervisor:
             str(self.project_root / "runtime" / "workers" / "tts_host" / "server.py"),
             "--host", "127.0.0.1",
             "--port", str(port),
-            "--manifest-dir", str(self.project_root / "runtime" / "tts_manifests"),
+            "--manifest-dir", str(self.manifest_catalog.manifest_dir.resolve()),
         ]
         try:
             process = subprocess.Popen(

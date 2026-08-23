@@ -10,9 +10,11 @@ from runtime.inference.tts_plugins.manifest import (
     TtsManifestCatalog,
     TtsManifestError,
 )
+from runtime.workers.tts_host import server as tts_host_server
 from runtime.workers.tts_host.driver_loader import load_driver_class
 from runtime.workers.tts_host.protocol import TtsDriver, TtsDriverRequest
-from runtime.workers.tts_host.server import TtsDriverController
+
+PROXY_ENTRYPOINT = "runtime.workers.tts_host.drivers.openai_proxy:OpenAiSpeechProxyDriver"
 
 
 class FakeDriver(TtsDriver):
@@ -47,7 +49,7 @@ def _manifest_dir() -> Path:
     return _repo_root() / "runtime" / "tts_manifests"
 
 
-def _fake_manifest_dict(entrypoint: str) -> dict:
+def _fake_manifest_dict(entrypoint: str = PROXY_ENTRYPOINT) -> dict:
     return {
         "schema_version": 1,
         "model_id": "future-tts",
@@ -109,7 +111,7 @@ def test_synthetic_new_manifest_routes_without_daemon_model_branch(tmp_path: Pat
     manifest_dir = tmp_path / "manifests"
     manifest_dir.mkdir()
     path = manifest_dir / "future.json"
-    path.write_text(json.dumps(_fake_manifest_dict(f"{__name__}:FakeDriver")), encoding="utf-8")
+    path.write_text(json.dumps(_fake_manifest_dict()), encoding="utf-8")
     catalog = TtsManifestCatalog(manifest_dir).load()
     manifest = catalog.resolve("future")
     adapter = ManifestTtsAdapter(manifest, profiles_root=tmp_path, catalog=catalog)
@@ -124,7 +126,7 @@ def test_synthetic_new_manifest_routes_without_daemon_model_branch(tmp_path: Pat
 
 
 def test_manifest_validation_rejects_missing_driver(tmp_path: Path):
-    raw = _fake_manifest_dict(f"{__name__}:FakeDriver")
+    raw = _fake_manifest_dict()
     raw.pop("driver")
     path = tmp_path / "bad.json"
     path.write_text(json.dumps(raw), encoding="utf-8")
@@ -132,14 +134,15 @@ def test_manifest_validation_rejects_missing_driver(tmp_path: Path):
         TtsManifest.load(path)
 
 
-def test_generic_controller_load_stream_wav_capabilities_and_unload(tmp_path: Path):
+def test_generic_controller_load_stream_wav_capabilities_and_unload(tmp_path: Path, monkeypatch):
     manifest_dir = tmp_path / "manifests"
     manifest_dir.mkdir()
     (manifest_dir / "future.json").write_text(
-        json.dumps(_fake_manifest_dict(f"{__name__}:FakeDriver")),
+        json.dumps(_fake_manifest_dict()),
         encoding="utf-8",
     )
-    controller = TtsDriverController(TtsManifestCatalog(manifest_dir).load())
+    monkeypatch.setattr(tts_host_server, "create_driver", lambda manifest: FakeDriver(manifest))
+    controller = tts_host_server.TtsDriverController(TtsManifestCatalog(manifest_dir).load())
 
     async def exercise():
         capabilities = await controller.load("future")

@@ -17,17 +17,8 @@ if not exist ".venv\Scripts\python.exe" (
     exit /b 1
 )
 
-echo Starting primary TTS plugin host on http://127.0.0.1:8098...
-start /b .venv\Scripts\python.exe runtime\workers\tts_host\server.py --port 8098
-
-if exist ".venv-xtts\Scripts\python.exe" (
-    echo Starting XTTS-capable TTS plugin host on http://127.0.0.1:8099...
-    start /b .venv-xtts\Scripts\python.exe runtime\workers\tts_host\server.py --port 8099
-) else (
-    echo XTTS Romanian is not installed. Run install_xtts_worker.bat to enable its isolated plugin host.
-)
-
 echo Starting Unified Inference Daemon on ws://127.0.0.1:8765...
+echo Local TTS workers will be launched on demand by the runtime-profile supervisor.
 start /b .venv\Scripts\python.exe runtime\inference\server\main.py
 
 echo Opening Desktop Caption Overlay...

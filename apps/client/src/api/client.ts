@@ -1,4 +1,6 @@
 import type {
+  DesktopAudioDevicesResponse,
+  DesktopAudioStatus,
   LanguageConfiguration,
   ModelEntry,
   RuntimeBootstrap,
@@ -36,6 +38,14 @@ export class VoxPassportApi {
 
   status(): Promise<RuntimeStatus> {
     return this.request('/api/status');
+  }
+
+  audioStatus(): Promise<DesktopAudioStatus> {
+    return this.request('/api/audio/status');
+  }
+
+  audioDevices(): Promise<DesktopAudioDevicesResponse> {
+    return this.request('/api/audio/devices');
   }
 
   languages(): Promise<LanguageConfiguration> {

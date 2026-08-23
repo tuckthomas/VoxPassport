@@ -1,13 +1,14 @@
-# TTS Plugin and Runtime-Profile Architecture
+# TTS Plugin, Backend-Runtime, and Runtime-Profile Architecture
 
 All local VoxPassport TTS models use one application architecture. There are no model-specific application adapters, fixed model worker/backend ports, unmanaged localhost GPU backends, or native/in-process exceptions.
 
-The boundary is intentionally split into four concerns:
+The boundary is split into five concerns:
 
-1. **`ManifestTtsAdapter`** normalizes the application-side TTS contract and `voxpassport.tts.v1` transport.
-2. **TTS manifests** describe the model, capabilities, driver, logical `runtime_profile`, and any declarative local-backend launch contract it requires.
-3. **`TtsRuntimeSupervisor`** owns local process topology: interpreter selection, worker/backend startup, dynamic localhost endpoints, health checks, model residency, crash recovery, and idle shutdown.
-4. **`TtsDriver` implementations** normalize model libraries, DLLs, or backend protocols behind the common worker protocol.
+1. **`ManifestTtsAdapter`** — the single application-side TTS adapter and `voxpassport.tts.v1` client.
+2. **TTS model manifests** — model identity, capabilities, driver settings, worker `runtime_profile`, and optional `backend_runtime` + model-specific `backend_args`.
+3. **Backend runtime definitions** — reusable server-family lifecycle metadata: dependency profile, launch template/family override, health endpoint, remote override policy, and accepted arguments.
+4. **`TtsRuntimeSupervisor`** — process topology, dynamic endpoints, health, residency, hot swap, rollback, crash recovery, and idle shutdown.
+5. **`TtsDriver` implementations** — normalize model libraries, DLLs, or backend protocols behind the common worker protocol.
 
 The main daemon and orchestrator must not gain model-name branches when another local TTS model is added.
 
@@ -17,26 +18,34 @@ The main daemon and orchestrator must not gain model-name branches when another 
 TTS model manifest
        │
        ├── model identity / capabilities
-       ├── driver entrypoint + options
+       ├── driver entrypoint + model-specific options
        ├── runtime_profile
-       └── optional backend_process contract
+       ├── backend_runtime (optional)
+       └── backend_args (optional)
                 │
                 ▼
         TtsRuntimeSupervisor
                 │
-      ┌─────────┴───────────────┐
-      ▼                         ▼
- runtime-profile worker   managed proxy backend
- ephemeral port           ephemeral port, if needed
-      │                         │
-      ▼                         │
-   TtsDriver ───────────────────┘
-      │
+      ┌─────────┴────────────────────┐
+      ▼                              ▼
+ generic worker profile       BackendRuntimeCatalog
+ ephemeral worker port              │
+      │                              ├── backend profile
+      │                              ├── reusable launch template
+      │                              ├── argument contract
+      │                              ├── health policy
+      │                              └── remote override policy
+      │                                      │
+      ▼                                      ▼
+   TtsDriver ◄──────────────── managed backend process
+      │                              ephemeral port
       ▼
  model / DLL / explicit remote backend
 ```
 
-A model manifest answers **what runtime family and backend lifecycle does this driver require?** The supervisor answers **where are those local processes currently running?** Ephemeral endpoints are operational state and are never persisted as model identity.
+A **model manifest** answers what the model is and which reusable pieces it needs. A **backend runtime** answers how one server family is launched and supervised. A **runtime profile** answers which dependency-compatible Python/toolchain environment executes a worker or backend. The **supervisor** decides where and when the processes run.
+
+Ephemeral endpoints are operational state and are never persisted as model identity.
 
 ## Directory layout
 
@@ -47,6 +56,7 @@ runtime/
       manifest_tts_adapter.py
       profile_reference.py
     tts_plugins/
+      backend_runtime.py
       manifest.py
       registry_bridge.py
       runtime_profiles.py
@@ -57,8 +67,12 @@ runtime/
     runtime_profiles.json
     coqui-xtts/
       pyproject.toml
-      uv.lock                # generated/updated by uv sync in a connected dev environment
+      uv.lock                # generated/verified in connected dev environment
       .venv/                 # ignored
+  tts_backend_runtimes/
+    higgs-openai-server.json
+    moss-openai-server.json
+    voxcpm-openai-server.json
   tts_manifests/
     omnivoice-stock.json
     higgs-tts-3.json
@@ -66,30 +80,28 @@ runtime/
     moss-tts-1.5.json
     voxcpm-2.json
     xtts-v2-romanian-v2.json
-  workers/
-    tts_host/
-      server.py
-      protocol.py
-      driver_loader.py
-      requirements-xtts.txt  # fallback when uv is unavailable
-      drivers/
-        omnivoice.py
-        higgs_native.py
-        openai_proxy.py
-        xtts_romanian.py
-        xtts_runtime.py
-        xtts_common.py
+  workers/tts_host/
+    server.py
+    protocol.py
+    driver_loader.py
+    drivers/
+      omnivoice.py
+      higgs_native.py
+      openai_proxy.py
+      xtts_romanian.py
+      xtts_runtime.py
+      xtts_common.py
 ```
 
-## Manifest schema
+## TTS model manifest schema
 
-Local TTS manifests use schema version 2. A manifest contains a logical runtime profile and must **not** contain a VoxPassport worker URL or fixed worker port.
+Local TTS model manifests use schema version 3. They must not own process topology.
 
-Example:
+A direct-worker model can be as simple as:
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "model_id": "xtts-v2-romanian-v2",
   "runtime_profile": "coqui-xtts",
   "driver": {
@@ -109,94 +121,140 @@ Example:
 }
 ```
 
-`TtsManifest` rejects a legacy `worker` section. This prevents deployment topology from leaking back into model metadata.
-
-### Proxy backend declarations
-
-A proxy driver that needs a **local** server declares a launch contract rather than a localhost URL:
+A model served by an existing backend family references that reusable backend runtime:
 
 ```json
 {
+  "schema_version": 3,
+  "model_id": "moss-tts-1.5",
+  "runtime_profile": "core",
+  "backend_runtime": "moss-openai-server",
+  "backend_args": {
+    "checkpoint": "OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5"
+  },
   "driver": {
     "entrypoint": "runtime.workers.tts_host.drivers.openai_proxy:OpenAiSpeechProxyDriver",
     "options": {
-      "backend_url_env": "VOXPASSPORT_EXAMPLE_TTS_URL",
-      "backend_process": {
-        "command_env": "VOXPASSPORT_EXAMPLE_TTS_COMMAND",
-        "startup_timeout_seconds": 120
-      },
-      "health_path": "/v1/models",
       "speech_path": "/v1/audio/speech"
     }
   }
 }
 ```
 
-The local command is resolved by the supervisor, which allocates `{host}` and `{port}` dynamically. Command arrays may also use `{project_root}`, `{model_id}`, and `{python}` placeholders. The resulting endpoint is injected into the worker only for that runtime instance.
+Model manifests reject legacy `worker`, `driver.options.backend_process`, `driver.options.backend_url`, and `driver.options.backend_url_env` topology.
 
-An explicit `backend_url_env` may point to a **non-loopback remote endpoint**. That is allowed because the remote service cannot occupy the local GPU. An unmanaged `localhost`/`127.0.0.1` proxy URL is rejected: a local proxy backend must be supervisor-owned.
+## Reusable backend runtimes
 
-Full Higgs, MOSS, and VoxCPM use this contract. Their manifests no longer contain fixed `8095`/`8096`/`8097` addresses.
+Backend runtime definitions live under `runtime/tts_backend_runtimes/` and use schema version 1.
+
+Example family definition:
+
+```json
+{
+  "schema_version": 1,
+  "backend_runtime_id": "moss-openai-server",
+  "runtime_profile": "core",
+  "launch": {
+    "command_env": "VOXPASSPORT_TTS_BACKEND_MOSS_COMMAND"
+  },
+  "remote_url_env": "VOXPASSPORT_TTS_BACKEND_MOSS_URL",
+  "health_path": "/v1/models",
+  "startup_timeout_seconds": 120,
+  "endpoint_driver_option": "backend_url",
+  "arguments": {
+    "checkpoint": {
+      "required": true
+    }
+  }
+}
+```
+
+The command environment is **backend-family configuration**, not model integration. Configure it once for a server implementation. Any number of model manifests can then reuse that backend runtime and supply only `backend_args` such as another checkpoint.
+
+Backend runtime command arrays support these built-in placeholders:
+
+- `{host}`
+- `{port}`
+- `{project_root}`
+- `{model_id}`
+- `{backend_runtime_id}`
+- `{python}`
+
+They also support every declared `backend_args` key, such as `{checkpoint}`.
+
+A backend runtime can provide a static reusable command directly instead of `command_env` when the repository has a canonical launch command. Family-level environment overrides exist for deployments where the upstream server command is installation-specific.
+
+A `remote_url_env` may point only to an explicit **non-loopback remote service**. A loopback override is rejected because localhost GPU processes must remain supervisor-owned.
+
+## What “hot-swappable” means
+
+The intended integration rule is:
+
+```text
+New model on an already-supported backend family
+    -> model manifest only
+
+New dependency family
+    -> runtime profile
+
+New backend server implementation
+    -> one reusable backend runtime definition
+
+New backend/model protocol semantics
+    -> one reusable TtsDriver if an existing driver cannot express them
+
+New application adapter / daemon branch / supervisor model-name branch
+    -> almost never
+```
+
+For example, adding another MOSS checkpoint does **not** require another `VOXPASSPORT_<MODEL>_TTS_COMMAND`. It references `moss-openai-server` and supplies a different `backend_args.checkpoint`.
 
 ## Runtime profiles
 
-Runtime profiles represent **dependency-compatible families**, not individual models.
-
-Current profiles:
+Runtime profiles represent dependency-compatible families, not individual models.
 
 | Profile | Environment | Intended models |
 | --- | --- | --- |
-| `core` | primary `.venv` | OmniVoice, native Higgs, proxy drivers, and other TTS drivers compatible with the primary stack |
+| `core` | primary `.venv` | compatible direct drivers and current proxy/backend families |
 | `coqui-xtts` | `runtime/profiles/coqui-xtts/.venv` | XTTS/Coqui |
 
-A new model should reuse an existing profile whenever its dependency graph is compatible. Create a new profile only when there is a genuine conflict or isolation requirement, such as a different Python version, incompatible Transformers/PyTorch constraints, native-library requirements, or deliberate fault isolation.
+A backend runtime can select a runtime profile independently from the generic worker model manifest. This allows a future backend server to use an incompatible Python/toolchain environment without forcing its proxy driver or another TTS model into that same environment.
 
-Do **not** create one environment per model by default.
+Do not create one environment per model by default.
 
 ## Why XTTS is isolated
 
-The main VoxPassport environment currently follows Hugging Face Transformers from Git because the ASR stack can require unreleased support. Coqui XTTS constrains Transformers to the range it supports. Combining those dependency graphs would let an unrelated ASR upgrade break XTTS or force the rest of VoxPassport to remain pinned to XTTS-compatible dependencies.
+The main VoxPassport environment can follow a different Transformers/PyTorch lifecycle from Coqui XTTS. Keeping `coqui-xtts` isolated prevents unrelated ASR/TTS dependency changes from pinning or breaking each other. The isolation is a dependency boundary, not a special application architecture.
 
-The separate runtime profile is therefore intentional. What was removed is the old special-case topology where XTTS implicitly meant a dedicated fixed port.
+## Supervisor responsibilities
 
-## Runtime supervisor responsibilities
+`TtsRuntimeSupervisor` owns the local TTS lifecycle:
 
-`TtsRuntimeSupervisor` owns the complete local TTS process lifecycle:
+- resolve the model manifest and worker runtime profile;
+- validate/resolve an optional backend runtime and its model arguments;
+- resolve the backend runtime's own dependency profile when applicable;
+- start the generic worker only when needed;
+- bind worker/backend processes to dynamic `127.0.0.1` ports;
+- build backend launch commands from the reusable runtime template plus `backend_args`;
+- health-check workers and managed backends;
+- inject only the ephemeral endpoint into the worker driver at load time;
+- keep one active supervised local TTS model by default on constrained hardware;
+- reuse a worker for same-profile model switches while unloading the old driver;
+- terminate the previous managed backend before replacement activation;
+- terminate incompatible previous-profile workers before cross-profile activation;
+- roll back to the previous model/backend when replacement activation fails;
+- recycle a backend whose PID is alive but health endpoint is not;
+- retry a worker once if it dies before first audio;
+- never replay automatically after partial audio was emitted;
+- terminate idle and process-exit children safely.
 
-- resolve `manifest.runtime_profile`;
-- find the configured interpreter for that profile;
-- start the generic worker host only when the model is actually needed;
-- bind the worker to an available `127.0.0.1` port selected at runtime;
-- use the supervisor's actual manifest catalog when starting workers;
-- start a declared local proxy backend on its own dynamic localhost port;
-- wait for worker and managed-backend health;
-- inject dynamic backend endpoints as runtime-only driver options;
-- request `/load` for the target model and validate post-load health;
-- maintain one active local TTS model across runtime profiles on constrained hardware;
-- reuse one worker when switching between models in the same compatible profile;
-- unload the previous driver and terminate its managed backend before activating the replacement;
-- terminate complete managed backend process trees rather than only the top-level launcher;
-- roll back to the previous manifest/backend when replacement activation fails;
-- restart crashed workers/backends and retry once when failure occurs before any audio has been emitted;
-- unload released models and shut idle workers down after the profile's timeout;
-- terminate owned worker/backend processes during process exit as a final cleanup safeguard.
+The supervisor remains model-agnostic. Its source must not contain XTTS/Higgs/MOSS/OmniVoice/VoxCPM routing branches.
 
-The supervisor is model-agnostic. Its source must not contain names such as XTTS, Higgs, MOSS, OmniVoice, or VoxCPM.
+## Worker boundary
 
-## True on-demand startup
+The generic worker deliberately **does not load the backend-runtime catalog**. Backend runtime metadata is deployment state owned by the supervisor. The supervisor validates it before launch and passes only runtime driver overrides—normally a dynamically assigned backend URL—to the worker.
 
-`ManifestTtsAdapter.load()` is deliberately cheap. It marks the application adapter ready but does not spawn a TTS process.
-
-The physical runtime is started by the supervisor only when:
-
-- an explicit TTS activation performs a health check; or
-- synthesis actually begins.
-
-Therefore a `CAPTIONS_ONLY` session can start the normal inference pipeline without launching any TTS worker or managed proxy backend.
-
-## Stable worker protocol
-
-Every supervised host exposes the same local protocol:
+Every supervised worker exposes:
 
 ```text
 GET  /health
@@ -207,71 +265,11 @@ POST /v1/audio/speech
 GET  /metrics
 ```
 
-`POST /load` also accepts a supervisor-only `driver_options_override` object. It exists for ephemeral deployment data such as a dynamically assigned managed-backend URL. Those options are retained for the loaded driver but are never written back to the manifest.
-
-A synthesis request remains model-independent:
-
-```json
-{
-  "model": "xtts-v2-romanian-v2",
-  "input": "Bună ziua.",
-  "language": "ro",
-  "response_format": "pcm",
-  "ref_audio_path": "C:/.../reference.wav",
-  "ref_text": "optional transcript",
-  "target_conditioning_path": "C:/.../conditioning/ro.wav"
-}
-```
-
-Only fields relevant to the selected profile/model are included. Streaming responses are mono signed 16-bit little-endian PCM with sample-rate/layout headers. WAV output is used for preview/export flows.
-
-## Adding a new TTS model
-
-### If an existing driver already fits
-
-Add a manifest, choose an existing runtime profile, and configure the driver. No application adapter, daemon branch, fixed port, or JavaScript model-routing case should be added.
-
-For an OpenAI-style **local** TTS service, reuse the proxy driver and declare how the supervisor starts it:
-
-```json
-"driver": {
-  "entrypoint": "runtime.workers.tts_host.drivers.openai_proxy:OpenAiSpeechProxyDriver",
-  "options": {
-    "backend_url_env": "VOXPASSPORT_EXAMPLE_TTS_URL",
-    "backend_process": {
-      "command_env": "VOXPASSPORT_EXAMPLE_TTS_COMMAND"
-    },
-    "health_path": "/v1/models",
-    "speech_path": "/v1/audio/speech"
-  }
-}
-```
-
-If `VOXPASSPORT_EXAMPLE_TTS_URL` is set to a non-loopback endpoint, the explicit remote service is used. Otherwise `VOXPASSPORT_EXAMPLE_TTS_COMMAND` must supply the local launch command, preferably as a JSON string array. A loopback URL without a supervisor launch contract is invalid.
-
-### If inference semantics are genuinely different
-
-Add a small worker-side `TtsDriver`:
-
-```python
-class TtsDriver:
-    def load(self) -> None: ...
-    def unload(self) -> None: ...
-    def synthesize_pcm(self, request) -> Iterator[bytes]: ...
-    def capabilities(self) -> dict: ...
-    def metrics(self) -> dict: ...
-    def health_check(self) -> bool: ...
-```
-
-The main application still sees only `ManifestTtsAdapter`.
-
-### If dependencies are incompatible
-
-Add a runtime profile rather than a model-specific worker architecture. The profile declares its interpreter/provisioning metadata; the manifest references the profile by ID. A backend launch command can point at another compatible interpreter/toolchain when the backend itself has distinct requirements.
+`POST /load` accepts a supervisor-only `driver_options_override` object for ephemeral deployment data. It is never persisted back into the manifest.
 
 ## Runtime profile provisioning
 
-Use the generic management command:
+Use:
 
 ```bat
 .venv\Scripts\python.exe scripts\manage_runtime_profile.py status coqui-xtts
@@ -279,39 +277,13 @@ Use the generic management command:
 .venv\Scripts\python.exe scripts\manage_runtime_profile.py repair coqui-xtts
 ```
 
-`coqui-xtts` is an independent uv project at `runtime/profiles/coqui-xtts/pyproject.toml`. When `uv` is available, the provisioner runs `uv sync` for that project, producing its own `.venv` and `uv.lock`. It is intentionally **not** a member of a shared uv workspace because incompatible runtime families need independent dependency resolution.
+`coqui-xtts` is an independent uv project. Incompatible runtime families should remain independent projects rather than one shared uv workspace.
 
-When uv is unavailable, the same profile metadata contains declarative fallback pip installation steps. `runtime/workers/tts_host/requirements-xtts.txt` exists only for that fallback.
+## GPU residency and recovery
 
-The initial `uv.lock` must be generated/verified in an environment with package-index access. It should then be committed for reproducible installs.
+A local proxy backend is part of its model's supervised residency. On switch VoxPassport unloads the prior driver, terminates its managed backend process tree, terminates an incompatible worker profile if required, then starts and health-checks the replacement before committing active state.
 
-## GPU residency and hot swap
-
-The supervisor enforces one active supervised local TTS model across profiles. A local proxy backend is part of that model's residency, not an exception.
-
-On a switch, VoxPassport:
-
-1. drains/unloads the selected worker-side driver;
-2. terminates the prior model's managed backend process tree, if any;
-3. terminates an incompatible runtime-profile worker when required;
-4. starts the replacement backend/worker and health-checks them;
-5. commits the new active model only after successful load.
-
-This avoids simultaneous local TTS residency on an 8 GB-class GPU. Explicit non-loopback remote backends are outside local GPU residency because they execute elsewhere.
-
-`ManifestTtsAdapter` still enters VoxPassport's heavyweight GPU coordinator around each actual local synthesis request, so ASR and local TTS do not intentionally launch heavyweight GPU work concurrently.
-
-Same-profile model changes reuse the existing worker process but unload the previous driver before loading the next one.
-
-A committed synthesis request remains protected by the worker's runtime lock, so a same-host model switch waits for the utterance boundary.
-
-## Crash recovery semantics
-
-A worker or managed backend that dies while active is detected before reuse and recreated.
-
-If the worker disconnects **before any output audio has been emitted**, the generic adapter asks the supervisor to recreate the model's supervised processes and retries the utterance once. If audio was already emitted, VoxPassport does not replay the sentence automatically because doing so could duplicate audible speech.
-
-Activation failure is transactional: the supervisor attempts to restore the previously active TTS manifest, including relaunching its managed backend when necessary, rather than leaving the local TTS slot in a half-switched state.
+Explicit non-loopback remote backends execute elsewhere and therefore are not local GPU residency.
 
 ## Voice profiles
 
@@ -323,38 +295,32 @@ data/voice_profiles/<profile>/reference.wav
                               conditioning/ro.wav # optional derived target conditioning
 ```
 
-Transcript requirements come from the selected manifest. Driver-specific conditioning is derived from these canonical assets and must not replace `reference.wav`.
+Transcript requirements come from the selected manifest. Driver-specific conditioning must not replace `reference.wav`.
 
 ## Diagnostics
 
-`/api/resources` includes a `tts_runtime` section with:
+`/api/resources` reports:
 
-- active runtime profile;
-- active local TTS model;
-- per-profile installation/running state, PID, endpoint, loaded model, idle timeout, and worker health;
-- managed proxy backend model ID, PID, dynamic endpoint, health path, health result, unexpected-exit state, and exit code.
+- active worker runtime profile/model;
+- worker process, PID, dynamic endpoint, health, and loaded model;
+- managed backend model ID;
+- **backend runtime ID and backend runtime profile**;
+- backend PID, dynamic endpoint, health path/state, and unexpected exit.
 
-Model Settings marks the runtime **broken** if either the active generic worker or its managed proxy backend exits/becomes unreachable.
-
-Ephemeral endpoints are diagnostic state only; they are not stored in model manifests or registry identity.
-
-Worker stdout/stderr is written under `data/logs/tts-worker-<profile>.log`. Managed backend output is written under `data/logs/tts-backend-<model-id>.log`.
+Model Settings marks the active runtime broken if either supervised layer fails.
 
 ## Validation
 
-Runtime Integrity covers both architecture invariants and real subprocess lifecycle behavior. Tests verify:
+Runtime Integrity verifies:
 
-- schema-v2 manifests contain `runtime_profile` and no worker topology;
-- all local TTS models use the single application adapter;
-- runtime profiles group dependency-compatible models;
-- worker and managed-backend ports are supervisor-owned and dynamic;
-- logical adapter load does not spawn unused TTS processes;
-- models in one profile reuse one worker process;
-- cross-profile switching terminates the incompatible previous worker;
-- managed proxy backends are started, health-checked, endpoint-injected, and terminated on switch/release;
-- unmanaged loopback proxy backends are rejected;
-- released workers stop after their idle timeout;
-- worker death during activation rolls back the previous model;
-- worker death before first audio is restarted and retried;
-- the supervisor contains no model-specific dispatch logic;
-- the old fixed-host launcher and XTTS-specific installer remain removed.
+- schema-v3 model manifests contain no model-owned process topology;
+- reusable backend-runtime definitions validate independently;
+- proxy model manifests reference backend runtime IDs;
+- two different synthetic model manifests can use one backend runtime with different checkpoint arguments;
+- required and unknown backend args fail validation before synthesis;
+- dynamic worker/backend ports remain supervisor-owned;
+- same-profile worker reuse and cross-profile eviction;
+- managed backend termination and unhealthy-backend recycling;
+- rollback and pre-audio crash recovery;
+- no model-name dispatch returns to the supervisor/daemon;
+- the old concrete application adapters and fixed-host architecture remain removed.

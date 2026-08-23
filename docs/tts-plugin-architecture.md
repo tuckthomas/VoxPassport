@@ -4,7 +4,7 @@ All local VoxPassport TTS models use one architecture. There are no model-specif
 
 1. **`ManifestTtsAdapter` normalizes transport/protocol.** The main inference daemon talks to the stable `voxpassport.tts.v1` HTTP protocol.
 2. **`TtsDriver` implementations normalize model libraries/backends.** Driver code contains the smallest amount of model-specific behavior required to produce streaming PCM, load/unload resources, expose capabilities, and report metrics.
-3. **JSON manifests describe models.** Manifests declare identity, aliases, languages, cloning support, worker endpoint, audio format, driver entrypoint/options, and registry metadata.
+3. **JSON manifests describe models.** Manifests declare identity, aliases, languages, cloning support, audio format, driver entrypoint/options, worker/runtime requirements, and registry metadata.
 
 The main daemon and orchestrator must not gain model-name branches when another local TTS model is added.
 
@@ -31,12 +31,14 @@ runtime/
       server.py                   # stable voxpassport.tts.v1 host
       protocol.py                 # TtsDriver contract
       driver_loader.py
+      requirements-xtts.txt       # isolated Coqui dependency set
       drivers/
         omnivoice.py              # OmniVoice library behavior
         higgs_native.py           # audiocpp/native Higgs behavior
         openai_proxy.py           # reusable HTTP backend driver
         xtts_romanian.py          # XTTS driver entrypoint
         xtts_runtime.py           # XTTS/Coqui implementation details
+        xtts_common.py            # pure XTTS helper functions
 ```
 
 The old `OmniVoiceTtsAdapter`, `HiggsTtsAdapter`, `HiggsNativeTtsAdapter`, `MossTtsAdapter`, `VoxCpmTtsAdapter`, and `XttsRomanianTtsAdapter` files have been removed. The temporary XTTS/plugin daemon subclasses and the XTTS-specific HTTP worker server have also been removed.
@@ -80,9 +82,9 @@ Only fields relevant to the selected voice/profile are included. The response is
 
 ## Worker environments are not separate architectures
 
-The protocol boundary allows different Python dependency environments without adding different application paths.
+The protocol boundary deliberately permits different Python dependency environments without adding different application paths.
 
-`run.bat` starts:
+The current launcher starts:
 
 ```text
 primary .venv     -> generic TTS host :8098
@@ -90,13 +92,67 @@ isolated XTTS env -> generic TTS host :8099 (when installed)
 main daemon       -> runtime/inference/server/main.py
 ```
 
-The primary host can load OmniVoice, native Higgs, full Higgs proxy, MOSS, VoxCPM, and other compatible manifests. XTTS uses the same host implementation and protocol on port 8099 because Coqui's dependency stack is intentionally isolated from Parakeet/Transformers.
+The primary host can load OmniVoice, native Higgs, full Higgs proxy, MOSS, VoxCPM, and other compatible manifests. XTTS uses the same host implementation and protocol on port 8099 because its Coqui dependency stack is intentionally isolated from the primary Parakeet/Transformers environment.
 
-Dependency isolation therefore does not create another TTS architecture.
+This separation is intentional. The primary runtime currently tracks Hugging Face Transformers directly from Git source, while the XTTS requirements constrain Transformers to the range supported by Coqui. Combining those dependency graphs would allow an unrelated ASR/Transformers update to break XTTS or force the entire application to remain pinned to XTTS-compatible versions.
+
+The isolated environment is therefore the correct **dependency boundary**. The fixed two-port topology is only the current orchestration mechanism.
+
+## Recommended long-term worker topology
+
+The preferred evolution is not to collapse XTTS back into `.venv`. It is to generalize worker isolation into **runtime profiles managed by a supervisor**.
+
+A future manifest should describe the runtime it requires rather than owning a literal localhost port:
+
+```json
+{
+  "model_id": "xtts-v2-romanian-v2",
+  "runtime_profile": "coqui-xtts",
+  "driver": {
+    "entrypoint": "runtime.workers.tts_host.drivers.xtts_romanian:XttsRomanianDriver"
+  }
+}
+```
+
+Conceptually:
+
+```text
+ManifestTtsAdapter
+        │
+        ▼
+TTS Runtime Supervisor
+        │
+        ├── runtime profile: core
+        │      └── choose/start .venv worker
+        │
+        ├── runtime profile: coqui-xtts
+        │      └── choose/start isolated XTTS worker
+        │
+        └── future incompatible runtime profile
+               └── choose/start its environment
+```
+
+The supervisor should own:
+
+- mapping runtime profiles to Python interpreters/environments;
+- starting the generic host only when required;
+- assigning or discovering localhost endpoints instead of hard-coding model ports;
+- health checks and startup failure reporting;
+- one-active-worker / GPU residency policy on constrained hardware;
+- draining and unloading the current model before an incompatible worker becomes active;
+- idle worker shutdown;
+- crash recovery;
+- optionally prewarming a compatible worker when hardware permits.
+
+The model manifest should answer **what runtime does this driver require?** The supervisor should answer **where is that runtime currently running?** Keeping those concerns separate prevents deployment topology from leaking into model metadata.
+
+Runtime profiles should be grouped by dependency compatibility, not one environment per model. If OmniVoice, native Higgs, MOSS, and VoxCPM can safely share the primary environment, they should. XTTS earns a separate environment because its package constraints can conflict with the main ML stack.
+
+For the current development stage, `.venv` + `.venv-xtts` is a reasonable intermediate implementation. A runtime-profile supervisor is the cleaner scaling path once more isolated model families are added.
 
 ## Adding a model that fits an existing driver
 
-When a new model already exposes an OpenAI-style local `/v1/audio/speech` service, **do not write another VoxPassport adapter**. Add a manifest using:
+When a new model already exposes an OpenAI-style local `/v1/audio/speech` service, **do not write another VoxPassport adapter**. Add a manifest using the reusable proxy driver:
 
 ```json
 "driver": {
@@ -124,6 +180,8 @@ The reusable proxy driver supports declarative options for:
 MOSS-TTS v1.5, VoxCPM2, and full Higgs TTS use this same driver despite different request conventions.
 
 After adding a JSON manifest and restarting VoxPassport, the daemon registers it and Model Settings discovers it from registry metadata. No daemon routing branch or JavaScript model insertion is required.
+
+When runtime-profile supervision is implemented, a new model with compatible dependencies should also reuse an existing runtime profile. Only a genuinely incompatible dependency graph should require a new profile/environment.
 
 ## Adding a model with genuinely different inference semantics
 
@@ -162,7 +220,7 @@ Manifest capability metadata is the startup/discovery fallback. Once a driver is
 - transcript requirements;
 - native sample rate and sample format.
 
-Studio/manual synthesis also uses the manifest's transcript requirement. It no longer applies the old rule that every non-OmniVoice engine requires a transcript.
+Studio/manual synthesis also uses the selected manifest's transcript requirement. It no longer applies the old rule that every non-OmniVoice engine requires a transcript.
 
 ## Voice profiles
 
@@ -170,25 +228,27 @@ Voice profiles remain model-independent:
 
 ```text
 data/voice_profiles/<profile>/reference.wav
-                              reference.txt
-                              conditioning/ro.wav   # optional derived target conditioning
+                              reference.txt       # optional unless selected model requires it
+                              conditioning/ro.wav # optional derived target conditioning
 ```
 
 `ManifestTtsAdapter` resolves the canonical profile once and sends normalized reference fields through `voxpassport.tts.v1`. Drivers decide how those fields map to the underlying model/backend.
 
-The XTTS manifest declares `conditioning/{language}.wav`, so the same generic adapter can supply the optional Romanian GPT-conditioning bridge without XTTS-specific application code.
+The XTTS manifest declares `conditioning/{language}.wav`, so the generic adapter can supply the optional Romanian GPT-conditioning bridge without XTTS-specific application code.
 
 ## Hot swap and GPU safety
 
-Each generic TTS host owns one active driver at a time. Loading another manifest on that host unloads its prior driver before activating the replacement. The host holds its runtime lock for a committed utterance, so a hot swap waits until that utterance finishes.
+Each generic TTS host owns one active driver at a time. Loading another manifest on that host unloads its prior driver before activating the replacement. The host holds its runtime lock for a committed utterance, so a same-host hot swap waits until that utterance finishes.
 
-The orchestrator also unloads the previous `ManifestTtsAdapter` when the active TTS model changes. This is important across dependency hosts: switching away from XTTS on `:8099` explicitly unloads the XTTS driver before a primary-host model uses the shared GPU.
+The orchestrator also unloads the previous `ManifestTtsAdapter` when the active TTS model changes. This is especially important across dependency hosts: switching away from XTTS on `:8099` explicitly unloads the XTTS driver before a primary-host model uses the shared GPU.
 
-The main `ManifestTtsAdapter` enters VoxPassport's heavyweight GPU coordinator while a local TTS request is running, so worker processes do not bypass the shared-GPU scheduling policy.
+The main `ManifestTtsAdapter` enters VoxPassport's heavyweight GPU coordinator while a local TTS request is running, so worker processes do not bypass the main request-level shared-GPU scheduling policy.
+
+A future runtime supervisor should strengthen this by owning cross-process TTS residency as an explicit invariant instead of relying on fixed-host lifecycle discipline.
 
 ## Registry ownership
 
-TTS metadata and aliases live only in `runtime/tts_manifests` and are bridged into the registry at startup. The general built-in model catalog does not contain TTS entries, and `ModelManagerController` does not hard-code local TTS aliases or native-Higgs registration behavior.
+TTS metadata and aliases live in `runtime/tts_manifests` and are bridged into the registry at startup. The general built-in model catalog does not contain local TTS entries, and `ModelManagerController` does not hard-code local TTS aliases or native-Higgs registration behavior.
 
 ## Validation
 

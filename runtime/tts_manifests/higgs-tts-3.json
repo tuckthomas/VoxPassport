@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "model_id": "higgs-tts-3",
+  "display_name": "Higgs TTS 3",
+  "aliases": [
+    "higgs",
+    "boson",
+    "bosonai/higgs-tts-3-4b"
+  ],
+  "driver": {
+    "entrypoint": "runtime.workers.tts_host.drivers.openai_proxy:OpenAiSpeechProxyDriver",
+    "options": {
+      "backend_url": "http://127.0.0.1:8095",
+      "backend_url_env": "VOXPASSPORT_HIGGS_TTS_URL",
+      "health_path": "/v1/models",
+      "speech_path": "/v1/audio/speech",
+      "static_payload": {
+        "model": "bosonai/higgs-tts-3-4b",
+        "voice": "default"
+      },
+      "stream_payload": {
+        "initial_codec_chunk_frames": 20
+      },
+      "text_field": "input",
+      "response_format_field": "response_format",
+      "stream_field": "stream",
+      "language_field": "",
+      "language_format": "omit",
+      "reference_mode": "references_array",
+      "references_field": "references",
+      "reference_audio_key": "audio_path",
+      "reference_text_key": "text",
+      "reference_audio_encoding": "data_uri",
+      "timeout_seconds": 300
+    }
+  },
+  "worker": {
+    "base_url": "http://127.0.0.1:8098",
+    "base_url_env": "VOXPASSPORT_TTS_HOST_URL"
+  },
+  "capabilities": {
+    "languages": ["*"],
+    "streaming": true,
+    "voice_cloning": true,
+    "cross_lingual_voice_cloning": true
+  },
+  "voice_cloning": {
+    "reference_transcript_required": true
+  },
+  "audio": {
+    "sample_rate_hz": 24000,
+    "sample_format": "pcm_s16le"
+  },
+  "registry": {
+    "family": "higgs-tts",
+    "provider": "bosonai",
+    "upstream_id": "bosonai/higgs-tts-3-4b",
+    "revision": "main",
+    "download_gb": 9.31,
+    "vram": {"default": "benchmark locally"},
+    "ram_gb": 12.0,
+    "license": "research/non-commercial; separate production license",
+    "commercial_use": "verify",
+    "redistribution": "verify",
+    "trust_level": "OFFICIAL_VERIFIED",
+    "recommendation": "CANDIDATE"
+  }
+}

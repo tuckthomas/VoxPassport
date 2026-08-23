@@ -61,7 +61,7 @@
                   MODEL_DISPLAY_NAMES[id] = entry.name || id;
                 }
                 if (typeof MODEL_TAG_STATUS !== 'undefined') {
-                  MODEL_TAG_STATUS[id] = 'TTS Plugin Host :8098';
+                  MODEL_TAG_STATUS[id] = 'TTS Plugin';
                 }
                 if (typeof CANONICAL_MODEL_ALIASES !== 'undefined') {
                   CANONICAL_MODEL_ALIASES[id] = id;

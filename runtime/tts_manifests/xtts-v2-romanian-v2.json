@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "model_id": "xtts-v2-romanian-v2",
   "display_name": "XTTS-v2 Romanian v2",
   "aliases": [

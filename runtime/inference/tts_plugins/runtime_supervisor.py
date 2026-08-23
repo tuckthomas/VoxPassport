@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 
 import aiohttp
 
+from runtime.inference.tts_plugins.backend_runtime import BackendRuntime, BackendRuntimeCatalog
 from runtime.inference.tts_plugins.manifest import TtsManifest, TtsManifestCatalog
 from runtime.inference.tts_plugins.runtime_profiles import RuntimeProfile, RuntimeProfileCatalog
 
@@ -40,10 +41,13 @@ class _WorkerHandle:
 @dataclass
 class _BackendHandle:
     model_id: str
+    backend_runtime_id: str
+    profile_id: str
     process: subprocess.Popen
     endpoint: str
     port: int
     health_path: str
+    startup_timeout_seconds: float
     log_file: TextIO
     started_monotonic: float
 
@@ -56,11 +60,20 @@ class TtsRuntimeSupervisor:
         *,
         manifest_catalog: Optional[TtsManifestCatalog] = None,
         profile_catalog: Optional[RuntimeProfileCatalog] = None,
+        backend_runtime_catalog: Optional[BackendRuntimeCatalog] = None,
         project_root: Optional[Path] = None,
         log_dir: Optional[Path] = None,
     ) -> None:
         self.project_root = Path(project_root or Path(__file__).resolve().parents[3]).resolve()
-        self.manifest_catalog = manifest_catalog or TtsManifestCatalog().load()
+        self.backend_runtime_catalog = backend_runtime_catalog or BackendRuntimeCatalog().load()
+        if manifest_catalog is None:
+            self.manifest_catalog = TtsManifestCatalog(
+                backend_runtime_catalog=self.backend_runtime_catalog
+            ).load()
+        else:
+            self.manifest_catalog = manifest_catalog
+            if self.manifest_catalog.backend_runtime_catalog is None:
+                self.manifest_catalog.backend_runtime_catalog = self.backend_runtime_catalog
         self.profile_catalog = profile_catalog or RuntimeProfileCatalog().load()
         self.log_dir = Path(log_dir or self.project_root / "data" / "logs").resolve()
         self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -101,27 +114,38 @@ class TtsRuntimeSupervisor:
         except Exception as exc:
             raise ValueError(f"Invalid TTS backend URL: {value!r}") from exc
 
-    @staticmethod
-    def _configured_backend_url(manifest: TtsManifest) -> str:
-        options = manifest.driver_options
-        env_name = str(options.get("backend_url_env", "")).strip()
-        if env_name:
-            override = os.getenv(env_name, "").strip()
-            if override:
-                return override.rstrip("/")
-        return str(options.get("backend_url", "")).strip().rstrip("/")
+    def _backend_runtime(self, manifest: TtsManifest) -> Optional[BackendRuntime]:
+        if not manifest.backend_runtime:
+            return None
+        try:
+            runtime = self.backend_runtime_catalog.resolve(manifest.backend_runtime)
+        except KeyError as exc:
+            raise RuntimeError(
+                f"{manifest.display_name} references unknown backend runtime {manifest.backend_runtime!r}"
+            ) from exc
+        runtime.resolve_args(manifest.backend_args)
+        return runtime
 
     @staticmethod
-    def _backend_process_config(manifest: TtsManifest) -> dict:
-        value = manifest.driver_options.get("backend_process")
-        return dict(value) if isinstance(value, dict) else {}
+    def _configured_backend_url(runtime: BackendRuntime) -> str:
+        env_name = runtime.remote_url_env
+        if not env_name:
+            return ""
+        return os.getenv(env_name, "").strip().rstrip("/")
 
     def _managed_backend_required(self, manifest: TtsManifest) -> bool:
-        config = self._backend_process_config(manifest)
-        configured_url = self._configured_backend_url(manifest)
-        if configured_url and not self._is_loopback_url(configured_url):
+        runtime = self._backend_runtime(manifest)
+        if runtime is None:
             return False
-        return bool(config)
+        configured_url = self._configured_backend_url(runtime)
+        if configured_url:
+            if self._is_loopback_url(configured_url):
+                raise RuntimeError(
+                    f"Backend runtime {runtime.backend_runtime_id!r} is configured with unmanaged local endpoint "
+                    f"{configured_url}. Local TTS backend processes must be supervisor-owned."
+                )
+            return False
+        return True
 
     async def _get_json(self, endpoint: str, path: str, *, timeout: float = 3.0) -> dict:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
@@ -195,14 +219,13 @@ class TtsRuntimeSupervisor:
     def _backend_command(
         self,
         manifest: TtsManifest,
+        runtime: BackendRuntime,
         profile: RuntimeProfile,
-        config: dict,
         *,
         host: str,
         port: int,
     ) -> list[str]:
-        command_env = str(config.get("command_env", "")).strip()
-        raw_command = os.getenv(command_env, "").strip() if command_env else ""
+        raw_command = os.getenv(runtime.command_env, "").strip() if runtime.command_env else ""
         command: list[str]
         if raw_command:
             try:
@@ -213,52 +236,54 @@ class TtsRuntimeSupervisor:
                 command = list(parsed)
             else:
                 command = shlex.split(raw_command, posix=os.name != "nt")
+        elif runtime.command:
+            command = list(runtime.command)
         else:
-            configured = config.get("command")
-            if isinstance(configured, list) and configured and all(isinstance(item, str) for item in configured):
-                command = list(configured)
-            else:
-                env_hint = f" Set {command_env} to a JSON command array." if command_env else ""
-                raise RuntimeError(
-                    f"{manifest.display_name} requires a supervisor-owned local backend, but no launch command is configured."
-                    f"{env_hint}"
-                )
+            env_hint = (
+                f" Set {runtime.command_env} once for backend runtime {runtime.backend_runtime_id!r}."
+                if runtime.command_env else ""
+            )
+            raise RuntimeError(
+                f"Backend runtime {runtime.backend_runtime_id!r} has no local launch command configured.{env_hint}"
+            )
+
         interpreter = profile.resolve_interpreter(self.project_root)
+        resolved_args = runtime.resolve_args(manifest.backend_args)
         replacements = {
             "host": host,
             "port": str(port),
             "project_root": str(self.project_root),
             "model_id": manifest.model_id,
+            "backend_runtime_id": runtime.backend_runtime_id,
             "python": str(interpreter),
+            **{key: str(value) for key, value in resolved_args.items()},
         }
         try:
             return [part.format(**replacements) for part in command]
         except KeyError as exc:
             raise RuntimeError(
-                f"Unknown backend command placeholder {exc.args[0]!r} for {manifest.display_name}"
+                f"Unknown backend command placeholder {exc.args[0]!r} for backend runtime "
+                f"{runtime.backend_runtime_id!r}"
             ) from exc
 
-    def _launch_backend(
-        self,
-        manifest: TtsManifest,
-        profile: RuntimeProfile,
-        config: dict,
-    ) -> _BackendHandle:
+    def _launch_backend(self, manifest: TtsManifest, runtime: BackendRuntime) -> _BackendHandle:
+        profile = self.profile_catalog.resolve(runtime.runtime_profile)
+        interpreter = profile.resolve_interpreter(self.project_root)
+        if not interpreter.exists():
+            raise RuntimeError(
+                f"Backend runtime {runtime.backend_runtime_id!r} requires uninstalled runtime profile "
+                f"{profile.profile_id!r}: interpreter not found at {interpreter}"
+            )
         host = "127.0.0.1"
         port = self._free_port()
         endpoint = f"http://{host}:{port}"
-        health_path = str(config.get("health_path") or manifest.driver_options.get("health_path") or "/v1/models")
-        if not health_path.startswith("/"):
-            health_path = "/" + health_path
-        command = self._backend_command(manifest, profile, config, host=host, port=port)
-        log_name = self._safe_log_name(manifest.model_id)
+        command = self._backend_command(manifest, runtime, profile, host=host, port=port)
+        log_name = self._safe_log_name(f"{runtime.backend_runtime_id}-{manifest.model_id}")
         log_path = self.log_dir / f"tts-backend-{log_name}.log"
         log_file = log_path.open("a", encoding="utf-8", buffering=1)
         env = os.environ.copy()
         env.update(profile.resolved_environment())
-        extra_env = config.get("environment")
-        if isinstance(extra_env, dict):
-            env.update({str(key): str(value) for key, value in extra_env.items()})
+        env.update(runtime.environment)
         env.setdefault("PYTHONUNBUFFERED", "1")
         try:
             process = subprocess.Popen(
@@ -272,17 +297,21 @@ class TtsRuntimeSupervisor:
             log_file.close()
             raise
         logger.info(
-            "Started managed TTS backend for %s as PID %s on %s",
+            "Started managed TTS backend runtime %s for %s as PID %s on %s",
+            runtime.backend_runtime_id,
             manifest.model_id,
             process.pid,
             endpoint,
         )
         return _BackendHandle(
             model_id=manifest.model_id,
+            backend_runtime_id=runtime.backend_runtime_id,
+            profile_id=profile.profile_id,
             process=process,
             endpoint=endpoint,
             port=port,
-            health_path=health_path,
+            health_path=runtime.health_path,
+            startup_timeout_seconds=runtime.startup_timeout_seconds,
             log_file=log_file,
             started_monotonic=time.monotonic(),
         )
@@ -308,20 +337,21 @@ class TtsRuntimeSupervisor:
             f"{handle.profile.startup_timeout_seconds:.0f}s"
         ) from last_error
 
-    async def _wait_backend_healthy(self, handle: _BackendHandle, config: dict) -> None:
-        timeout = float(config.get("startup_timeout_seconds", 90))
-        deadline = time.monotonic() + timeout
+    async def _wait_backend_healthy(self, handle: _BackendHandle) -> None:
+        deadline = time.monotonic() + handle.startup_timeout_seconds
         while time.monotonic() < deadline:
             if not self._process_alive(handle):
                 raise RuntimeError(
-                    f"Managed TTS backend for {handle.model_id!r} exited during startup with code "
-                    f"{handle.process.returncode}. See data/logs/tts-backend-{self._safe_log_name(handle.model_id)}.log"
+                    f"Managed TTS backend runtime {handle.backend_runtime_id!r} for {handle.model_id!r} "
+                    f"exited during startup with code {handle.process.returncode}. See "
+                    f"data/logs/tts-backend-{self._safe_log_name(handle.backend_runtime_id + '-' + handle.model_id)}.log"
                 )
             if await self._endpoint_healthy(handle.endpoint, handle.health_path, timeout=1.5):
                 return
             await asyncio.sleep(0.2)
         raise RuntimeError(
-            f"Managed TTS backend for {handle.model_id!r} did not become healthy within {timeout:.0f}s"
+            f"Managed TTS backend runtime {handle.backend_runtime_id!r} for {handle.model_id!r} "
+            f"did not become healthy within {handle.startup_timeout_seconds:.0f}s"
         )
 
     async def _ensure_worker_locked(self, profile: RuntimeProfile) -> _WorkerHandle:
@@ -345,41 +375,35 @@ class TtsRuntimeSupervisor:
             await self._terminate_worker_locked(profile.profile_id)
             raise
 
-    async def _ensure_backend_locked(
-        self,
-        manifest: TtsManifest,
-        profile: RuntimeProfile,
-    ) -> Optional[str]:
-        configured_url = self._configured_backend_url(manifest)
-        config = self._backend_process_config(manifest)
-
-        # Explicit non-loopback endpoints are remote/external resources. They do
-        # not consume the local GPU and therefore are not process-owned here.
-        if configured_url and not self._is_loopback_url(configured_url):
-            await self._terminate_backend_locked(manifest.model_id)
+    async def _ensure_backend_locked(self, manifest: TtsManifest) -> Optional[tuple[str, str]]:
+        runtime = self._backend_runtime(manifest)
+        if runtime is None:
             return None
 
-        if not config:
-            if configured_url and self._is_loopback_url(configured_url):
+        configured_url = self._configured_backend_url(runtime)
+        if configured_url:
+            if self._is_loopback_url(configured_url):
                 raise RuntimeError(
-                    f"{manifest.display_name} is configured to use unmanaged local backend {configured_url}. "
-                    "Local TTS proxy backends must be launched by TtsRuntimeSupervisor."
+                    f"Backend runtime {runtime.backend_runtime_id!r} is configured to use unmanaged local backend "
+                    f"{configured_url}. Local TTS proxy backends must be launched by TtsRuntimeSupervisor."
                 )
-            return None
+            await self._terminate_backend_locked(manifest.model_id)
+            return configured_url, runtime.endpoint_driver_option
 
         handle = self._backends.get(manifest.model_id)
         if handle is not None and self._process_alive(handle):
-            if await self._endpoint_healthy(handle.endpoint, handle.health_path, timeout=2.0):
-                return handle.endpoint
+            same_runtime = handle.backend_runtime_id == runtime.backend_runtime_id
+            if same_runtime and await self._endpoint_healthy(handle.endpoint, handle.health_path, timeout=2.0):
+                return handle.endpoint, runtime.endpoint_driver_option
             await self._terminate_backend_locked(manifest.model_id)
         elif handle is not None:
             await self._terminate_backend_locked(manifest.model_id)
 
-        handle = self._launch_backend(manifest, profile, config)
+        handle = self._launch_backend(manifest, runtime)
         self._backends[manifest.model_id] = handle
         try:
-            await self._wait_backend_healthy(handle, config)
-            return handle.endpoint
+            await self._wait_backend_healthy(handle)
+            return handle.endpoint, runtime.endpoint_driver_option
         except Exception:
             await self._terminate_backend_locked(manifest.model_id)
             raise
@@ -460,7 +484,11 @@ class TtsRuntimeSupervisor:
             handle.log_file.close()
         except Exception:
             pass
-        logger.info("Stopped managed TTS backend for %s", model_id)
+        logger.info(
+            "Stopped managed TTS backend runtime %s for %s",
+            handle.backend_runtime_id,
+            model_id,
+        )
 
     def _schedule_idle_shutdown_locked(self, handle: _WorkerHandle) -> None:
         if handle.idle_task and not handle.idle_task.done():
@@ -506,17 +534,15 @@ class TtsRuntimeSupervisor:
             self._active_profile_id = None
 
         try:
-            backend_endpoint = await self._ensure_backend_locked(manifest, profile)
+            backend_binding = await self._ensure_backend_locked(manifest)
             handle = await self._ensure_worker_locked(profile)
             if handle.idle_task and not handle.idle_task.done():
                 handle.idle_task.cancel()
                 handle.idle_task = None
             load_payload: dict[str, object] = {"model_id": manifest.model_id}
-            if backend_endpoint:
-                load_payload["driver_options_override"] = {
-                    "backend_url": backend_endpoint,
-                    "backend_url_env": "",
-                }
+            if backend_binding:
+                backend_endpoint, endpoint_option = backend_binding
+                load_payload["driver_options_override"] = {endpoint_option: backend_endpoint}
             body = await self._post_json(handle.endpoint, "/load", load_payload)
             if not body.get("success"):
                 raise RuntimeError(body.get("error") or f"Could not load {manifest.display_name}")
@@ -562,15 +588,28 @@ class TtsRuntimeSupervisor:
             profile = self.profile_catalog.resolve(resolved.runtime_profile)
             handle = self._workers.get(profile.profile_id)
             backend_ok = True
-            if self._managed_backend_required(resolved):
-                backend = self._backends.get(resolved.model_id)
-                backend_ok = bool(backend is not None and self._process_alive(backend))
-                if backend_ok and backend is not None:
-                    backend_ok = await self._endpoint_healthy(
-                        backend.endpoint,
-                        backend.health_path,
-                        timeout=1.5,
+            if resolved.backend_runtime:
+                runtime = self._backend_runtime(resolved)
+                assert runtime is not None
+                configured_url = self._configured_backend_url(runtime)
+                if configured_url:
+                    if self._is_loopback_url(configured_url):
+                        backend_ok = False
+                    else:
+                        backend_ok = True
+                else:
+                    backend = self._backends.get(resolved.model_id)
+                    backend_ok = bool(
+                        backend is not None
+                        and backend.backend_runtime_id == runtime.backend_runtime_id
+                        and self._process_alive(backend)
                     )
+                    if backend_ok and backend is not None:
+                        backend_ok = await self._endpoint_healthy(
+                            backend.endpoint,
+                            backend.health_path,
+                            timeout=1.5,
+                        )
             healthy = False
             if (
                 self._active_model_id == resolved.model_id
@@ -640,6 +679,8 @@ class TtsRuntimeSupervisor:
                 running = self._process_alive(backend)
                 backends.append({
                     "model_id": model_id,
+                    "backend_runtime_id": backend.backend_runtime_id,
+                    "runtime_profile": backend.profile_id,
                     "managed": True,
                     "running": running,
                     "pid": backend.process.pid if running else None,
@@ -676,11 +717,13 @@ def get_tts_runtime_supervisor(
     *,
     manifest_catalog: Optional[TtsManifestCatalog] = None,
     profile_catalog: Optional[RuntimeProfileCatalog] = None,
+    backend_runtime_catalog: Optional[BackendRuntimeCatalog] = None,
 ) -> TtsRuntimeSupervisor:
     global _DEFAULT_SUPERVISOR
     if _DEFAULT_SUPERVISOR is None:
         _DEFAULT_SUPERVISOR = TtsRuntimeSupervisor(
             manifest_catalog=manifest_catalog,
             profile_catalog=profile_catalog,
+            backend_runtime_catalog=backend_runtime_catalog,
         )
     return _DEFAULT_SUPERVISOR

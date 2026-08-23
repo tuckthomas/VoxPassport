@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from runtime.workers.xtts_romanian.common import (
+from runtime.workers.tts_host.drivers.xtts_common import (
     conditioning_cache_key,
     dynamic_max_new_tokens,
     normalize_language,
@@ -50,7 +50,9 @@ def test_target_language_conditioning_does_not_replace_canonical_reference(tmp_p
 def test_conditioning_cache_key_changes_when_target_reference_changes(tmp_path: Path) -> None:
     canonical = tmp_path / "reference.wav"
     canonical.write_bytes(b"real-speaker")
-    derived = tmp_path / "conditioning_ro.wav"
+    conditioning = tmp_path / "conditioning"
+    conditioning.mkdir()
+    derived = conditioning / "ro.wav"
     derived.write_bytes(b"teacher-v1")
     first = conditioning_cache_key(canonical, derived, "ro")
 

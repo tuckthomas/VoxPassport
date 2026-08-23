@@ -8,8 +8,10 @@ ASR+NMT cascade or a direct audio-to-audio provider such as Gemini Live Translat
 
 from __future__ import annotations
 
+import asyncio
 import enum
 import time
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
@@ -43,6 +45,18 @@ class SpeechTranslationEventType(str, enum.Enum):
     TRANSLATED_AUDIO = "translated_audio"
     STATE = "state"
     ERROR = "error"
+
+
+class SpeechTranslationSessionError(RuntimeError):
+    pass
+
+
+class SpeechTranslationBackpressureError(SpeechTranslationSessionError):
+    pass
+
+
+class SpeechTranslationSessionClosedError(SpeechTranslationSessionError):
+    pass
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,7 +130,7 @@ class SpeechTranslationEvent:
 
 
 class SpeechTranslationSession(ABC):
-    """One bidirectional-provider session for one source->target direction."""
+    """One provider session for one source->target direction."""
 
     @property
     @abstractmethod
@@ -142,6 +156,154 @@ class SpeechTranslationSession(ABC):
     async def close(self) -> None:
         """Flush and close the session. Closed sessions must not be reused."""
         ...
+
+
+class BufferedSpeechTranslationSession(SpeechTranslationSession):
+    """Reusable bounded queues for streaming provider implementations.
+
+    Subclasses consume :meth:`next_audio` in their provider loop and call
+    :meth:`emit`. Capture-side overflow raises immediately instead of silently
+    growing memory or adding unbounded conversational latency.
+    """
+
+    _AUDIO_CLOSED = object()
+    _EVENTS_CLOSED = object()
+
+    def __init__(
+        self,
+        config: SpeechTranslationSessionConfig,
+        *,
+        session_id: str | None = None,
+        max_pending_audio_frames: int = 100,
+        max_pending_events: int = 256,
+    ) -> None:
+        if max_pending_audio_frames <= 0:
+            raise ValueError("max_pending_audio_frames must be positive")
+        if max_pending_events <= 0:
+            raise ValueError("max_pending_events must be positive")
+        self._config = config
+        self._session_id = session_id or f"speech-{uuid.uuid4().hex}"
+        self._audio_queue: asyncio.Queue[AudioFrame | object] = asyncio.Queue(
+            maxsize=max_pending_audio_frames
+        )
+        self._event_queue: asyncio.Queue[SpeechTranslationEvent | object] = asyncio.Queue(
+            maxsize=max_pending_events
+        )
+        self._closed = False
+        self._last_input_sequence = -1
+        self._last_event_sequence = -1
+
+    @property
+    def session_id(self) -> str:
+        return self._session_id
+
+    @property
+    def config(self) -> SpeechTranslationSessionConfig:
+        return self._config
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    @property
+    def pending_audio_frames(self) -> int:
+        return self._audio_queue.qsize()
+
+    async def push_audio(self, frame: AudioFrame) -> None:
+        if self._closed:
+            raise SpeechTranslationSessionClosedError("speech translation session is closed")
+        self._validate_audio_frame(frame)
+        if frame.sequence <= self._last_input_sequence:
+            raise SpeechTranslationSessionError(
+                f"audio sequence must increase: {frame.sequence} <= {self._last_input_sequence}"
+            )
+        try:
+            self._audio_queue.put_nowait(frame)
+        except asyncio.QueueFull as exc:
+            raise SpeechTranslationBackpressureError(
+                "speech translation audio queue is full"
+            ) from exc
+        self._last_input_sequence = frame.sequence
+
+    def _validate_audio_frame(self, frame: AudioFrame) -> None:
+        if frame.sample_rate_hz != self._config.input_sample_rate_hz:
+            raise SpeechTranslationSessionError(
+                f"unexpected input sample rate {frame.sample_rate_hz}; "
+                f"expected {self._config.input_sample_rate_hz}"
+            )
+        if frame.channels != self._config.input_channels:
+            raise SpeechTranslationSessionError(
+                f"unexpected input channels {frame.channels}; expected {self._config.input_channels}"
+            )
+        if frame.sample_format != self._config.input_sample_format:
+            raise SpeechTranslationSessionError(
+                f"unexpected input sample format {frame.sample_format.value}; "
+                f"expected {self._config.input_sample_format.value}"
+            )
+
+    async def next_audio(self) -> AudioFrame | None:
+        item = await self._audio_queue.get()
+        if item is self._AUDIO_CLOSED:
+            return None
+        assert isinstance(item, AudioFrame)
+        return item
+
+    async def emit(self, event: SpeechTranslationEvent) -> None:
+        if self._closed:
+            raise SpeechTranslationSessionClosedError("speech translation session is closed")
+        if event.sequence <= self._last_event_sequence:
+            raise SpeechTranslationSessionError(
+                f"event sequence must increase: {event.sequence} <= {self._last_event_sequence}"
+            )
+        try:
+            self._event_queue.put_nowait(event)
+        except asyncio.QueueFull as exc:
+            raise SpeechTranslationBackpressureError(
+                "speech translation event queue is full"
+            ) from exc
+        self._last_event_sequence = event.sequence
+
+    async def emit_state(
+        self,
+        state: SpeechTranslationSessionState,
+        *,
+        sequence: int,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        await self.emit(SpeechTranslationEvent(
+            event_type=SpeechTranslationEventType.STATE,
+            sequence=sequence,
+            state=state,
+            metadata=dict(metadata or {}),
+        ))
+
+    async def events(self) -> AsyncIterator[SpeechTranslationEvent]:
+        while True:
+            item = await self._event_queue.get()
+            if item is self._EVENTS_CLOSED:
+                break
+            assert isinstance(item, SpeechTranslationEvent)
+            yield item
+
+    async def close(self) -> None:
+        if self._closed:
+            return
+        await self._close_provider()
+        self._closed = True
+        self._force_queue_marker(self._audio_queue, self._AUDIO_CLOSED)
+        self._force_queue_marker(self._event_queue, self._EVENTS_CLOSED)
+
+    async def _close_provider(self) -> None:
+        """Provider-specific close hook. Override when a transport must be closed."""
+
+    @staticmethod
+    def _force_queue_marker(queue: asyncio.Queue, marker: object) -> None:
+        while queue.full():
+            try:
+                queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        queue.put_nowait(marker)
 
 
 class SpeechTranslationStrategyAdapter(ABC):

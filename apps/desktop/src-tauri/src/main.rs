@@ -1,12 +1,17 @@
 mod audio;
 mod runtime;
 
-use audio::DesktopAudioCapabilities;
+use audio::{DesktopAudioCapabilities, DesktopAudioDevice};
 use runtime::{RuntimeManager, RuntimeProcessStatus};
 
 #[tauri::command]
 fn desktop_audio_capabilities() -> DesktopAudioCapabilities {
     audio::capabilities()
+}
+
+#[tauri::command]
+fn desktop_audio_devices() -> Result<Vec<DesktopAudioDevice>, String> {
+    audio::devices()
 }
 
 #[tauri::command]
@@ -29,6 +34,7 @@ fn main() {
         .manage(RuntimeManager::new())
         .invoke_handler(tauri::generate_handler![
             desktop_audio_capabilities,
+            desktop_audio_devices,
             local_runtime_status,
             start_local_runtime,
             stop_local_runtime,

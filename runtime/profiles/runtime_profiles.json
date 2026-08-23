@@ -14,14 +14,14 @@
       }
     },
     "coqui-xtts": {
-      "interpreter": ".venv-xtts/Scripts/python.exe",
+      "interpreter": "runtime/profiles/coqui-xtts/.venv/Scripts/python.exe",
       "interpreter_env": "VOXPASSPORT_XTTS_PYTHON",
       "startup_timeout_seconds": 45,
       "idle_timeout_seconds": 30,
       "environment": {},
       "provisioning": {
         "strategy": "isolated-environment",
-        "venv_dir": ".venv-xtts",
+        "venv_dir": "runtime/profiles/coqui-xtts/.venv",
         "python_version": "3.12",
         "prefer_uv": true,
         "steps": [

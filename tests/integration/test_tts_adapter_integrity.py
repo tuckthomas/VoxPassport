@@ -91,13 +91,19 @@ def test_manifest_tts_resolves_common_active_profile_once():
     assert "resolve_profile_reference(" in generic
 
 
-def test_every_local_tts_manifest_uses_voxpassport_protocol_host():
+def test_every_local_tts_manifest_uses_v3_supervised_topology():
     manifest_dir = _repo_root() / "runtime" / "tts_manifests"
     manifests = [json.loads(path.read_text(encoding="utf-8")) for path in manifest_dir.glob("*.json")]
     assert manifests
-    assert all(manifest["schema_version"] == 1 for manifest in manifests)
-    assert all(manifest["worker"]["base_url"].startswith("http://127.0.0.1:80") for manifest in manifests)
+    assert all(manifest["schema_version"] == 3 for manifest in manifests)
+    assert all("worker" not in manifest for manifest in manifests)
+    assert all("runtime_profile" in manifest for manifest in manifests)
     assert all("driver" in manifest and "entrypoint" in manifest["driver"] for manifest in manifests)
+    for manifest in manifests:
+        options = manifest["driver"].get("options", {})
+        assert "backend_process" not in options
+        assert "backend_url" not in options
+        assert "backend_url_env" not in options
 
 
 def test_studio_preview_requests_are_cached_by_the_server():

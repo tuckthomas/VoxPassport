@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 from runtime.workers.tts_host.protocol import TtsDriver, TtsDriverRequest
+from runtime.workers.tts_host.drivers.xtts_runtime import XttsRomanianRuntime
 
 
 class XttsRomanianDriver(TtsDriver):
@@ -18,10 +19,6 @@ class XttsRomanianDriver(TtsDriver):
     def _runtime_instance(self):
         if self._runtime is not None:
             return self._runtime
-        # Import Coqui/XTTS lazily so the generic host can still proxy other TTS
-        # engines when it is running in the primary VoxPassport environment.
-        from runtime.workers.xtts_romanian.server import XttsRomanianRuntime
-
         project_root = Path(__file__).resolve().parents[4]
         options = self.manifest.driver_options
         model_dir = Path(

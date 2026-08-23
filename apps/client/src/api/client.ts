@@ -6,6 +6,7 @@ import type {
   RuntimeBootstrap,
   RuntimeStatus,
   TranslationResponse,
+  TranslationStrategiesResponse,
   VoiceProfilesResponse,
 } from './contracts';
 
@@ -46,6 +47,10 @@ export class VoxPassportApi {
 
   audioDevices(): Promise<DesktopAudioDevicesResponse> {
     return this.request('/api/audio/devices');
+  }
+
+  translationStrategies(): Promise<TranslationStrategiesResponse> {
+    return this.request('/api/translation/strategies');
   }
 
   languages(): Promise<LanguageConfiguration> {

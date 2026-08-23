@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "model_id": "higgs-tts-3-q4_k_m",
+  "display_name": "Higgs TTS 3 Q4_K_M (Native CUDA)",
+  "aliases": [
+    "higgs-q4",
+    "higgs-native",
+    "higgs-native-q4"
+  ],
+  "driver": {
+    "entrypoint": "runtime.workers.tts_host.drivers.higgs_native:HiggsNativeDriver",
+    "options": {
+      "model_dir": "models/higgs-tts-3-q4_k_m",
+      "device": 0,
+      "threads": 4
+    }
+  },
+  "worker": {
+    "base_url": "http://127.0.0.1:8098",
+    "base_url_env": "VOXPASSPORT_TTS_HOST_URL"
+  },
+  "capabilities": {
+    "languages": ["en", "ro", "es", "fr", "de", "it"],
+    "streaming": true,
+    "voice_cloning": true,
+    "cross_lingual_voice_cloning": true
+  },
+  "voice_cloning": {
+    "reference_transcript_required": true
+  },
+  "audio": {
+    "sample_rate_hz": 24000,
+    "sample_format": "pcm_s16le"
+  },
+  "registry": {
+    "family": "higgs-tts-native",
+    "provider": "bosonai / audiocpp",
+    "upstream_id": "bosonai/higgs-tts-3-4b",
+    "revision": "main",
+    "download_gb": 4.1,
+    "vram": {"q4_k_m": ">7GB measured on RTX 2070; benchmark locally"},
+    "ram_gb": 8.0,
+    "license": "research/non-commercial; separate production license",
+    "commercial_use": "verify",
+    "redistribution": "verify",
+    "trust_level": "LOCAL_NATIVE_BUILD",
+    "recommendation": "CANDIDATE"
+  }
+}

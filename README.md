@@ -18,7 +18,6 @@
   <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white" alt="Rust" /></a>
   <a href="https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API"><img src="https://img.shields.io/badge/WebSockets-010101?style=for-the-badge&logo=socketdotio&logoColor=white" alt="WebSockets" /></a>
   <a href="https://docs.aiohttp.org/"><img src="https://img.shields.io/badge/aiohttp-2C5BB4?style=for-the-badge&logo=aiohttp&logoColor=white" alt="aiohttp" /></a>
-  <a href="https://developer.chrome.com/docs/extensions/develop/migrate/what-is-mv3"><img src="https://img.shields.io/badge/Chrome_MV3-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Chrome Manifest V3" /></a>
 </p>
 
 </div>
@@ -27,36 +26,28 @@
 
 ## Project Overview
 
-**VoxPassport** is a modular local-first audio and language platform with two complementary roles: a live multilingual translation-and-captioning workspace and a voice-cloning/TTS studio. It can run an end-to-end live conversation workflow—capturing speech, detecting voice activity, transcribing it, translating the resulting text, synthesizing translated speech, routing audio to the appropriate listener or conference input, and publishing synchronized captions—but no single workflow requires every capability or model to be enabled.
+**VoxPassport** is a modular local-first audio and language platform with two complementary roles: a live multilingual translation-and-captioning workspace and a voice-cloning/TTS studio. It can run an end-to-end conversation workflow—capturing speech, detecting voice activity, transcribing it, translating the resulting text, synthesizing translated speech, routing audio to the correct listener or conference input, and publishing synchronized captions—but no single workflow requires every capability or model to be enabled.
 
-The same application can be used for independent tasks. Someone can use it only for speech-to-text transcription, only for text-to-text translation, or only for voice cloning and text-to-speech playback from supplied text. A compatible voice profile can be reused by a cloning engine without requiring a translation step, while ASR and translation models can be used without synthesized audio. The model registry and Model Hub are deliberately separate from the pipeline so users can assemble the capabilities they need as newer models are released.
+The same application can also be used for independent tasks: speech-to-text only, text translation only, standalone voice cloning/TTS, or captions without synthesized audio. The model registry and Model Hub are deliberately separate from the pipeline so the active AI stack can evolve without rewriting the application around one vendor or model family.
 
-VoxPassport began as a way for me to have natural conversations with family members in Romania despite the language barrier. That personal use case shaped the project's emphasis on low-latency two-way conversation and preserving a speaker's voice across languages, but **VoxPassport is not an English/Romanian-only translator**. The runtime is built around configurable language pairs and swappable model adapters so additional languages can be supported whenever the selected ASR, translation, and TTS models support them. The model registry and Model Hub are deliberately separate from the pipeline so the application can evolve as newer multilingual models are released.
+VoxPassport began as a way for me to have natural conversations with family members in Romania despite the language barrier. That use case shaped the project's emphasis on low-latency two-way conversation and preserving a speaker's voice across languages, but **VoxPassport is not an English/Romanian-only translator**. The runtime is language-pair driven; actual language coverage comes from the selected ASR, translation, and TTS models.
 
-VoxPassport treats **voice identity as a first-class platform capability**. A user can enroll a reusable, engine-agnostic voice profile and use it for standalone text-to-speech or for translated speech synthesized in that voice using a compatible cloning model. The objective is not merely to translate *what* a person said, but—when the selected model supports it—to preserve *who sounds like they are speaking* across languages.
+VoxPassport treats **voice identity as a first-class platform capability**. A user can enroll a reusable, engine-agnostic voice profile and use it for standalone text-to-speech or translated speech synthesized in that voice using a compatible cloning model.
 
 ## Product Interface
 
 <table>
   <tr>
-    <td width="50%">
-      <img src="docs/images/translator-studio-live.png" alt="VoxPassport Live Translator Studio" />
-    </td>
-    <td width="50%">
-      <img src="docs/images/voice-profile-studio.png" alt="VoxPassport Voice Profile Studio" />
-    </td>
+    <td width="50%"><img src="docs/images/translator-studio-live.png" alt="VoxPassport Live Translator Studio" /></td>
+    <td width="50%"><img src="docs/images/voice-profile-studio.png" alt="VoxPassport Voice Profile Studio" /></td>
   </tr>
   <tr>
     <td align="center"><strong>Live Translator Studio</strong><br />Full-duplex speech, captions, and cloned-audio monitoring.</td>
     <td align="center"><strong>Voice Profile Studio</strong><br />Reference recording, enrollment, and cross-lingual preview.</td>
   </tr>
   <tr>
-    <td width="50%">
-      <img src="docs/images/model-settings-active-engines.png" alt="VoxPassport active inference engines" />
-    </td>
-    <td width="50%">
-      <img src="docs/images/model-hub.png" alt="VoxPassport Hugging Face model hub" />
-    </td>
+    <td width="50%"><img src="docs/images/model-settings-active-engines.png" alt="VoxPassport active inference engines" /></td>
+    <td width="50%"><img src="docs/images/model-hub.png" alt="VoxPassport Hugging Face model hub" /></td>
   </tr>
   <tr>
     <td align="center"><strong>Active Inference Engines</strong><br />Hot-swappable TTS, ASR, translation, and VAD slots.</td>
@@ -70,7 +61,7 @@ VoxPassport treats **voice identity as a first-class platform capability**. A us
 
 ## Full-Duplex Multilingual Translation
 
-VoxPassport can run both directions of a conversation simultaneously. Each audio direction has its own source and target language configuration, while the underlying multilingual ASR and translation models can be shared where appropriate.
+VoxPassport can run both directions of a conversation simultaneously. Each direction has separate source/target state and audio routing, while physical model instances can be shared where appropriate.
 
 ```text
 Local Microphone
@@ -98,83 +89,117 @@ TTS / Voice Cloning
 Local Monitor / Headphones
 ```
 
-The default development case is currently English ↔ Romanian, but the pipeline itself is language-pair driven rather than hard-coded to those two languages.
+Bidirectionality does not require loading two copies of every model. The current low-VRAM design can share one Parakeet model, one MiLMMT model, and one active TTS model across both logical directions.
 
 ## Cross-Lingual Voice Cloning
 
-Voice cloning is a core VoxPassport capability, not an optional afterthought. Voice Profile Studio records or imports a clean reference sample together with its exact transcript and stores it as an **engine-independent voice profile**. The active TTS backend consumes that same profile at synthesis time.
+Voice Profile Studio records or imports a clean reference sample and stores it as an **engine-independent voice profile**. A reference transcript can also be stored, but it is no longer globally mandatory: the selected TTS manifest declares whether that engine actually requires one.
 
-This architecture allows a voice profile to survive model changes. A user does **not** need to re-enroll a voice simply because OmniVoice is replaced by Higgs, MOSS, or another future cloning engine. Model-specific conditioning is generated at runtime and is not treated as the canonical voice identity.
-
-The intended flow is:
+This allows a voice profile to survive model changes. Replacing OmniVoice with Higgs, MOSS, XTTS, or another compatible cloning engine does not require a model-bound duplicate profile.
 
 ```text
-Reference recording + exact transcript
+Reference recording
++ optional exact transcript
               ↓
       Universal voice profile
               ↓
    Active cloning-capable TTS
               ↓
-Translated text in target language
+Translated or supplied target text
               ↓
 Speech in the enrolled speaker's voice
 ```
 
-Cross-lingual quality and supported languages depend on the selected TTS model. VoxPassport therefore keeps voice profiles independent from the model that happens to be active.
+Model-specific conditioning may be derived at runtime, but it is not the canonical stored voice identity.
+
+## Manifest-Driven Local TTS
+
+All local TTS engines use one application architecture:
+
+```text
+Main VoxPassport runtime
+        │
+        ▼
+ManifestTtsAdapter
+        │ voxpassport.tts.v1
+        ▼
+Generic TTS worker host
+        │
+        ▼
+TtsDriver
+        │
+        └── model library / native DLL / local backend
+```
+
+There are no model-specific local TTS application adapters and no special native-Higgs or OmniVoice application path. Current local TTS manifests include OmniVoice, full Higgs TTS 3, native Higgs Q4_K_M, MOSS-TTS v1.5, VoxCPM2, and XTTS-v2 Romanian v2.
+
+Model identity, aliases, capabilities, driver entrypoints, and registry metadata live in `runtime/tts_manifests/*.json`. Model-specific inference behavior lives behind worker-side `TtsDriver` implementations. The main daemon and orchestrator should not branch on TTS model names.
+
+See [`docs/tts-plugin-architecture.md`](docs/tts-plugin-architecture.md).
+
+## Dependency-Isolated TTS Workers
+
+A stable protocol boundary lets incompatible Python dependency sets run in separate processes without creating separate application architectures.
+
+The current launcher uses:
+
+```text
+.venv       → generic TTS host on 127.0.0.1:8098
+.venv-xtts  → same generic TTS host on 127.0.0.1:8099, when installed
+main daemon → runtime/inference/server/main.py
+```
+
+XTTS is isolated because Coqui's dependency constraints should not pin or destabilize the main Parakeet/Transformers environment. The primary runtime currently follows Hugging Face Transformers from Git source, whereas the XTTS environment constrains Transformers to the Coqui-compatible range.
+
+**The separate virtual environment is intentional and desirable. The fixed port topology is not the long-term ideal.** The preferred evolution is a runtime-profile supervisor that maps a manifest's runtime requirements to an interpreter/environment, starts the generic worker on demand, assigns/discovers its endpoint, enforces GPU residency, and shuts down idle workers. Runtime profiles should be grouped by dependency compatibility rather than creating one environment per model.
 
 ## Model Hub and Hot-Swappable AI Stack
 
-The application includes a model registry and Hugging Face-oriented Model Hub for discovering, downloading, installing, activating, replacing, and removing models without designing the application around a single AI vendor or model family.
+The application includes a model registry and Hugging Face-oriented Model Hub for discovering, downloading, installing, activating, replacing, and removing models.
 
-Model capabilities are separated into slots such as:
+Capability slots include:
 
 - **VAD** — speech / non-speech detection
 - **ASR** — automatic speech recognition
-- **Translation / NMT** — text-to-text language translation
+- **Translation / NMT** — text-to-text translation
 - **Direct Speech Translation** — experimental speech-to-translated-text paths
 - **TTS** — speech synthesis and voice cloning
 - **Diarization** — optional speaker-cluster tracking for inbound multi-speaker audio
 
-Catalog entries distinguish between production/default models, benchmark candidates, and watchlist models whose upstream weights or runtime integrations are not yet ready for normal activation.
+Local TTS metadata is sourced from TTS manifests and bridged into the registry; it is not duplicated in the general built-in model catalog.
 
 ## Voice Profile Studio
 
-Voice Profile Studio provides a controlled pre-conference workflow for creating and testing a voice profile before it is used live. The application normalizes the recording, stores the reference transcript, generates a cloned preview with the selected TTS model, and allows the profile to be saved as the active speaker identity.
+Voice Profile Studio provides a controlled pre-conference workflow for recording/importing a reference, previewing the selected TTS engine, and saving the profile as a reusable speaker identity.
 
-VoxPassport intentionally avoids baking a specific TTS engine into the profile. The saved profile is the source recording and transcript; the currently active synthesis model decides how to condition on it.
+The currently active TTS model decides how to condition on the profile. Transcript validation is capability-driven, so models that do not need a transcript can use a recording-only profile while models that require one still fail clearly when it is missing.
 
 ## Live Studio
 
-Live Studio is intended to exercise the **real local pipeline before a conference**. It uses the same ASR → translation → TTS path used by the runtime rather than a browser speech-recognition substitute. This makes it possible to validate language selection, transcription, translation, cloned speech, latency, and audio routing before joining a call.
-
-## Debug and Verification Workflow
-
-The verification tools provide a repeatable way to test the speech stack outside a meeting. They can transcribe supplied audio, translate it through the active local translation model, and compare round-trip output for debugging. This is intended to make model or routing failures visible before they become conference failures.
+Live Studio is intended to exercise the real local pipeline before a conference. It uses the same ASR → translation → TTS path as the runtime so language selection, transcription, translation, cloned speech, latency, and routing can be validated before joining a call.
 
 ## Speaker Diarization
 
-For inbound conference audio with multiple remote participants, VoxPassport can optionally run NVIDIA Streaming Sortformer as a **parallel diarization sidecar**. Diarization does not block ASR; speech recognition proceeds immediately while speaker-cluster metadata is attached when available.
+For inbound conference audio with multiple remote participants, VoxPassport can optionally run NVIDIA Streaming Sortformer as a parallel diarization sidecar. Diarization does not block ASR; speaker-cluster metadata is attached when available.
 
-Diarization labels such as `Speaker 1` and `Speaker 2` represent anonymous speaker clusters, not verified real-world identities. Named speaker identification would require a separate enrollment/matching layer.
+Diarization labels represent anonymous clusters, not verified identities.
 
 ## Live Captions and Conference Integration
 
-The runtime publishes caption events over a local WebSocket service. The repository includes a desktop overlay and a Chrome Manifest V3 companion extension currently targeted at Google Meet. The broader runtime architecture is intended to remain conferencing-platform agnostic, with translated audio routed through local/virtual audio devices rather than requiring a cloud translation service.
+The runtime publishes caption events over a localhost WebSocket service. The repository includes a desktop overlay and a Chrome Manifest V3 browser companion currently targeted at Google Meet. The broader runtime remains conferencing-platform agnostic.
 
 ---
 
 # Current Model Architecture
 
-VoxPassport is intentionally model-pluggable. The table below describes the current reference stack and notable alternatives in the repository; it is **not** a requirement that every model be installed at once.
-
 | Capability | Current Reference / Default | Alternatives & Research Paths | Notes |
 | :--- | :--- | :--- | :--- |
 | **VAD** | Silero VAD v6.2.1 | Future VAD adapters | Lightweight, pinned runtime model |
-| **ASR** | NVIDIA Parakeet TDT 0.6B v3 | Meta OmniASR CTC 300M / 1B; NVIDIA Canary-1B-v2 | Parakeet is multilingual and shared across both audio directions |
-| **Translation** | Xiaomi MiLMMT-46 1B v1.0 | MiLMMT-46 4B v1.0; NVIDIA Riva Translate; Meta Omnilingual MT watchlist | 1B is the practical default; 4B is a heavier quality option |
-| **TTS / Voice Cloning** | OmniVoice reference integration | Higgs TTS 3; MOSS-TTS v1.5; VoxCPM family; future cloning models | Language support, licensing, and hardware needs vary substantially by engine |
-| **Direct Speech Translation** | Experimental | NVIDIA Canary-1B-v2 | Alternative to the ASR → NMT cascade; benchmark before making default |
-| **Diarization** | Optional | NVIDIA Streaming Sortformer 4-Speaker v2.1 | Runs in parallel on inbound audio; not required for one-speaker streams |
+| **ASR** | NVIDIA Parakeet TDT 0.6B v3 | Meta OmniASR CTC 300M / 1B; NVIDIA Canary-1B-v2 | One physical Parakeet model can serve both directions |
+| **Translation** | Xiaomi MiLMMT-46 1B v1.0 | MiLMMT-46 4B v1.0; NVIDIA Riva Translate; Meta Omnilingual MT watchlist | 1B is the practical low-VRAM choice |
+| **TTS / Voice Cloning** | OmniVoice reference integration | Native/full Higgs, MOSS, VoxCPM, XTTS Romanian | All local options use manifests + `voxpassport.tts.v1` |
+| **Direct Speech Translation** | Experimental | NVIDIA Canary-1B-v2 | Benchmark before replacing the ASR → NMT cascade |
+| **Diarization** | Optional | NVIDIA Streaming Sortformer 4-Speaker v2.1 | Parallel inbound sidecar |
 
 The Model Hub is the source of truth for what is available, installed, active, downloadable, or watchlist-only on a particular system.
 
@@ -182,18 +207,20 @@ The Model Hub is the source of truth for what is available, installed, active, d
 
 # Low-VRAM Runtime Policy
 
-Real-time speech translation can involve several neural networks competing for one GPU. VoxPassport includes resource-management behavior specifically so an 8 GB-class GPU does not have to hold every model in VRAM simultaneously.
+Real-time speech translation can involve several neural networks competing for one GPU. On lower-VRAM systems VoxPassport is designed so every model does not need to be resident or active on CUDA simultaneously.
 
-On lower-VRAM systems:
+Current policies include:
 
-- both language directions share **one physical Parakeet model** rather than loading duplicate ASR weights;
-- MiLMMT can run on CPU so GPU memory remains available for latency-sensitive speech models;
+- both language directions can share one physical Parakeet model;
+- MiLMMT can run on CPU so GPU memory remains available for latency-sensitive speech inference;
 - optional Sortformer diarization can remain on CPU;
-- heavyweight Parakeet ASR and native Higgs TTS inference are serialized on one GPU while audio capture and VAD continue buffering;
-- OmniVoice loads lazily and creates conditioning only for the voice profile actually being used;
-- only one OmniVoice clone prompt is retained in the runtime cache at a time.
+- heavyweight ASR and local TTS requests are coordinated instead of intentionally launching competing GPU work at the same time;
+- audio capture and VAD continue while heavyweight GPU inference is busy;
+- OmniVoice loads weights lazily and bounds its speaker-conditioning cache;
+- native Higgs runtime VRAM is treated as more than the GGUF weight-file size because caches, activations, CUDA workspaces, and scratch buffers also consume memory;
+- switching TTS engines unloads the prior worker-side model, including cross-environment XTTS switches.
 
-Higher-memory systems can use more aggressive GPU residency and larger model variants. The correct hardware configuration therefore depends on the models the user chooses rather than on a single fixed VoxPassport requirement.
+Higher-memory systems can use more aggressive residency and larger model variants.
 
 ---
 
@@ -208,46 +235,49 @@ Higher-memory systems can use more aggressive GPU residency and larger model var
 | `TTS_NO_CLONE` | Use the active TTS engine without an enrolled cloned voice. |
 | `TTS_CLONED` | Use the active voice profile with a cloning-capable TTS engine. |
 
-Studio and verification workflows sit alongside these runtime modes so the same models can be tested before a real call.
-
 ---
 
 # Architecture
 
-VoxPassport is organized as a local inference runtime with thin UI and conference-integration layers around it.
-
 ```text
-┌─────────────────────────────────────────────────────────────────┐
-│                            VoxPassport                          │
+┌──────────────────────────────────────────────────────────────────┐
+│                           VoxPassport                            │
 │ Voice Profiles • Live Studio • Debug • Model Hub • Configuration│
-└──────────────────────────────┬──────────────────────────────────┘
-                               │ localhost HTTP / WebSocket
-┌──────────────────────────────▼──────────────────────────────────┐
-│                    Unified Python Runtime                       │
+└───────────────────────────────┬──────────────────────────────────┘
+                                │ localhost HTTP / WebSocket
+┌───────────────────────────────▼──────────────────────────────────┐
+│                      Main Python Runtime                         │
 │                                                                  │
-│  Audio Capture → VAD → ASR → Translation → TTS → Audio Playback │
-│                           │                                      │
-│                           ├── Caption Events                      │
-│                           ├── Model Registry / Hot-Swap           │
-│                           └── Optional Parallel Diarization       │
-└───────────────┬───────────────────────────────┬──────────────────┘
-                │                               │
-        Virtual / Local Audio             Browser / Overlay
-                │                               │
-         Meeting Platform                Live Captions
+│ Audio Capture → VAD → ASR → Translation → ManifestTtsAdapter    │
+│      │                         │                                  │
+│      │                         ├── Model Registry / Hot-Swap      │
+│      │                         ├── Caption Events                  │
+│      │                         └── Optional Diarization            │
+│      │                                                            │
+│      └──────────────────────────────► Audio Playback / Routing    │
+└───────────────────────────────┬──────────────────────────────────┘
+                                │ voxpassport.tts.v1
+                  ┌─────────────┴─────────────┐
+                  ▼                           ▼
+       Generic TTS host :8098      Generic TTS host :8099
+       primary environment         isolated XTTS environment
+                  │                           │
+                  ▼                           ▼
+             TtsDriver                    TtsDriver
 ```
+
+The two TTS hosts are currently a process/dependency topology, not separate TTS architectures. The target evolution is a runtime-profile supervisor that removes fixed model-to-port coupling.
 
 ### Core Runtime Technologies
 
-- **Python 3.12** — inference daemon, orchestration, model management, APIs
+- **Python 3.12** — inference daemon, orchestration, model management, APIs, TTS worker hosts
 - **PyTorch** — local neural inference and CUDA execution
 - **Hugging Face Transformers / Hub** — model execution and model acquisition
-- **aiohttp** — local Studio/API server
-- **WebSockets** — live caption/event transport
+- **aiohttp** — local APIs and TTS worker protocol
+- **WebSockets** — caption/event transport
 - **NumPy / SciPy / SoundFile / SoundDevice** — audio DSP, resampling, capture, and playback
-- **Rust workspace** — native audio/protocol components, including Windows audio work
+- **Rust workspace** — native audio/protocol components
 - **HTML / CSS / JavaScript** — Studio, model manager, overlays, and browser companion UI
-- **Chrome Manifest V3** — current Google Meet browser-extension integration
 - **FFmpeg** — normalization of imported voice-reference audio
 
 ---
@@ -257,30 +287,28 @@ VoxPassport is organized as a local inference runtime with thin UI and conferenc
 ```text
 VoxPassport/
 ├── apps/
-│   ├── browser-extension/              # Chrome MV3 Google Meet caption companion
+│   ├── browser-extension/
 │   └── desktop-companion/
-│       ├── assets/                     # Shared VoxPassport application branding
-│       ├── model-manager/              # VoxPassport UI + Model Hub
-│       └── overlay/                    # Local caption overlay
-├── runtime/inference/
-│   ├── adapters/                       # VAD, ASR, MT, TTS, diarization adapters
-│   ├── model_discovery_agent.py        # Scheduled model discovery/research runtime
-│   ├── model_registry/                 # Catalog, install state, active models, hot-swap
-│   ├── pipeline/                       # Full-duplex audio/translation orchestration
-│   ├── scheduler/                      # Runtime/degraded-mode scheduling
-│   ├── metrics/                        # Latency and runtime metrics
-│   └── server/                         # Unified local API + inference daemon
-├── .agents/plans/                      # Future implementation plans for coding agents
+├── runtime/
+│   ├── inference/
+│   │   ├── adapters/                   # VAD/ASR/MT plus generic local TTS adapter
+│   │   ├── model_registry/             # install state, active models, hot-swap
+│   │   ├── pipeline/                   # full-duplex orchestration
+│   │   ├── scheduler/
+│   │   ├── metrics/
+│   │   ├── tts_plugins/                # TTS manifest loader + registry bridge
+│   │   └── server/                     # unified local API / daemon
+│   ├── tts_manifests/                  # sole local TTS model declarations
+│   └── workers/tts_host/               # generic voxpassport.tts.v1 host + drivers
+├── .agents/plans/
 ├── crates/
-│   ├── audio-core/                     # Native audio abstractions
-│   ├── audio-windows/                  # Windows audio implementation
-│   └── protocol/                       # Shared native protocol types
-├── benchmarks/                         # Model bakeoff and performance tooling
-├── tests/                              # Unit/integration/runtime integrity tests
-├── configs/                            # Runtime configuration examples
-├── docs/                               # Architecture, routing, privacy, model docs
-├── install.bat                         # Windows Python environment setup
-└── run.bat                             # Windows runtime launcher
+├── benchmarks/
+├── tests/
+├── configs/
+├── docs/
+├── install.bat
+├── install_xtts_worker.bat
+└── run.bat
 ```
 
 ---
@@ -289,137 +317,124 @@ VoxPassport/
 
 ## System Requirements
 
-There is intentionally **no single VRAM number that defines VoxPassport**. Hardware requirements are determined by the models and quality modes a user installs and activates.
+There is intentionally no single VRAM number that defines VoxPassport. Requirements depend on the models and quality modes installed and activated.
 
 | Resource | Practical Guidance |
 | :--- | :--- |
 | **Operating System** | Windows 10/11 is the current primary development target. |
-| **Python** | Python 3.12 recommended for the current runtime. |
-| **GPU** | NVIDIA CUDA GPU strongly recommended for real-time local speech inference. CPU-only execution may be possible for some models but will generally be slower. |
-| **VRAM** | ~8 GB can run the lightweight/reference stack with the low-VRAM residency policy; larger TTS/MT models may require substantially more or separate workers. |
-| **RAM** | Depends on CPU-offloaded and selected models. More RAM is useful on lower-VRAM systems because translation/diarization may intentionally run on CPU. |
-| **Storage** | Model-dependent. Individual checkpoints range from small VAD assets to multi-gigabyte ASR, MT, and TTS models. |
-| **Audio Routing** | A virtual audio input/device is required when translated speech must be injected into a conferencing application. |
-| **FFmpeg** | Required for normalizing imported voice-profile recordings. |
+| **Python** | Python 3.12 for the current runtime. |
+| **GPU** | NVIDIA CUDA GPU strongly recommended for real-time local speech inference. |
+| **VRAM** | ~8 GB can run the lightweight/reference stack with low-VRAM policy; larger models may require more memory or more aggressive swapping. |
+| **RAM** | Additional RAM is useful when translation/diarization are intentionally CPU-resident. |
+| **Storage** | Model-dependent; checkpoints range from small VAD assets to multi-GB speech models. |
+| **Audio Routing** | A virtual audio input/device is required to inject translated speech into a conferencing application. |
+| **FFmpeg** | Required for normalization of imported voice-profile recordings. |
 
-The Model Hub catalog exposes model-specific download size, runtime, licensing, and expected hardware information where known. **Do not assume that every catalog model is intended to be resident simultaneously.**
-
-## 1. Clone the Repository
+## 1. Clone
 
 ```bash
 git clone https://github.com/tuckthomas/VoxPassport.git
 cd VoxPassport
 ```
 
-## 2. Install the Python Runtime
-
-On Windows:
+## 2. Install the primary runtime
 
 ```bat
 install.bat
 ```
 
-The installer uses the project-local `.python312` runtime when present, creates the
-project-local `.venv`, and keeps pip/model caches under `.pip-cache` and `.cache`.
-It installs the tested Windows CUDA pair `torch 2.13.0+cu130` and
-`torchaudio 2.11.0+cu130`; TorchAudio 2.11 supports PyTorch 2.13 through its
-stable ABI.
+The installer creates the project-local `.venv` and installs the tested Windows CUDA PyTorch/TorchAudio stack plus `runtime/inference/requirements.txt`.
 
-For a manual setup:
+## 3. Optional: install the XTTS dependency profile
 
-```bash
-.python312\python.exe -m venv .venv
-.venv\Scripts\python.exe -m pip install torch==2.13.0 torchaudio==2.11.0 --index-url https://download.pytorch.org/whl/cu130
-.venv\Scripts\python.exe -m pip install -r runtime/inference/requirements.txt
+```bat
+install_xtts_worker.bat
 ```
 
-## 3. Start VoxPassport
+This creates `.venv-xtts` rather than injecting Coqui/XTTS dependencies into the main environment. Install it only if XTTS is needed.
+
+## 4. Start VoxPassport
 
 ```bat
 run.bat
 ```
 
-Or start the daemon directly:
+Or start only the main daemon:
 
-```bash
-.venv\Scripts\python.exe runtime/inference/server/main.py
+```bat
+.venv\Scripts\python.exe runtime\inference\server\main.py
 ```
 
-The current local services are:
+Current local services include:
 
 | Service | Address | Purpose |
 | :--- | :--- | :--- |
 | **Studio / Model Manager** | `http://127.0.0.1:8766/manager/index.html` | Voice profiles, model management, Live Studio, debugging |
 | **Local API** | `http://127.0.0.1:8766` | Runtime/model/voice endpoints |
 | **Caption WebSocket** | `ws://127.0.0.1:8765/ws/captions` | Live caption and translation events |
+| **Primary generic TTS host** | `http://127.0.0.1:8098` | Local TTS drivers using the primary environment |
+| **XTTS generic TTS host** | `http://127.0.0.1:8099` | Same protocol under `.venv-xtts`, when installed |
 
 ### Higgs TTS Runtime Options
 
-VoxPassport supports two Higgs TTS paths:
+VoxPassport exposes both Higgs paths through manifests and worker-side drivers:
 
-- **Full Higgs TTS 3** uses the existing SGLang/Omni worker and the standard `higgs-tts-3` model. This remains the broadest path for longer reference conditioning and higher-memory GPUs.
-- **Native Q4_K_M Higgs** uses a locally compiled or compatible prebuilt `audiocpp_engine.dll` with the `higgs-tts-3-q4_k_m` GGUF package. It supports native reference-audio voice cloning through `audiocpp_generate_voice_clone_stream`, including the multilingual targets exposed by the Studio and live pipeline. On 8 GB GPUs, VoxPassport creates a reusable five-second conditioning reference, persists the DLL's processed-speaker `.hspkcache`, generates deterministic short clauses, and streams decoded audio as it becomes available. The saved reference recording is never shortened or overwritten.
+- **Full Higgs TTS 3** uses the reusable HTTP proxy driver to reach the configured Higgs/SGLang-compatible backend.
+- **Native Q4_K_M Higgs** uses `HiggsNativeDriver` around `audiocpp_engine.dll` and the `higgs-tts-3-q4_k_m` GGUF package.
 
-The repository currently includes the validated Windows engine at `native/audiocpp_engine.dll`. It contains native `sm_75` cubins and embedded `sm_75` PTX, so an RTX 2070 user who clones the repository does not need to compile the CUDA engine again. The PTX may be JIT-compiled by a compatible NVIDIA driver for newer GPUs, but this artifact is not yet validated as a universal cross-generation release binary. For predictable distribution across GPU generations, publish a fat binary containing the intended architectures (for example `sm_75`, `sm_86`, and `sm_89`) or provide architecture-specific release assets. A user only needs to compile from source when the bundled/prebuilt engine is incompatible with their GPU, CUDA driver, or Windows runtime.
+The repository currently includes `native/audiocpp_engine.dll`; the multi-GB model weights are intentionally excluded from Git. The native Higgs manifest is known to the registry, but the driver can only load successfully when the required DLL, CUDA runtime dependencies, and model package are present.
 
-The 4 GB-class GGUF model weights are intentionally excluded from Git. Each user must download the Q4_K_M model package into `models/higgs-tts-3-q4_k_m/`. At startup, VoxPassport automatically detects the bundled DLL plus `q4_k_m.gguf` and registers the native engine. An alternate engine can be placed at `native/audiocpp_engine.dll` or selected with `VOXPASSPORT_HIGGS_NATIVE_DLL`; the loader also honors `CUDA_PATH` for CUDA runtime dependencies.
+On an 8 GB card, runtime policy should keep the GPU focused on the latency-sensitive model currently doing work rather than keeping unrelated heavyweight TTS engines resident.
 
-On an 8 GB card, Parakeet ASR remains resident because live transcription is still required, while MiLMMT translation runs on CPU and VAD remains lightweight. VoxPassport serializes the heavy ASR and TTS CUDA execution instead of unloading and reloading Parakeet for every phrase; microphone and conference capture continue during synthesis, and queued audio is transcribed when the GPU becomes available. Unused TTS engines and optional GPU sidecars should not be kept resident alongside native Higgs.
+## 5. Download the models you want
 
-## 4. Download the Models You Want
+Use Model Hub to download/install the ASR, translation, TTS, and optional diarization models appropriate for the hardware and target languages. Some runtime-managed models such as Silero VAD are acquired outside the normal Hugging Face download button.
 
-Large model weights are not intended to be bundled blindly with the repository. Use **Model Hub** inside VoxPassport to download the ASR, translation, TTS, and optional diarization models appropriate for your hardware and target languages.
+## 6. Create a voice profile
 
-Some runtime-managed models, such as Silero VAD, are acquired by their adapter rather than through the normal Hugging Face download button. Watchlist entries are intentionally not presented as downloadable when no official upstream checkpoint has been wired.
-
-## 5. Create a Voice Profile
-
-Open **Voice Profile Studio**, record or import a clean reference sample, provide the exact transcript, and generate a preview. Once saved, the profile can be used by any compatible active cloning engine without being permanently bound to the model used during enrollment.
+Open **Voice Profile Studio**, record or import a clean reference, and generate a preview. Add an exact transcript when the intended cloning model requires it. The profile itself remains model-independent.
 
 ---
 
 # Model Licensing
 
-VoxPassport can orchestrate models from multiple vendors, and **their licenses are not interchangeable**. Some models permit commercial use, some impose attribution or model-specific terms, and some voice-cloning checkpoints are research/non-commercial unless separately licensed.
-
-Before deploying a particular configuration, review both the Model Hub metadata and [`docs/model-licenses.md`](docs/model-licenses.md). Installing a model in VoxPassport does not change the license of that model.
+VoxPassport can orchestrate models from multiple vendors, and their licenses are not interchangeable. Review both Model Hub metadata and [`docs/model-licenses.md`](docs/model-licenses.md) before distribution or commercial deployment.
 
 ---
 
 # Privacy and Local-First Design
 
-The core translation path is designed for local inference. Conference audio and translated text do not need to be sent to a cloud translation provider for the reference pipeline to function.
+The reference translation path is designed for local inference. Saved voice profiles are local reusable assets. A canonical profile consists of the reference recording, optional transcript, and profile metadata; model-specific conditioning is a derived runtime/profile artifact rather than the canonical identity.
 
-Saved voice profiles are deliberately persisted **locally** because they are reusable user assets. A profile contains the normalized reference recording, its transcript, and profile metadata. Model-specific voice-conditioning prompts are runtime artifacts rather than the canonical stored identity.
-
-Live audio is processed in memory by default and is not recorded unattended. Voice Profile Studio is an explicit exception: when the user starts enrollment, the reference recording is captured and saved locally as part of the reusable voice profile. User-requested imports and saved previews are likewise intentional local recordings.
-
-The local HTTP and caption services bind to `127.0.0.1` in the current runtime. See [`docs/privacy-security.md`](docs/privacy-security.md) for the broader privacy/security design.
+Local APIs, caption transport, and local TTS workers bind to localhost in the current implementation. See [`docs/privacy-security.md`](docs/privacy-security.md).
 
 ---
 
 # Development and Validation
 
-VoxPassport is under active development. The project includes a Runtime Integrity GitHub Actions workflow plus integration tests covering model routing, TTS backend separation, full-duplex streaming, registry state, VAD behavior, diarization architecture, and low-VRAM policies.
+VoxPassport is under active development. Runtime Integrity covers model routing, TTS architectural boundaries, registry state, VAD behavior, diarization architecture, XTTS pure helpers, and low-VRAM policies without downloading heavyweight TTS weights.
 
 Useful local checks include:
 
-```bash
-python -m compileall -q runtime agents tests
-python -m pytest -q tests/integration
+```bat
+.venv\Scripts\python.exe -m compileall -q runtime agents tests benchmarks scripts
+.venv\Scripts\python.exe -m pytest -q tests/integration tests/test_tts_plugin_architecture.py tests/test_xtts_romanian.py
 ```
 
-For model work, benchmark changes against the existing reference stack rather than assuming that a newer or larger checkpoint is automatically better. Real-time translation quality depends on several dimensions at once: transcription accuracy, language coverage, first-token/first-audio latency, stream stability, translation quality, voice fidelity, VRAM pressure, and end-to-end conversational delay.
+Hardware acceptance tests still need the actual target GPU. In particular, native Higgs and the XTTS 50-turn soak should be benchmarked on the RTX 2070 before treating latency/VRAM assumptions as validated.
 
 ---
 
 # Documentation
 
 - [Architecture](docs/architecture.md)
+- [TTS Plugin Architecture](docs/tts-plugin-architecture.md)
+- [XTTS Romanian Low-VRAM](docs/xtts-romanian-low-vram.md)
 - [Audio Routing](docs/audio-routing.md)
 - [Model Bakeoff](docs/model-bakeoff.md)
 - [Model Registry](docs/model-registry.md)
 - [Model Discovery Agent](docs/model-discovery-agent.md)
+- [Remote Workers](docs/remote-workers.md)
 - [Google Meet Integration](docs/google-meet-integration.md)
 - [Privacy & Security](docs/privacy-security.md)
 - [Model Licenses](docs/model-licenses.md)
@@ -429,6 +444,6 @@ For model work, benchmark changes against the existing reference stack rather th
 
 # Project Direction
 
-VoxPassport is being built around one assumption: **speech AI will keep changing quickly**. The application therefore should not depend on today's best ASR, translation, diarization, or voice-cloning model remaining the best choice six months from now.
+VoxPassport is built around the assumption that speech AI will keep changing quickly. The application therefore should not depend on today's best ASR, translation, diarization, or voice-cloning model remaining the best choice.
 
-The long-term goal is a conference and conversation layer where users can select the best models for their languages and hardware, test them before a call, preserve speaker identity where appropriate, and replace individual components without rewriting the rest of the application.
+The architectural rule is to isolate model-specific behavior behind stable capability and worker boundaries. For local TTS, that means manifests + `ManifestTtsAdapter` + `voxpassport.tts.v1` + worker-side drivers. For dependency-conflicting model families, the next scaling step is supervisor-managed runtime profiles rather than expanding hard-coded per-model hosts.

@@ -63,12 +63,15 @@ def status(profile_id: str) -> int:
     profile = _profile(profile_id)
     interpreter = _interpreter_path(profile)
     provisioning = dict(profile.get("provisioning") or {})
+    uv_project = str(provisioning.get("uv_project", "")).strip()
     result = {
         "profile_id": profile_id,
         "installed": interpreter.exists(),
         "interpreter": str(interpreter),
         "strategy": provisioning.get("strategy", "unknown"),
         "prefer_uv": bool(provisioning.get("prefer_uv", False)),
+        "uv_project": uv_project or None,
+        "lockfile": str((PROJECT_ROOT / uv_project / "uv.lock").resolve()) if uv_project else None,
     }
     print(json.dumps(result, indent=2))
     return 0 if interpreter.exists() else 1
@@ -106,41 +109,47 @@ def install(profile_id: str, *, repair: bool = False) -> int:
     python_version = str(provisioning.get("python_version", "3.12"))
     prefer_uv = bool(provisioning.get("prefer_uv", False))
     uv = shutil.which("uv") if prefer_uv else None
+    uv_project_raw = str(provisioning.get("uv_project", "")).strip()
+    uv_project = None
+    if uv_project_raw:
+        uv_project = Path(uv_project_raw)
+        if not uv_project.is_absolute():
+            uv_project = PROJECT_ROOT / uv_project
+        uv_project = uv_project.resolve()
 
-    if not _venv_python(venv_dir).exists():
-        if uv:
-            _run([uv, "venv", str(venv_dir), "--python", python_version])
-        else:
+    if uv and uv_project is not None:
+        pyproject = uv_project / "pyproject.toml"
+        if not pyproject.exists():
+            raise SystemExit(f"Runtime profile uv project is missing {pyproject}")
+        # uv project sync creates/updates .venv next to pyproject.toml and writes
+        # uv.lock there. Each incompatible runtime family therefore gets an
+        # independent resolution instead of sharing one workspace lock.
+        _run([uv, "sync", "--project", str(uv_project), "--python", python_version])
+    else:
+        if not _venv_python(venv_dir).exists():
             _run([*_base_python(python_version), "-m", "venv", str(venv_dir)])
-
-    python_exe = _venv_python(venv_dir)
-    if not python_exe.exists():
-        raise SystemExit(f"Runtime profile interpreter was not created: {python_exe}")
-
-    if not uv:
+        python_exe = _venv_python(venv_dir)
+        if not python_exe.exists():
+            raise SystemExit(f"Runtime profile interpreter was not created: {python_exe}")
         _run([str(python_exe), "-m", "pip", "install", "--upgrade", "pip"])
 
-    for step in provisioning.get("steps", []):
-        if not isinstance(step, dict):
-            raise SystemExit(f"Runtime profile {profile_id!r} contains an invalid provisioning step")
-        packages = [str(value) for value in step.get("packages", [])]
-        requirements = str(step.get("requirements", "")).strip()
-        index_url = str(step.get("index_url", "")).strip()
-        if uv:
-            command = [uv, "pip", "install", "--python", str(python_exe)]
-        else:
+        for step in provisioning.get("steps", []):
+            if not isinstance(step, dict):
+                raise SystemExit(f"Runtime profile {profile_id!r} contains an invalid provisioning step")
+            packages = [str(value) for value in step.get("packages", [])]
+            requirements = str(step.get("requirements", "")).strip()
+            index_url = str(step.get("index_url", "")).strip()
             command = [str(python_exe), "-m", "pip", "install"]
-        if index_url:
-            command.extend(["--index-url", index_url])
-        if requirements:
-            req_path = Path(requirements)
-            if not req_path.is_absolute():
-                req_path = PROJECT_ROOT / req_path
-            command.extend(["-r", str(req_path.resolve())])
-        command.extend(packages)
-        if len(command) <= (5 if uv else 4):
-            continue
-        _run(command)
+            if index_url:
+                command.extend(["--index-url", index_url])
+            if requirements:
+                req_path = Path(requirements)
+                if not req_path.is_absolute():
+                    req_path = PROJECT_ROOT / req_path
+                command.extend(["-r", str(req_path.resolve())])
+            command.extend(packages)
+            if len(command) > 4:
+                _run(command)
 
     actual = _interpreter_path(profile)
     if not actual.exists():

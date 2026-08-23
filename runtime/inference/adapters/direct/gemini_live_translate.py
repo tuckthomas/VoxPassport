@@ -298,11 +298,17 @@ class GeminiLiveTranslateStrategy(SpeechTranslationStrategyAdapter):
             )
             await session.start()
             return session
-        except Exception:
+        except Exception as exc:
             if websocket is not None:
                 await websocket.close()
             await client.close()
-            raise
+            if isinstance(exc, GeminiLiveTranslateError):
+                raise
+            # aiohttp connection exceptions may include the request URL, whose
+            # query string contains the API key. Do not expose that exception.
+            raise GeminiLiveTranslateError(
+                f"Gemini Live Translate connection/setup failed ({type(exc).__name__})"
+            ) from None
 
 
 async def _wait_for_setup_complete(

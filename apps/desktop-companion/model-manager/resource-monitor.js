@@ -66,6 +66,7 @@
             ${this.metricMarkup('vram', 'VRAM', ICONS.memory)}
             ${this.metricMarkup('cpu', 'CPU', ICONS.cpu)}
             ${this.metricMarkup('ram', 'System RAM', ICONS.memory)}
+            ${this.runtimeMetricMarkup()}
           </div>
         </div>
         <div class="resource-monitor__compact">
@@ -101,6 +102,19 @@
           </div>
           <div class="resource-monitor__track" aria-hidden="true"><div class="resource-monitor__fill" data-resource-fill></div></div>
           <div class="resource-monitor__metric-detail" data-resource-detail>Waiting for telemetry</div>
+        </div>
+      `;
+    }
+
+    runtimeMetricMarkup() {
+      return `
+        <div class="resource-monitor__metric" data-resource-metric="tts-runtime" style="grid-column: 1 / -1">
+          <div class="resource-monitor__metric-header">
+            <span class="resource-monitor__metric-label"><span class="resource-monitor__metric-icon">${ICONS.monitor}</span>TTS Runtime Profiles</span>
+            <span class="resource-monitor__metric-value" data-resource-value>Idle</span>
+          </div>
+          <div class="resource-monitor__track" aria-hidden="true"><div class="resource-monitor__fill" data-resource-fill></div></div>
+          <div class="resource-monitor__metric-detail" data-resource-detail>No TTS worker running</div>
         </div>
       `;
     }
@@ -269,7 +283,40 @@
       this.updateMetric('vram', gpu.memory_percent, this.formatAllocation(gpu.memory_used_gb, gpu.memory_total_gb), `${this.formatPercent(gpu.memory_percent)} allocated`);
       this.updateMetric('cpu', cpu.usage_percent, this.formatPercent(cpu.usage_percent), `${cpu.logical_cores || 1} logical processors`);
       this.updateMetric('ram', memory.usage_percent, this.formatAllocation(memory.used_gb, memory.total_gb), `${this.formatPercent(memory.usage_percent)} allocated`);
+      this.renderTtsRuntime(this.snapshot.tts_runtime || {});
       this.renderCompactValues();
+    }
+
+    renderTtsRuntime(runtime) {
+      const metric = this.root.querySelector('[data-resource-metric="tts-runtime"]');
+      if (!metric) return;
+      const profiles = Array.isArray(runtime.profiles) ? runtime.profiles : [];
+      const activeProfile = runtime.active_profile_id || '';
+      const activeModel = runtime.active_model_id || '';
+      const states = profiles.map((profile) => {
+        let state = 'ready';
+        if (!profile.installed) {
+          state = 'missing';
+        } else if (profile.running && profile.health && profile.health.reachable === false) {
+          state = 'broken';
+        } else if (profile.running) {
+          state = 'running';
+        }
+        return { profile, state };
+      });
+      const broken = states.some((item) => item.state === 'broken');
+      const missing = states.some((item) => item.state === 'missing');
+      const running = states.some((item) => item.state === 'running');
+      metric.querySelector('[data-resource-value]').textContent = activeProfile || 'Idle';
+      const detail = states.length
+        ? states.map(({ profile, state }) => `${profile.profile_id}: ${state}`).join(' · ')
+        : 'No supervised TTS runtime initialized';
+      metric.querySelector('[data-resource-detail]').textContent = activeModel
+        ? `${activeModel} · ${detail}`
+        : detail;
+      const fill = metric.querySelector('[data-resource-fill]');
+      fill.style.width = running ? '100%' : (missing || broken ? '35%' : '0%');
+      fill.dataset.level = broken ? 'critical' : (missing ? 'warning' : 'normal');
     }
 
     updateMetric(key, percent, value, detail) {

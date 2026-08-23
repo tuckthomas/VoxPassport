@@ -9,13 +9,14 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from runtime.inference.tts_plugins.runtime_status import tts_runtime_status_snapshot
 
 _BYTES_PER_GIB = 1024**3
 _MIB_PER_GIB = 1024
 
 
 class ResourceSnapshotCollector:
-    """Collect inexpensive system and NVIDIA GPU utilization snapshots."""
+    """Collect inexpensive system, GPU, and local TTS runtime snapshots."""
 
     def __init__(
         self,
@@ -49,6 +50,7 @@ class ResourceSnapshotCollector:
                 "usage_percent": round(float(memory.percent), 1),
             },
             "gpu": self._gpu_snapshot(),
+            "tts_runtime": tts_runtime_status_snapshot(),
         }
 
     def _gpu_snapshot(self) -> dict[str, Any]:

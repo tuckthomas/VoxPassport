@@ -38,3 +38,4 @@ jobs:
           tests/integration/test_low_vram_integrity.py
           tests/test_xtts_romanian.py
           tests/test_tts_plugin_architecture.py
+          tests/test_tts_runtime_supervisor.py

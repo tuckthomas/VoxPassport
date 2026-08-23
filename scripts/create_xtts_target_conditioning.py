@@ -1,8 +1,8 @@
 """Create an optional target-language XTTS conditioning reference with MOSS.
 
 This is an offline enrollment utility. It never replaces ``reference.wav``.
-The heavy teacher model may temporarily use most of the GPU; the generic TTS
-host switches from XTTS to MOSS, creates the Romanian WAV, then unloads MOSS.
+The XTTS-capable host is unloaded first so the heavier MOSS teacher can use the
+GPU, then the generated Romanian WAV is saved for later XTTS conditioning.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from pathlib import Path
 import aiohttp
 
 MOSS_MODEL_ID = "moss-tts-1.5"
+XTTS_MODEL_ID = "xtts-v2-romanian-v2"
 
 DEFAULT_ROMANIAN_PROMPT = (
     "Ștefan și Ioana călătoresc prin România, vorbind clar despre țară, familie, "
@@ -29,6 +30,15 @@ async def _post_json(session, url: str, payload: dict) -> dict:
         if response.status != 200:
             raise RuntimeError(body.get("error") or f"TTS plugin host returned HTTP {response.status}")
         return body
+
+
+async def _best_effort_unload(session, host: str, model_id: str) -> None:
+    try:
+        await _post_json(session, host.rstrip("/") + "/unload", {"model_id": model_id})
+    except Exception:
+        # The corresponding host may not be running or the model may not be
+        # resident. Teacher generation can still proceed if the GPU is free.
+        pass
 
 
 async def create_conditioning(args) -> Path:
@@ -47,18 +57,16 @@ async def create_conditioning(args) -> Path:
     if not reference_text:
         raise ValueError("The canonical reference transcript is empty")
 
-    if args.moss_url:
-        raise ValueError(
-            "--moss-url is no longer a client-side adapter setting. Set VOXPASSPORT_MOSS_TTS_URL before starting run.bat, or use the default MOSS backend on port 8096."
-        )
-
     prompt = args.text.strip() or DEFAULT_ROMANIAN_PROMPT
-    host = args.tts_host_url.rstrip("/")
+    primary_host = args.tts_host_url.rstrip("/")
+    xtts_host = args.xtts_host_url.rstrip("/")
     timeout = aiohttp.ClientTimeout(total=300, sock_read=240)
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        # Loading MOSS automatically unloads whichever TTS plugin was resident,
-        # including XTTS, so the teacher can temporarily use the GPU.
-        load_result = await _post_json(session, host + "/load", {"model_id": MOSS_MODEL_ID})
+        # XTTS runs in an isolated environment on a separate generic protocol
+        # host. Explicitly evict it before temporarily loading the MOSS teacher.
+        await _best_effort_unload(session, xtts_host, XTTS_MODEL_ID)
+
+        load_result = await _post_json(session, primary_host + "/load", {"model_id": MOSS_MODEL_ID})
         if not load_result.get("success"):
             raise RuntimeError(load_result.get("error") or "Could not load MOSS teacher plugin")
 
@@ -70,12 +78,14 @@ async def create_conditioning(args) -> Path:
             "ref_audio_path": str(reference.resolve()),
             "ref_text": reference_text,
         }
-        async with session.post(host + "/v1/audio/speech", json=payload) as response:
-            audio = await response.read()
-            if response.status != 200:
-                detail = audio.decode("utf-8", errors="replace")[:1500]
-                raise RuntimeError(f"MOSS teacher synthesis failed: {detail}")
-        await _post_json(session, host + "/unload", {"model_id": MOSS_MODEL_ID})
+        try:
+            async with session.post(primary_host + "/v1/audio/speech", json=payload) as response:
+                audio = await response.read()
+                if response.status != 200:
+                    detail = audio.decode("utf-8", errors="replace")[:1500]
+                    raise RuntimeError(f"MOSS teacher synthesis failed: {detail}")
+        finally:
+            await _best_effort_unload(session, primary_host, MOSS_MODEL_ID)
 
     if len(audio) <= 500:
         raise RuntimeError("MOSS teacher returned no usable conditioning audio")
@@ -93,7 +103,8 @@ async def create_conditioning(args) -> Path:
                 "canonical_identity_reference": "../reference.wav",
                 "teacher": "MOSS-TTS v1.5",
                 "teacher_protocol": "voxpassport.tts.v1",
-                "tts_host": args.tts_host_url,
+                "teacher_host": primary_host,
+                "xtts_host": xtts_host,
                 "created_unix": time.time(),
                 "text": prompt,
             },
@@ -112,7 +123,7 @@ def main() -> None:
     parser.add_argument("profile_id", help="Existing VoxPassport voice profile directory name")
     parser.add_argument("--profiles-root", default="")
     parser.add_argument("--tts-host-url", default="http://127.0.0.1:8098")
-    parser.add_argument("--moss-url", default="", help=argparse.SUPPRESS)
+    parser.add_argument("--xtts-host-url", default="http://127.0.0.1:8099")
     parser.add_argument("--text", default=DEFAULT_ROMANIAN_PROMPT)
     args = parser.parse_args()
     output = asyncio.run(create_conditioning(args))

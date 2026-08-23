@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib
-from typeguard import TypeCheckError  # type: ignore[import-not-found]
 
 from runtime.inference.tts_plugins.manifest import TtsManifest
 from runtime.workers.tts_host.protocol import TtsDriver

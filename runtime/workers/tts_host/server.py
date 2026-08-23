@@ -2,7 +2,8 @@
 
 The host exposes one stable local protocol (`voxpassport.tts.v1`) and lazily
 loads a driver selected by model manifest. Only drivers know model-library or
-backend-specific semantics.
+backend-specific semantics. The supervisor supplies both the model-manifest and
+backend-runtime catalogs so custom/test catalogs remain internally consistent.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from runtime.inference.tts_plugins.backend_runtime import BackendRuntimeCatalog
 from runtime.inference.tts_plugins.manifest import TtsManifest, TtsManifestCatalog
 from runtime.workers.tts_host.driver_loader import create_driver
 from runtime.workers.tts_host.protocol import TtsDriver, TtsDriverRequest
@@ -132,16 +134,7 @@ class TtsDriverController:
         return self._manifest, self._driver
 
     def _ensure_loaded_under_runtime_lock(self, model_id: str) -> tuple[TtsManifest, TtsDriver]:
-        """Revalidate the selected driver after the utterance lock is acquired.
-
-        `/v1/audio/speech` performs an async load before streaming so failures
-        can be returned as JSON before response headers are committed. A second
-        request could request a hot-swap in the tiny interval between that load
-        and the synthesis thread acquiring `_runtime_lock`. Revalidating here
-        closes that race and guarantees the requested model owns the complete
-        committed utterance. Runtime-only driver options injected by the
-        supervisor are retained during this revalidation.
-        """
+        """Revalidate the selected driver after the utterance lock is acquired."""
         manifest = self.catalog.resolve(model_id)
         if (
             self._manifest is None
@@ -153,8 +146,6 @@ class TtsDriverController:
         return self._require_loaded(manifest.model_id)
 
     def pcm_iterator(self, model_id: str, request: TtsDriverRequest) -> Iterator[bytes]:
-        # Keep a selected driver resident and immutable for the entire utterance;
-        # hot-swap waits until the committed utterance leaves this critical section.
         with self._runtime_lock:
             _manifest, driver = self._ensure_loaded_under_runtime_lock(model_id)
             yield from driver.synthesize_pcm(request)
@@ -271,9 +262,6 @@ def create_app(controller: TtsDriverController) -> web.Application:
             return web.json_response({"error": "model is required"}, status=400)
         try:
             manifest = controller.catalog.resolve(model_id)
-            # If the supervisor injected runtime-only driver options during
-            # /load, controller.load() preserves them for the already-selected
-            # model instead of recreating the driver from static manifest data.
             await controller.load(manifest.model_id)
             driver_request = _request_object(data)
             if driver_request.language not in manifest.languages and "*" not in manifest.languages:
@@ -365,10 +353,18 @@ def create_app(controller: TtsDriverController) -> web.Application:
 def main() -> None:
     parser = argparse.ArgumentParser(description="VoxPassport generic TTS plugin host")
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8098)
+    parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--manifest-dir", default=str(PROJECT_ROOT / "runtime" / "tts_manifests"))
+    parser.add_argument(
+        "--backend-runtime-dir",
+        default=str(PROJECT_ROOT / "runtime" / "tts_backend_runtimes"),
+    )
     args = parser.parse_args()
-    catalog = TtsManifestCatalog(Path(args.manifest_dir)).load()
+    backend_catalog = BackendRuntimeCatalog(Path(args.backend_runtime_dir)).load()
+    catalog = TtsManifestCatalog(
+        Path(args.manifest_dir),
+        backend_runtime_catalog=backend_catalog,
+    ).load()
     controller = TtsDriverController(catalog)
     web.run_app(create_app(controller), host=args.host, port=args.port, print=None)
 

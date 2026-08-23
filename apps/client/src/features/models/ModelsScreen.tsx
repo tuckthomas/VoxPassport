@@ -1,18 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Text } from 'react-native';
+import type { ModelEntry } from '@/api/contracts';
+import { useVoxPassportApi } from '@/api/useVoxPassportApi';
 import { ActionButton, Card } from '@/components/Card';
 import { Screen } from '@/components/Screen';
-import { VoxPassportApi } from '@/api/client';
-import type { ModelEntry } from '@/api/contracts';
 import { useRuntimeTarget } from '@/config/RuntimeTargetContext';
 import { colors } from '@/theme';
 
 export default function ModelsScreen() {
   const target = useRuntimeTarget();
-  const api = useMemo(
-    () => new VoxPassportApi(target.activeBaseUrl, { nativeLocal: target.mode === 'local' }),
-    [target.activeBaseUrl, target.mode],
-  );
+  const api = useVoxPassportApi();
   const [models, setModels] = useState<ModelEntry[]>([]);
   const [error, setError] = useState('');
 

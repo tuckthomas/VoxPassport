@@ -13,7 +13,6 @@
     "doctor": "expo-doctor"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.0.0",
     "expo": "~57.0.9",
     "expo-audio": "~57.0.3",
     "expo-constants": "~57.0.8",

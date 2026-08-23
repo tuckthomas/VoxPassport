@@ -57,16 +57,23 @@ export default function RuntimeScreen() {
         </View>
       </Card>
       <Card>
-        <Text style={{ color: colors.text, fontWeight: '700' }}>Desktop audio</Text>
+        <Text style={{ color: colors.text, fontWeight: '700' }}>Desktop audio implementation</Text>
         <Text style={{ color: colors.muted, marginTop: 8 }}>Platform: {audio?.platform ?? 'web / unavailable'}</Text>
-        <Text style={{ color: colors.muted }}>Physical microphone: {audio?.physical_microphone ? 'available' : 'not reported'}</Text>
-        <Text style={{ color: colors.muted }}>Loopback capture: {audio?.loopback_capture ? 'available' : 'not reported'}</Text>
-        <Text style={{ color: colors.muted }}>Virtual microphone output: {audio?.virtual_microphone_output ? 'available' : 'not yet validated'}</Text>
-        {audio?.virtual_microphone_note ? <Text style={{ color: colors.muted, marginTop: 6 }}>{audio.virtual_microphone_note}</Text> : null}
+        <Capability label="Native platform boundary" ready={audio?.native_audio_boundary} />
+        <Capability label="Microphone enumeration" ready={audio?.microphone_enumeration} />
+        <Capability label="Microphone capture" ready={audio?.microphone_capture} />
+        <Capability label="Render-device enumeration" ready={audio?.render_enumeration} />
+        <Capability label="Loopback capture" ready={audio?.loopback_capture} />
+        <Capability label="Virtual microphone output" ready={audio?.virtual_microphone_output} />
+        {audio?.note ? <Text style={{ color: colors.muted, marginTop: 6 }}>{audio.note}</Text> : null}
       </Card>
-      {error ? <Text style={{ color: '#fca5a5' }}>{error}</Text> : null}
+      {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
     </Screen>
   );
+}
+
+function Capability({ label, ready }: { label: string; ready?: boolean }) {
+  return <Text style={{ color: ready ? colors.success : colors.muted }}>{label}: {ready ? 'implemented' : 'not yet implemented/validated'}</Text>;
 }
 
 function Action({ label, onPress }: { label: string; onPress: () => void }) {

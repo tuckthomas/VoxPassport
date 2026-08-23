@@ -31,7 +31,11 @@ class Handler(BaseHTTPRequestHandler):
             if marker is not None and marker.exists():
                 self._json({"status": "degraded", "error": "forced unhealthy backend"}, 503)
                 return
-            self._json({"status": "ok", "data": []})
+            self._json({
+                "status": "ok",
+                "data": [],
+                "checkpoint": getattr(self.server, "checkpoint", ""),
+            })
             return
         self._json({"error": "not found"}, 404)
 
@@ -68,15 +72,22 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, required=True)
+    parser.add_argument("--checkpoint", default="")
     parser.add_argument("--restart-health-marker", default="")
+    parser.add_argument("--launch-record", default="")
     args = parser.parse_args()
     marker = Path(args.restart_health_marker).resolve() if args.restart_health_marker else None
     # A newly launched replacement becomes healthy again. The already-running
     # process sees a marker created after startup and returns 503 until killed.
     if marker is not None and marker.exists():
         marker.unlink()
+    if args.launch_record:
+        record = Path(args.launch_record).resolve()
+        record.parent.mkdir(parents=True, exist_ok=True)
+        record.write_text(args.checkpoint, encoding="utf-8")
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     server.restart_health_marker = marker
+    server.checkpoint = args.checkpoint
     server.serve_forever()
 
 

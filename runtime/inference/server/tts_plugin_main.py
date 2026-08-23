@@ -38,7 +38,14 @@ class LiveTranslatorApp(BaseLiveTranslatorApp):
         manifest = self._manifest_for_model(model_name)
         if manifest is not None:
             return manifest.model_id
-        return super()._normalize_clone_model(model_name)
+
+        # Preserve old fuzzy aliases for compatibility, but immediately feed the
+        # legacy normalization result back through the manifest catalog. This
+        # guarantees an old spelling such as a MOSS/OpenMOSS variant still lands
+        # on the generic plugin path instead of the inherited concrete branch.
+        legacy = super()._normalize_clone_model(model_name)
+        manifest = self._manifest_for_model(legacy)
+        return manifest.model_id if manifest is not None else legacy
 
     def _tts_engine_for_model(self, model_name: str | None):
         manifest = self._manifest_for_model(self._normalize_clone_model(model_name))

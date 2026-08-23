@@ -36,7 +36,7 @@
               id,
               name: entry.name || id,
               shortName: entry.name || id,
-              meta: downloadGb > 0 ? `Plugin • ${downloadGb.toFixed(2)} GB download` : 'Manifest TTS plugin',
+              meta: downloadGb > 0 ? ('Plugin • ' + downloadGb.toFixed(2) + ' GB download') : 'Manifest TTS plugin',
               vramGb: estimatePluginVram(entry),
               desc: entry.voice_cloning_support ? 'Streaming Voice Cloning Plugin' : 'Streaming TTS Plugin',
               license: entry.license || 'verify',
@@ -47,7 +47,7 @@
 
           async function syncManifestTtsCatalog() {
             try {
-              const response = await fetch(`${API_URL}/models/available`);
+              const response = await fetch(API_URL + '/models/available');
               if (!response.ok) return;
               const entries = await response.json();
               const plugins = Array.isArray(entries)

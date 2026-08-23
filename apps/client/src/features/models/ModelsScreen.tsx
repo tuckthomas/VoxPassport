@@ -9,7 +9,10 @@ import { colors } from '@/theme';
 
 export default function ModelsScreen() {
   const target = useRuntimeTarget();
-  const api = useMemo(() => new VoxPassportApi(target.activeBaseUrl), [target.activeBaseUrl]);
+  const api = useMemo(
+    () => new VoxPassportApi(target.activeBaseUrl, { nativeLocal: target.mode === 'local' }),
+    [target.activeBaseUrl, target.mode],
+  );
   const [models, setModels] = useState<ModelEntry[]>([]);
   const [error, setError] = useState('');
 
@@ -24,7 +27,7 @@ export default function ModelsScreen() {
 
   useEffect(() => {
     if (target.ready) void refresh();
-  }, [target.ready, target.activeBaseUrl]);
+  }, [target.ready, api]);
 
   return (
     <Screen

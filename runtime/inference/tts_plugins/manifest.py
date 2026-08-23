@@ -181,19 +181,27 @@ def validate_manifest(raw: dict[str, Any], path: Path | str = "<memory>") -> Non
 
 
 class TtsManifestCatalog:
-    """Loads manifests and resolves model IDs/aliases without daemon branches."""
+    """Loads manifests and resolves model IDs/aliases without daemon branches.
+
+    Backend-runtime validation is enabled for application/supervisor catalogs.
+    Generic worker hosts set ``validate_backend_runtimes=False`` because backend
+    lifecycle metadata is intentionally outside the worker boundary; the
+    supervisor already validated it before starting/loading the worker.
+    """
 
     def __init__(
         self,
         manifest_dir: Path | str | None = None,
         *,
         backend_runtime_catalog: Optional["BackendRuntimeCatalog"] = None,
+        validate_backend_runtimes: bool = True,
     ) -> None:
         if manifest_dir is None:
             project_root = Path(__file__).resolve().parents[3]
             manifest_dir = project_root / "runtime" / "tts_manifests"
         self.manifest_dir = Path(manifest_dir)
         self.backend_runtime_catalog = backend_runtime_catalog
+        self.validate_backend_runtimes = bool(validate_backend_runtimes)
         self._by_id: dict[str, TtsManifest] = {}
         self._aliases: dict[str, str] = {}
 
@@ -212,7 +220,7 @@ class TtsManifestCatalog:
         runtime_catalog: Optional["BackendRuntimeCatalog"] = None
         for path in sorted(self.manifest_dir.glob("*.json")):
             manifest = TtsManifest.load(path)
-            if manifest.backend_runtime:
+            if manifest.backend_runtime and self.validate_backend_runtimes:
                 runtime_catalog = runtime_catalog or self._runtime_catalog()
                 try:
                     backend_runtime = runtime_catalog.resolve(manifest.backend_runtime)

@@ -32,6 +32,27 @@ async def test_bootstrap_route_allows_non_browser_local_client():
         assert payload["protocol_version"] == "voxpassport.client.v1"
         assert payload["app_version"] == "test-version"
         assert "DIRECT_SPEECH_TRANSLATION" in payload["capabilities"]
+        assert payload["translation_strategies_url"].endswith("/api/translation/strategies")
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_translation_strategy_route_is_backend_driven():
+    client = await _make_client()
+    try:
+        response = await client.get("/api/translation/strategies")
+        assert response.status == 200
+        payload = await response.json()
+        assert payload["schema_version"] == 1
+        gemini = next(
+            entry for entry in payload["strategies"]
+            if entry["strategy_id"] == "gemini-3.5-live-translate"
+        )
+        assert gemini["provider"] == "google"
+        assert gemini["execution_mode"] == "byo_api"
+        assert gemini["capability"] == "DIRECT_SPEECH_TRANSLATION"
+        assert {"en", "ro"}.issubset(gemini["confirmed_languages"])
     finally:
         await client.close()
 

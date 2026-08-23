@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 from pathlib import Path
 from urllib import error as urlerror
 from urllib import request as urlrequest
@@ -30,7 +31,11 @@ class OpenAiSpeechProxyDriver(TtsDriver):
         return self.manifest.driver_options
 
     def _backend_url(self) -> str:
-        return str(self._options()["backend_url"]).rstrip("/")
+        options = self._options()
+        env_name = str(options.get("backend_url_env", "")).strip()
+        if env_name and os.getenv(env_name):
+            return str(os.environ[env_name]).rstrip("/")
+        return str(options["backend_url"]).rstrip("/")
 
     def _health_url(self) -> str:
         return self._backend_url() + str(self._options().get("health_path", "/v1/models"))
@@ -113,16 +118,20 @@ class OpenAiSpeechProxyDriver(TtsDriver):
 
     def synthesize_pcm(self, request: TtsDriverRequest):
         payload = self._payload(request, response_format="pcm", stream=True)
+        carry = b""
         with self._post(payload) as response:
             while True:
-                chunk = response.read(32768)
-                if not chunk:
+                raw = response.read(32768)
+                if not raw:
                     break
-                if len(chunk) % 2:
-                    # Keep wire framing valid for signed 16-bit PCM.
-                    chunk = chunk[:-1]
-                if chunk:
-                    yield chunk
+                data = carry + raw
+                even = len(data) - (len(data) % 2)
+                if even:
+                    yield data[:even]
+                carry = data[even:]
+        if carry:
+            # A single trailing byte cannot form a signed 16-bit PCM sample.
+            carry = b""
 
     def synthesize_wav(self, request: TtsDriverRequest) -> bytes:
         payload = self._payload(request, response_format="wav", stream=False)

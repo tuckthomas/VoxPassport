@@ -565,6 +565,12 @@ class TtsRuntimeSupervisor:
             if self._managed_backend_required(resolved):
                 backend = self._backends.get(resolved.model_id)
                 backend_ok = bool(backend is not None and self._process_alive(backend))
+                if backend_ok and backend is not None:
+                    backend_ok = await self._endpoint_healthy(
+                        backend.endpoint,
+                        backend.health_path,
+                        timeout=1.5,
+                    )
             healthy = False
             if (
                 self._active_model_id == resolved.model_id

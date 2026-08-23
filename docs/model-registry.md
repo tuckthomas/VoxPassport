@@ -4,7 +4,13 @@
 
 `ModelRegistry` is the persistent source of installation state, active capability slots, benchmark metadata, pinning, and known-good configurations. It is deliberately separate from model weight files and model-specific runtime implementation code.
 
-For local TTS, model declaration originates in `runtime/tts_manifests/*.json`. The registry stores stable model lifecycle state; the TTS runtime supervisor owns ephemeral worker/backend process and endpoint state.
+For local TTS there are three distinct sources of truth:
+
+- `runtime/tts_manifests/*.json` — stable **model** declaration;
+- `runtime/tts_backend_runtimes/*.json` — reusable **backend server family** lifecycle declarations;
+- `runtime/profiles/runtime_profiles.json` — dependency-compatible **environment families**.
+
+The registry stores stable model lifecycle state. The TTS supervisor owns ephemeral worker/backend process and endpoint state.
 
 ## Registry entry schema
 
@@ -22,17 +28,14 @@ A registry entry tracks cross-model lifecycle metadata such as:
   "supports_english": true,
   "supports_romanian": true,
   "streaming_support": true,
-  "voice_cloning_support": false,
   "required_runtime": "transformers",
-  "estimated_download_size_gb": 1.2,
-  "expected_vram_tiers": {"fp16": "~3GB"},
   "installation_status": "not_installed",
   "is_active": false,
   "is_pinned": false
 }
 ```
 
-The exact serialized fields can evolve, but the architectural split should remain: the registry stores stable model lifecycle information, while local TTS driver/profile/backend-lifecycle declaration remains in manifests.
+The registry stores model identity/lifecycle information. It does **not** persist ephemeral TTS ports, PIDs, backend processes, or deployment commands.
 
 ## Capability-based model selection
 
@@ -48,146 +51,143 @@ registry.get_active_model(capability="TTS", language="en")
 registry.get_active_model(capability="VAD")
 ```
 
-## Per-direction active slots
-
-| Capability | Direction | Runtime slot |
-| --- | --- | --- |
-| ASR | Local/source | `asr_en` or corresponding source slot |
-| ASR | Remote/source | `asr_ro` or corresponding source slot |
-| Translation | EN → RO | `translation_en_ro` |
-| Translation | RO → EN | `translation_ro_en` |
-| TTS | Romanian output | `tts_ro` |
-| TTS | English output | `tts_en` |
-| VAD | Shared | `vad` |
-
 Logical slots do not imply duplicate physical weights. Both TTS slots may point to one active supervised TTS model.
 
 ## Local TTS ownership
 
 ```text
-runtime/tts_manifests/*.json
-          │
-          ├── stable model ID / aliases
-          ├── capabilities
-          ├── driver declaration
-          ├── runtime_profile
-          └── optional backend_process contract
-                    │
-                    ├──────────────► TTS Runtime Supervisor
-                    │                worker/backend process,
-                    │                dynamic endpoints, residency
-                    │
-                    ▼
-             registry bridge
-                    │
-                    ▼
-               ModelRegistry
-                    │
-                    ├── installation state
-                    ├── active tts_en / tts_ro slots
-                    ├── pinning / cleanup state
-                    └── benchmark / known-good state
+TTS model manifest
+  model ID / aliases / capabilities
+  driver + runtime_profile
+  optional backend_runtime + backend_args
+             │
+             ├────────────► ModelRegistry
+             │               install / active / benchmark state
+             │
+             ▼
+      TtsRuntimeSupervisor
+             │
+             ├── worker runtime profile
+             ├── optional BackendRuntimeCatalog entry
+             ├── ephemeral worker/backend PIDs and ports
+             └── health / residency / recovery
 ```
 
-`ModelManagerController` must not maintain a second local-TTS alias catalog. Native Higgs is an ordinary manifest-driven model; XTTS is an ordinary manifest-driven model assigned to a different dependency profile; proxy models remain ordinary manifests whose local backend lifecycle is supervised when required.
+`ModelManagerController` must not maintain a second local-TTS alias catalog. Native Higgs, XTTS, MOSS, full Higgs, and VoxCPM are all ordinary model manifests.
+
+## Backend runtimes are not models
+
+A reusable backend runtime is deployment infrastructure, not a selectable model. It therefore does not receive its own model-registry entry.
+
+Example:
+
+```text
+Registry model:    moss-tts-1.5
+Model manifest:    runtime_profile = core
+                   backend_runtime = moss-openai-server
+                   backend_args.checkpoint = OpenMOSS-Team/...
+Backend runtime:   runtime_profile = core
+                   launch/health/remote family contract
+Supervisor:        transient worker/backend PIDs + endpoints
+```
+
+A future `moss-tts-1.6` can point to the same `moss-openai-server` backend runtime with another checkpoint argument. No additional registry architecture, launcher environment variable, or supervisor branch is required.
 
 ## TTS runtime topology is not registry identity
 
-Examples:
+For XTTS:
 
 ```text
 Registry:    active TTS model = xtts-v2-romanian-v2
 Manifest:    runtime_profile = coqui-xtts
-Supervisor:  coqui-xtts worker = PID/ephemeral endpoint at this moment
+Supervisor:  coqui-xtts worker = transient PID/endpoint
 ```
 
-For a local proxy model:
+For a proxy-backed model:
 
 ```text
 Registry:    active TTS model = moss-tts-1.5
-Manifest:    runtime_profile = core
-             backend_process = supervisor launch contract
-Supervisor:  core worker + MOSS backend = transient PIDs/endpoints
+Manifest:    backend_runtime = moss-openai-server
+Supervisor:  transient generic worker + managed MOSS server
 ```
-
-Only the model ID and manifest declaration are stable configuration. Worker/backend PIDs and localhost ports are transient runtime state.
 
 Therefore:
 
-- registry active slots persist **model IDs**, not worker or backend ports;
-- known-good sets persist model IDs, not process topology;
-- the same model may run at different ephemeral endpoints after restart;
-- Model Settings obtains live worker/backend health from resource diagnostics rather than persisting it into registry identity.
+- active slots persist model IDs, never worker/backend ports;
+- known-good sets persist model IDs, never process topology;
+- one backend runtime can serve many model manifests over time;
+- Model Settings obtains live worker/backend state from diagnostics;
+- changing an ephemeral endpoint does not change model identity.
 
 ## Hot-swap lifecycle
 
-For local TTS the implemented lifecycle is:
+For local TTS:
 
 ```text
-REQUESTED MODEL
+requested model
       ↓
-resolve manifest + runtime_profile
+resolve model manifest
       ↓
-if needed, drain current committed utterance
+resolve worker runtime profile
       ↓
-unload old worker-side driver
+resolve optional reusable backend runtime
       ↓
-terminate old managed backend process tree, if any
+validate backend_args
       ↓
-terminate old worker if profile-incompatible
+unload prior driver
       ↓
-start/health-check target managed backend, if any
+terminate prior managed backend if any
       ↓
-start/reuse target profile worker
+terminate incompatible prior worker if needed
       ↓
-inject dynamic backend endpoint when required
+launch/health-check target backend from reusable runtime definition
+      ↓
+start/reuse target worker
+      ↓
+inject ephemeral backend endpoint
       ↓
 load + health-check target driver/model
       ↓
-activate target model
-      ↓
-rollback prior manifest/backend on activation failure when possible
+commit active model
 ```
+
+Activation failure attempts rollback to the previous manifest/backend.
 
 Important policies:
 
-- a committed utterance is not interrupted by a routine same-host swap;
 - same-profile models can reuse one generic worker process;
-- a managed local proxy backend is terminated whenever its model is released or replaced;
-- cross-profile TTS changes also terminate the incompatible old generic worker;
-- on constrained hardware, avoiding simultaneous heavyweight local TTS residency is the default;
-- an alive-but-unhealthy managed backend is recycled before synthesis;
-- worker/backend crashes do not change stable model identity; the supervisor recreates transient processes when recovery is appropriate;
-- explicit non-loopback proxy URLs are remote resources and therefore outside local GPU/process residency.
+- a local proxy backend is part of supervised TTS residency;
+- an alive-but-unhealthy backend is recycled before reuse;
+- explicit non-loopback remote backend services are outside local GPU/process residency;
+- unmanaged localhost backend services are rejected;
+- a model on an existing backend family requires only another model manifest.
 
 ## Installation state versus runtime state
 
-These are separate questions:
+These remain separate:
 
 ```text
 Model installed?
-  -> checkpoint/package state tracked by the model registry
+  -> model registry / checkpoint state
 
-Runtime profile installed?
-  -> interpreter/dependency environment tracked by runtime-profile diagnostics
+Worker runtime profile installed?
+  -> runtime-profile catalog and diagnostics
 
-Generic worker running?
-  -> ephemeral supervisor process state
+Backend runtime family configured?
+  -> BackendRuntimeCatalog definition + optional deployment override
 
-Managed local proxy backend running?
-  -> ephemeral supervisor backend state, when required by the active model
+Worker/backend process running?
+  -> ephemeral TTS supervisor state
 ```
 
-A model can therefore be downloaded while its required runtime profile or local backend launch command is unavailable. Activation should fail clearly until those runtime requirements are satisfied.
+A model can be downloaded while a required dependency profile or backend-family deployment command is unavailable. Activation must fail clearly rather than creating model-specific fallback paths.
 
 ## Known-good model sets
 
-A known-good set captures model identities, not process topology:
+Known-good sets capture model IDs, not backend/runtime process details:
 
 ```json
 {
-  "set_id": "kgms-example",
-  "app_version": "0.1.0",
   "models": {
     "asr_en": "nvidia-parakeet-tdt-0.6b-v3",
     "asr_ro": "nvidia-parakeet-tdt-0.6b-v3",
@@ -200,7 +200,7 @@ A known-good set captures model identities, not process topology:
 }
 ```
 
-The supervisor is free to recreate those models under new ephemeral worker/backend endpoints without invalidating the set.
+The supervisor may recreate transient TTS processes/endpoints without invalidating a known-good set.
 
 ## Session stability policy
 
@@ -208,4 +208,4 @@ The supervisor is free to recreate those models under new ephemeral worker/backe
 - Stage newly discovered candidates for later evaluation.
 - Automatic recovery/failover is appropriate when the active runtime fails and a validated fallback exists.
 - Voice profiles remain independent from the active TTS model.
-- Reference-transcript requirements come from TTS capabilities, not from permanent voice-profile schema.
+- Reference-transcript requirements come from TTS capabilities, not permanent voice-profile schema.

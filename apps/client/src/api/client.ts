@@ -1,4 +1,5 @@
 import type {
+  LanguageConfiguration,
   ModelEntry,
   RuntimeBootstrap,
   RuntimeStatus,
@@ -41,6 +42,10 @@ export class VoxPassportApi {
 
   status(): Promise<RuntimeStatus> {
     return this.request('/api/status');
+  }
+
+  languages(): Promise<LanguageConfiguration> {
+    return this.request('/api/languages');
   }
 
   models(): Promise<ModelEntry[]> {

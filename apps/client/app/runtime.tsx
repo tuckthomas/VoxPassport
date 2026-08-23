@@ -5,15 +5,18 @@ import { Screen } from '@/components/Screen';
 import { colors } from '@/theme';
 import {
   getDesktopAudioCapabilities,
+  getDesktopAudioDevices,
   getDesktopRuntimeStatus,
   startDesktopRuntime,
   stopDesktopRuntime,
   type DesktopAudioCapabilities,
+  type DesktopAudioDevice,
   type DesktopRuntimeProcessStatus,
 } from '@/desktop/bridge';
 
 export default function RuntimeScreen() {
   const [audio, setAudio] = useState<DesktopAudioCapabilities | null>(null);
+  const [devices, setDevices] = useState<DesktopAudioDevice[]>([]);
   const [runtime, setRuntime] = useState<DesktopRuntimeProcessStatus | null>(null);
   const [error, setError] = useState('');
 
@@ -26,6 +29,11 @@ export default function RuntimeScreen() {
       ]);
       setAudio(audioState);
       setRuntime(runtimeState);
+      if (audioState?.microphone_enumeration || audioState?.render_enumeration) {
+        setDevices((await getDesktopAudioDevices()) ?? []);
+      } else {
+        setDevices([]);
+      }
     } catch (next) {
       setError(next instanceof Error ? next.message : String(next));
     }
@@ -41,6 +49,9 @@ export default function RuntimeScreen() {
       setError(next instanceof Error ? next.message : String(next));
     }
   }
+
+  const microphones = devices.filter((device) => device.role === 'physical_microphone');
+  const renderDevices = devices.filter((device) => device.role === 'render_output');
 
   return (
     <Screen title="Runtime & Audio" subtitle="Native desktop capability state. Realtime PCM never crosses the React/Tauri UI bridge.">
@@ -67,8 +78,24 @@ export default function RuntimeScreen() {
         <Capability label="Virtual microphone output" ready={audio?.virtual_microphone_output} />
         {audio?.note ? <Text style={{ color: colors.muted, marginTop: 6 }}>{audio.note}</Text> : null}
       </Card>
+      <DeviceList title="Capture endpoints" devices={microphones} />
+      <DeviceList title="Render endpoints" devices={renderDevices} />
       {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
     </Screen>
+  );
+}
+
+function DeviceList({ title, devices }: { title: string; devices: DesktopAudioDevice[] }) {
+  return (
+    <Card>
+      <Text style={{ color: colors.text, fontWeight: '700' }}>{title}</Text>
+      {devices.length ? devices.map((device) => (
+        <View key={device.id} style={{ gap: 2 }}>
+          <Text style={{ color: colors.text }}>{device.name}{device.is_default ? ' · Default' : ''}</Text>
+          <Text selectable style={{ color: colors.muted, fontSize: 12 }}>{device.id}</Text>
+        </View>
+      )) : <Text style={{ color: colors.muted }}>No endpoints reported.</Text>}
+    </Card>
   );
 }
 

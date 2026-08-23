@@ -72,6 +72,7 @@ def _proxy_manifest_payload(
     profile: str = "alpha",
     *,
     managed: bool = True,
+    restart_health_marker: Path | None = None,
 ) -> dict:
     options: dict[str, object] = {
         "health_path": "/v1/models",
@@ -84,15 +85,18 @@ def _proxy_manifest_payload(
         "reference_text_field": "ref_text",
     }
     if managed:
+        command = [
+            "{python}",
+            str(FAKE_BACKEND),
+            "--host",
+            "{host}",
+            "--port",
+            "{port}",
+        ]
+        if restart_health_marker is not None:
+            command.extend(["--restart-health-marker", str(restart_health_marker)])
         options["backend_process"] = {
-            "command": [
-                "{python}",
-                str(FAKE_BACKEND),
-                "--host",
-                "{host}",
-                "--port",
-                "{port}",
-            ],
+            "command": command,
             "startup_timeout_seconds": 8,
         }
     else:
@@ -307,6 +311,34 @@ def test_managed_proxy_backend_is_killed_on_release(tmp_path: Path):
         state = await supervisor.status()
         assert state["active_model_id"] is None
         assert state["backends"] == []
+        await supervisor.shutdown()
+
+    asyncio.run(exercise())
+
+
+def test_managed_proxy_backend_is_recycled_when_process_is_alive_but_unhealthy(tmp_path: Path):
+    marker = tmp_path / "backend-unhealthy.marker"
+    supervisor = _supervisor(
+        tmp_path,
+        [_proxy_manifest_payload("proxy", restart_health_marker=marker)],
+    )
+
+    async def exercise():
+        await supervisor.activate("proxy")
+        first = await supervisor.status()
+        first_backend = first["backends"][0]
+        first_pid = first_backend["pid"]
+        first_endpoint = first_backend["endpoint"]
+        marker.write_text("force unhealthy", encoding="utf-8")
+
+        await supervisor.ensure_active("proxy")
+        second = await supervisor.status()
+        second_backend = second["backends"][0]
+        assert second_backend["running"] is True
+        assert second_backend["pid"] != first_pid
+        assert second_backend["endpoint"] != first_endpoint
+        assert not marker.exists()
+        assert second["active_model_id"] == "proxy"
         await supervisor.shutdown()
 
     asyncio.run(exercise())

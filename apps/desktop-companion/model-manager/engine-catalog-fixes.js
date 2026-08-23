@@ -22,39 +22,62 @@
             activeVadEngine = 'silero-vad-v6.2.1';
           }
 
-          const xttsId = 'xtts-v2-romanian-v2';
-          if (typeof MODEL_DISPLAY_NAMES !== 'undefined') {
-            MODEL_DISPLAY_NAMES[xttsId] = 'XTTS-v2 Romanian v2';
+          function estimatePluginVram(entry) {
+            const tiers = entry?.expected_vram_tiers || {};
+            const text = Object.values(tiers).join(' ');
+            const match = text.match(/~?(\\d+(?:\\.\\d+)?)\\s*GB/i);
+            return match ? Number(match[1]) : 0;
           }
-          if (typeof MODEL_TAG_STATUS !== 'undefined') {
-            MODEL_TAG_STATUS[xttsId] = 'Worker :8098';
-          }
-          if (typeof CANONICAL_MODEL_ALIASES !== 'undefined') {
-            CANONICAL_MODEL_ALIASES[xttsId] = xttsId;
-            CANONICAL_MODEL_ALIASES['eduardem-xtts-v2-romanian-v2'] = xttsId;
-          }
-          if (typeof MODEL_SPECS !== 'undefined') {
-            MODEL_SPECS[xttsId] = { targetSeconds: 10, badge: '10S ENROLLMENT', tier: 'short' };
-          }
-          if (typeof TTS_MODEL_SPECS !== 'undefined' && !TTS_MODEL_SPECS.some(m => m.id === xttsId)) {
-            TTS_MODEL_SPECS.push({
-              id: xttsId,
-              name: 'XTTS-v2 Romanian v2',
-              shortName: 'XTTS Romanian v2',
-              meta: '24kHz • ~2.35 GB checkpoint',
-              vramGb: 3.5,
-              desc: 'Streaming English/Romanian Voice Cloning',
-              license: 'CPML',
-              commercialUse: 'verify',
-              upstreamId: 'eduardem/xtts-v2-romanian-v2',
-              licenseUrl: 'https://huggingface.co/eduardem/xtts-v2-romanian-v2',
-            });
+
+          async function syncManifestTtsCatalog() {
+            try {
+              const response = await fetch(\`\${API_URL}/models/available\`);
+              if (!response.ok) return;
+              const entries = await response.json();
+              const plugins = Array.isArray(entries)
+                ? entries.filter(entry => entry.capability === 'TTS' && entry.required_runtime === 'voxpassport.tts.v1')
+                : [];
+
+              for (const entry of plugins) {
+                const id = entry.model_id;
+                if (!id) continue;
+                if (typeof MODEL_DISPLAY_NAMES !== 'undefined') {
+                  MODEL_DISPLAY_NAMES[id] = entry.name || id;
+                }
+                if (typeof MODEL_TAG_STATUS !== 'undefined') {
+                  MODEL_TAG_STATUS[id] = 'TTS Plugin Host :8098';
+                }
+                if (typeof CANONICAL_MODEL_ALIASES !== 'undefined') {
+                  CANONICAL_MODEL_ALIASES[id] = id;
+                }
+                if (typeof MODEL_SPECS !== 'undefined' && !MODEL_SPECS[id]) {
+                  MODEL_SPECS[id] = { targetSeconds: 10, badge: '10S ENROLLMENT', tier: 'short' };
+                }
+                if (typeof TTS_MODEL_SPECS !== 'undefined' && !TTS_MODEL_SPECS.some(model => model.id === id)) {
+                  const downloadGb = Number(entry.estimated_download_size_gb || 0);
+                  TTS_MODEL_SPECS.push({
+                    id,
+                    name: entry.name || id,
+                    shortName: entry.name || id,
+                    meta: downloadGb > 0 ? \`Plugin • \${downloadGb.toFixed(2)} GB download\` : 'Manifest TTS plugin',
+                    vramGb: estimatePluginVram(entry),
+                    desc: entry.voice_cloning_support ? 'Streaming Voice Cloning Plugin' : 'Streaming TTS Plugin',
+                    license: entry.license || 'verify',
+                    commercialUse: entry.commercial_use || 'verify',
+                    upstreamId: entry.upstream_id || '',
+                  });
+                }
+              }
+              if (typeof renderTtsModelWidgets === 'function') renderTtsModelWidgets();
+            } catch (err) {
+              console.warn('Could not synchronize manifest TTS catalog:', err);
+            }
           }
 
           if (typeof loadModelHub === 'function') {
-            loadModelHub();
+            loadModelHub().finally(syncManifestTtsCatalog);
           } else {
-            renderTtsModelWidgets();
+            syncManifestTtsCatalog();
             renderVadModelWidgets();
           }
         })();

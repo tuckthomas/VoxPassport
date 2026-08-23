@@ -12,7 +12,7 @@ from typing import Iterator
 
 import numpy as np
 
-from runtime.workers.xtts_romanian.common import (
+from runtime.workers.tts_host.drivers.xtts_common import (
     conditioning_cache_key,
     dynamic_max_new_tokens,
     normalize_language,

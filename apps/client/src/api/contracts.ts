@@ -21,6 +21,12 @@ export type RuntimeStatus = {
   models_loaded: boolean;
 };
 
+export type LanguageConfiguration = {
+  user_language: string;
+  remote_language: string;
+  supported: string[];
+};
+
 export type ModelEntry = {
   model_id: string;
   name: string;

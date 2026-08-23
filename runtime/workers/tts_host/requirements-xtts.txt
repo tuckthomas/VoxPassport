@@ -1,4 +1,6 @@
-# Installed into .venv-xtts by install_xtts_worker.bat.
+# Fallback pip dependency set for the coqui-xtts runtime profile.
+# `scripts/manage_runtime_profile.py` prefers the independent uv project under
+# runtime/profiles/coqui-xtts; this file is used when uv is not available.
 # Torch/TorchAudio/TorchCodec are installed separately from the official cu130 index.
 coqui-tts==0.27.5
 transformers>=4.45,<5

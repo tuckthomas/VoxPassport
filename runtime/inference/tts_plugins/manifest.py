@@ -1,14 +1,13 @@
 """Declarative TTS model manifests.
 
-A manifest describes how VoxPassport reaches a TTS worker and what the worker
-claims to support.  It deliberately does not contain Python model-library code;
-that belongs to a worker-side driver plugin.
+A manifest describes model identity, capabilities, driver entrypoint/options, and
+its logical runtime profile. Process topology and ephemeral localhost endpoints
+are owned by the TTS runtime supervisor rather than by model metadata.
 """
 
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Optional
@@ -40,20 +39,16 @@ class TtsManifest:
         return tuple(str(v) for v in self.raw.get("aliases", []))
 
     @property
+    def runtime_profile(self) -> str:
+        return str(self.raw["runtime_profile"])
+
+    @property
     def driver_entrypoint(self) -> str:
         return str(self.raw["driver"]["entrypoint"])
 
     @property
     def driver_options(self) -> dict[str, Any]:
         return dict(self.raw.get("driver", {}).get("options", {}))
-
-    @property
-    def worker_base_url(self) -> str:
-        worker = self.raw["worker"]
-        env_name = str(worker.get("base_url_env", "")).strip()
-        if env_name and os.getenv(env_name):
-            return str(os.environ[env_name]).rstrip("/")
-        return str(worker["base_url"]).rstrip("/")
 
     @property
     def capabilities(self) -> dict[str, Any]:
@@ -119,24 +114,28 @@ def _require(mapping: dict[str, Any], key: str, *, where: str) -> Any:
 def validate_manifest(raw: dict[str, Any], path: Path | str = "<memory>") -> None:
     if not isinstance(raw, dict):
         raise TtsManifestError(f"TTS manifest {path} must contain a JSON object")
-    if int(_require(raw, "schema_version", where="manifest")) != 1:
-        raise TtsManifestError(f"Unsupported TTS manifest schema in {path}; expected schema_version=1")
+    if int(_require(raw, "schema_version", where="manifest")) != 2:
+        raise TtsManifestError(f"Unsupported TTS manifest schema in {path}; expected schema_version=2")
     model_id = str(_require(raw, "model_id", where="manifest")).strip()
     display_name = str(_require(raw, "display_name", where="manifest")).strip()
-    if not model_id or not display_name:
-        raise TtsManifestError(f"TTS manifest {path} requires non-empty model_id and display_name")
+    runtime_profile = str(_require(raw, "runtime_profile", where="manifest")).strip()
+    if not model_id or not display_name or not runtime_profile:
+        raise TtsManifestError(
+            f"TTS manifest {path} requires non-empty model_id, display_name, and runtime_profile"
+        )
+    if "worker" in raw:
+        raise TtsManifestError(
+            f"TTS manifest {path} must not contain worker topology; endpoints are supervisor-owned"
+        )
 
     driver = _require(raw, "driver", where="manifest")
-    worker = _require(raw, "worker", where="manifest")
     capabilities = _require(raw, "capabilities", where="manifest")
     audio = _require(raw, "audio", where="manifest")
-    if not isinstance(driver, dict) or not isinstance(worker, dict) or not isinstance(capabilities, dict) or not isinstance(audio, dict):
-        raise TtsManifestError(f"TTS manifest {path} has invalid driver/worker/capabilities/audio sections")
+    if not isinstance(driver, dict) or not isinstance(capabilities, dict) or not isinstance(audio, dict):
+        raise TtsManifestError(f"TTS manifest {path} has invalid driver/capabilities/audio sections")
     entrypoint = str(_require(driver, "entrypoint", where="driver")).strip()
     if ":" not in entrypoint:
         raise TtsManifestError(f"driver.entrypoint in {path} must use 'module:ClassName' syntax")
-    if not str(_require(worker, "base_url", where="worker")).strip():
-        raise TtsManifestError(f"worker.base_url in {path} must not be empty")
 
     languages = capabilities.get("languages", [])
     if not isinstance(languages, list) or not languages:

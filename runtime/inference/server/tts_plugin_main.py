@@ -26,6 +26,10 @@ class LiveTranslatorApp(BaseLiveTranslatorApp):
         for manifest in self.tts_manifest_catalog.manifests():
             existing = self.registry.get_entry(manifest.model_id)
             self.registry.register(manifest_registry_entry(manifest, existing))
+            # Canonicalization for install/activate/uninstall comes from the
+            # manifest rather than another set of model-manager constants.
+            for alias in (manifest.model_id, *manifest.aliases):
+                self.model_manager._ALIASES[str(alias).strip().lower()] = manifest.model_id
 
     def _manifest_for_model(self, model_name: str | None):
         return self.tts_manifest_catalog.resolve_optional(model_name)

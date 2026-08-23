@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import json
-import os
 from pathlib import Path
 from urllib import error as urlerror
 from urllib import request as urlrequest
@@ -25,7 +24,12 @@ _LANGUAGE_NAMES = {
 
 
 class OpenAiSpeechProxyDriver(TtsDriver):
-    """Reuse one driver for compatible HTTP TTS servers via manifest mapping."""
+    """Reuse one driver for compatible HTTP TTS servers via manifest mapping.
+
+    Backend endpoint discovery is deliberately *not* performed here. The TTS
+    runtime supervisor resolves a reusable backend runtime and injects the
+    ephemeral/remote ``backend_url`` at load time.
+    """
 
     def __init__(self, manifest) -> None:
         super().__init__(manifest)
@@ -35,16 +39,12 @@ class OpenAiSpeechProxyDriver(TtsDriver):
         return self.manifest.driver_options
 
     def _backend_url(self) -> str:
-        options = self._options()
-        env_name = str(options.get("backend_url_env", "")).strip()
-        if env_name and os.getenv(env_name):
-            return str(os.environ[env_name]).rstrip("/")
-        configured = str(options.get("backend_url", "")).strip()
+        configured = str(self._options().get("backend_url", "")).strip()
         if configured:
             return configured.rstrip("/")
         raise RuntimeError(
             f"{self.manifest.display_name} has no backend endpoint. "
-            "A supervisor-managed local endpoint or explicit remote backend URL is required."
+            "TtsRuntimeSupervisor must inject a managed local or explicit remote backend URL."
         )
 
     def _health_url(self) -> str:
@@ -78,8 +78,8 @@ class OpenAiSpeechProxyDriver(TtsDriver):
                     pass
             except Exception:
                 # A supervisor-managed local backend is terminated by the main
-                # runtime after the driver unloads. Remote backends may simply
-                # not expose an unload endpoint.
+                # runtime after driver unload. A remote backend may not expose
+                # a server-side unload endpoint.
                 pass
         self._loaded = False
 

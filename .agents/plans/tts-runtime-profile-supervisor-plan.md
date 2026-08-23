@@ -90,6 +90,7 @@ Model manifests describe **what runtime family and backend lifecycle a driver re
 - [x] Inject the managed backend endpoint into the worker as a runtime-only driver option.
 - [x] Terminate the complete managed backend process tree on model switch, release, recovery, shutdown, and interpreter-exit cleanup.
 - [x] Relaunch a managed backend when it dies and the active model is recovered.
+- [x] Probe an apparently live managed backend before reuse and recycle it if its health endpoint is no longer healthy.
 - [x] Reject unmanaged loopback proxy URLs instead of allowing local GPU residency outside supervisor control.
 - [x] Allow explicit non-loopback backend URLs as remote resources; they do not consume the local GPU and are outside local process ownership by design.
 - [x] Remove fixed `8095`/`8096`/`8097` backend addresses from current proxy manifests.
@@ -155,6 +156,7 @@ Model manifests describe **what runtime family and backend lifecycle a driver re
 - [x] Test managed proxy-backend termination on model switch.
 - [x] Test managed proxy-backend termination on model release.
 - [x] Test rejection of unmanaged loopback proxy backends.
+- [x] Test a managed backend whose process remains alive but whose health endpoint fails is recycled before reuse.
 - [x] Add the runtime-supervisor lifecycle suite to Runtime Integrity CI.
 - [ ] Observe the final push-triggered Runtime Integrity workflow as green. If GitHub does not expose the final run through the connector, execute the listed compile/pytest checks in the local development environment.
 

@@ -38,7 +38,7 @@ def test_catalog_rejects_non_direct_capability(tmp_path: Path):
             "kind": "direct_speech_translation",
             "capability": "TTS",
             "execution_mode": "local",
-            "transport": "in_process"
+            "transport": "in_process",
         }),
         encoding="utf-8",
     )
@@ -59,8 +59,8 @@ def test_catalog_rejects_unknown_top_level_fields(tmp_path: Path):
             "capability": "DIRECT_SPEECH_TRANSLATION",
             "execution_mode": "local",
             "transport": "in_process",
-            "mystery": true
-        }).replace('true', 'true'),
+            "mystery": True,
+        }),
         encoding="utf-8",
     )
 

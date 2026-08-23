@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "VoxPassport",
+  "version": "0.1.0",
+  "identifier": "com.voxpassport.desktop",
+  "build": {
+    "beforeDevCommand": "npm --prefix ../client run export:web",
+    "beforeBuildCommand": "npm --prefix ../client run export:web",
+    "frontendDist": "../../client/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "VoxPassport",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 960,
+        "minHeight": 640,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all"
+  }
+}

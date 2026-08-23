@@ -18,14 +18,16 @@ if not exist ".venv\Scripts\python.exe" (
 )
 
 if exist ".venv-xtts\Scripts\python.exe" (
-    echo Starting optional XTTS Romanian worker on http://127.0.0.1:8098...
-    start /b .venv-xtts\Scripts\python.exe runtime\workers\xtts_romanian\server.py
+    echo Starting generic TTS plugin host on http://127.0.0.1:8098 using XTTS-capable environment...
+    start /b .venv-xtts\Scripts\python.exe runtime\workers\tts_host\server.py
 ) else (
-    echo XTTS Romanian worker is not installed. Run install_xtts_worker.bat to enable it.
+    echo Starting generic TTS plugin host on http://127.0.0.1:8098...
+    echo XTTS Romanian will remain unavailable until install_xtts_worker.bat is run.
+    start /b .venv\Scripts\python.exe runtime\workers\tts_host\server.py
 )
 
 echo Starting Unified Inference Daemon on ws://127.0.0.1:8765...
-start /b .venv\Scripts\python.exe runtime\inference\server\xtts_main.py
+start /b .venv\Scripts\python.exe runtime\inference\server\tts_plugin_main.py
 
 echo Opening Desktop Caption Overlay...
 start "" "apps\desktop-companion\overlay\index.html"

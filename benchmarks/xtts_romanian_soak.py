@@ -1,8 +1,8 @@
 """Hardware soak test for alternating English/Romanian XTTS cloned turns.
 
-Run only after the XTTS worker and checkpoint are installed.  The harness does
-not download or train anything; it measures streaming latency and the worker's
-CUDA allocator over repeated turns so slow VRAM growth is visible.
+Run only after the generic TTS plugin host and XTTS checkpoint are installed.
+The harness does not download or train anything; it measures streaming latency
+and the active XTTS driver's CUDA allocator over repeated turns.
 """
 
 from __future__ import annotations
@@ -18,6 +18,8 @@ from pathlib import Path
 import aiohttp
 
 from runtime.workers.xtts_romanian.common import target_conditioning_reference
+
+MODEL_ID = "xtts-v2-romanian-v2"
 
 RO_TEXTS = [
     "Bună ziua, mă bucur să vorbesc cu tine astăzi.",
@@ -40,7 +42,7 @@ async def run_turn(session, endpoint: str, payload: dict) -> dict:
     async with session.post(endpoint.rstrip("/") + "/v1/audio/speech", json=payload) as response:
         if response.status != 200:
             detail = (await response.read()).decode("utf-8", errors="replace")[:1200]
-            raise RuntimeError(f"XTTS worker returned HTTP {response.status}: {detail}")
+            raise RuntimeError(f"TTS plugin host returned HTTP {response.status}: {detail}")
         async for chunk in response.content.iter_chunked(32768):
             if chunk and first_byte is None:
                 first_byte = time.perf_counter()
@@ -66,16 +68,20 @@ async def main_async(args) -> dict:
     timeout = aiohttp.ClientTimeout(total=300, sock_read=240)
     results = []
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(args.endpoint.rstrip("/") + "/load", json={}) as response:
+        async with session.post(
+            args.endpoint.rstrip("/") + "/load",
+            json={"model_id": MODEL_ID},
+        ) as response:
             body = await response.json(content_type=None)
             if response.status != 200 or not body.get("success"):
-                raise RuntimeError(body.get("error") or "Could not load XTTS worker")
+                raise RuntimeError(body.get("error") or "Could not load XTTS plugin")
 
         for turn in range(args.turns):
             language = "ro" if turn % 2 == 0 else "en"
             texts = RO_TEXTS if language == "ro" else EN_TEXTS
             target = target_conditioning_reference(profile_dir, language)
             payload = {
+                "model": MODEL_ID,
                 "input": texts[(turn // 2) % len(texts)],
                 "language": language,
                 "response_format": "pcm",
@@ -97,6 +103,7 @@ async def main_async(args) -> dict:
     reserved = [r["memory"].get("reserved_mb") for r in results if isinstance(r["memory"].get("reserved_mb"), (int, float))]
     report = {
         "profile_id": args.profile_id,
+        "model_id": MODEL_ID,
         "turns": args.turns,
         "created_at": datetime.now().isoformat(),
         "summary": {

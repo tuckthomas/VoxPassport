@@ -11,8 +11,11 @@
   "driver": {
     "entrypoint": "runtime.workers.tts_host.drivers.openai_proxy:OpenAiSpeechProxyDriver",
     "options": {
-      "backend_url": "http://127.0.0.1:8095",
       "backend_url_env": "VOXPASSPORT_HIGGS_TTS_URL",
+      "backend_process": {
+        "command_env": "VOXPASSPORT_HIGGS_TTS_COMMAND",
+        "startup_timeout_seconds": 120
+      },
       "health_path": "/v1/models",
       "speech_path": "/v1/audio/speech",
       "static_payload": {

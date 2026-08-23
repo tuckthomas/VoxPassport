@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "model_id": "voxcpm-2",
   "display_name": "VoxCPM 2",
   "aliases": [
@@ -8,14 +8,13 @@
     "openbmb/VoxCPM2"
   ],
   "runtime_profile": "core",
+  "backend_runtime": "voxcpm-openai-server",
+  "backend_args": {
+    "checkpoint": "openbmb/VoxCPM2"
+  },
   "driver": {
     "entrypoint": "runtime.workers.tts_host.drivers.openai_proxy:OpenAiSpeechProxyDriver",
     "options": {
-      "backend_url_env": "VOXPASSPORT_VOXCPM_TTS_URL",
-      "backend_process": {
-        "command_env": "VOXPASSPORT_VOXCPM_TTS_COMMAND",
-        "startup_timeout_seconds": 120
-      },
       "health_path": "/v1/models",
       "speech_path": "/v1/audio/speech",
       "static_payload": {

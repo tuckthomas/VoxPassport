@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "model_id": "moss-tts-1.5",
   "display_name": "MOSS-TTS v1.5",
   "aliases": [
@@ -7,6 +7,7 @@
     "openmoss-moss-tts-1.5",
     "OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5"
   ],
+  "runtime_profile": "core",
   "driver": {
     "entrypoint": "runtime.workers.tts_host.drivers.openai_proxy:OpenAiSpeechProxyDriver",
     "options": {
@@ -29,10 +30,6 @@
       "reference_text_field": "ref_text",
       "timeout_seconds": 300
     }
-  },
-  "worker": {
-    "base_url": "http://127.0.0.1:8098",
-    "base_url_env": "VOXPASSPORT_TTS_HOST_URL"
   },
   "capabilities": {
     "languages": [

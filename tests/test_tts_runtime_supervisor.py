@@ -14,6 +14,8 @@ from runtime.inference.tts_plugins.runtime_profiles import RuntimeProfileCatalog
 from runtime.inference.tts_plugins.runtime_supervisor import TtsRuntimeSupervisor
 
 FAKE_DRIVER = "tests.support.supervisor_fake_tts_driver:SupervisorFakeTtsDriver"
+PROXY_DRIVER = "runtime.workers.tts_host.drivers.openai_proxy:OpenAiSpeechProxyDriver"
+FAKE_BACKEND = Path(__file__).resolve().parent / "support" / "supervisor_fake_backend.py"
 
 
 def _write_profiles(tmp_path: Path, *, idle_timeout: float = 0.2) -> RuntimeProfileCatalog:
@@ -65,6 +67,41 @@ def _manifest_payload(model_id: str, profile: str, options: dict | None = None) 
     }
 
 
+def _proxy_manifest_payload(
+    model_id: str,
+    profile: str = "alpha",
+    *,
+    managed: bool = True,
+) -> dict:
+    options: dict[str, object] = {
+        "health_path": "/v1/models",
+        "speech_path": "/v1/audio/speech",
+        "text_field": "input",
+        "response_format_field": "response_format",
+        "stream_field": "stream",
+        "language_field": "language",
+        "reference_audio_field": "ref_audio",
+        "reference_text_field": "ref_text",
+    }
+    if managed:
+        options["backend_process"] = {
+            "command": [
+                "{python}",
+                str(FAKE_BACKEND),
+                "--host",
+                "{host}",
+                "--port",
+                "{port}",
+            ],
+            "startup_timeout_seconds": 8,
+        }
+    else:
+        options["backend_url"] = "http://127.0.0.1:65530"
+    payload = _manifest_payload(model_id, profile)
+    payload["driver"] = {"entrypoint": PROXY_DRIVER, "options": options}
+    return payload
+
+
 def _write_manifests(tmp_path: Path, payloads: list[dict]) -> TtsManifestCatalog:
     manifest_dir = tmp_path / "manifests"
     manifest_dir.mkdir()
@@ -95,6 +132,7 @@ def test_adapter_load_is_logical_and_does_not_spawn_worker(tmp_path: Path):
         alpha = next(item for item in state["profiles"] if item["profile_id"] == "alpha")
         assert state["active_model_id"] is None
         assert alpha["running"] is False
+        assert state["backends"] == []
         await supervisor.shutdown()
 
     asyncio.run(exercise())
@@ -225,6 +263,65 @@ def test_adapter_recovers_worker_crash_before_first_audio(tmp_path: Path):
         alpha = next(item for item in state["profiles"] if item["profile_id"] == "alpha")
         assert alpha["running"] is True
         await adapter.unload()
+        await supervisor.shutdown()
+
+    asyncio.run(exercise())
+
+
+def test_managed_proxy_backend_uses_dynamic_endpoint_and_is_killed_on_switch(tmp_path: Path):
+    supervisor = _supervisor(
+        tmp_path,
+        [_proxy_manifest_payload("proxy"), _manifest_payload("direct", "alpha")],
+    )
+
+    async def exercise():
+        await supervisor.activate("proxy")
+        first = await supervisor.status()
+        assert first["active_model_id"] == "proxy"
+        assert len(first["backends"]) == 1
+        backend = first["backends"][0]
+        assert backend["model_id"] == "proxy"
+        assert backend["managed"] is True
+        assert backend["running"] is True
+        assert backend["endpoint"].startswith("http://127.0.0.1:")
+        assert not backend["endpoint"].endswith(":8095")
+        assert not backend["endpoint"].endswith(":8096")
+        assert not backend["endpoint"].endswith(":8097")
+
+        await supervisor.activate("direct")
+        second = await supervisor.status()
+        assert second["active_model_id"] == "direct"
+        assert second["backends"] == []
+        await supervisor.shutdown()
+
+    asyncio.run(exercise())
+
+
+def test_managed_proxy_backend_is_killed_on_release(tmp_path: Path):
+    supervisor = _supervisor(tmp_path, [_proxy_manifest_payload("proxy")])
+
+    async def exercise():
+        await supervisor.activate("proxy")
+        assert (await supervisor.status())["backends"]
+        await supervisor.release("proxy")
+        state = await supervisor.status()
+        assert state["active_model_id"] is None
+        assert state["backends"] == []
+        await supervisor.shutdown()
+
+    asyncio.run(exercise())
+
+
+def test_unmanaged_loopback_proxy_backend_is_rejected(tmp_path: Path):
+    supervisor = _supervisor(tmp_path, [_proxy_manifest_payload("proxy", managed=False)])
+
+    async def exercise():
+        with pytest.raises(RuntimeError, match="unmanaged local backend"):
+            await supervisor.activate("proxy")
+        state = await supervisor.status()
+        assert state["active_model_id"] is None
+        assert state["backends"] == []
+        assert all(not profile["running"] for profile in state["profiles"])
         await supervisor.shutdown()
 
     asyncio.run(exercise())

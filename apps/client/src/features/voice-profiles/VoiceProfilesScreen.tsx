@@ -9,7 +9,10 @@ import { colors } from '@/theme';
 
 export default function VoiceProfilesScreen() {
   const target = useRuntimeTarget();
-  const api = useMemo(() => new VoxPassportApi(target.activeBaseUrl), [target.activeBaseUrl]);
+  const api = useMemo(
+    () => new VoxPassportApi(target.activeBaseUrl, { nativeLocal: target.mode === 'local' }),
+    [target.activeBaseUrl, target.mode],
+  );
   const [profiles, setProfiles] = useState<VoiceProfile[]>([]);
   const [error, setError] = useState('');
 
@@ -24,7 +27,7 @@ export default function VoiceProfilesScreen() {
 
   useEffect(() => {
     if (target.ready) void refresh();
-  }, [target.ready, target.activeBaseUrl]);
+  }, [target.ready, api]);
 
   return (
     <Screen

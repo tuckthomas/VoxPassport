@@ -29,9 +29,25 @@
             return match ? Number(match[1]) : 0;
           }
 
+          function pluginUiSpec(entry) {
+            const id = entry.model_id;
+            const downloadGb = Number(entry.estimated_download_size_gb || 0);
+            return {
+              id,
+              name: entry.name || id,
+              shortName: entry.name || id,
+              meta: downloadGb > 0 ? `Plugin • ${downloadGb.toFixed(2)} GB download` : 'Manifest TTS plugin',
+              vramGb: estimatePluginVram(entry),
+              desc: entry.voice_cloning_support ? 'Streaming Voice Cloning Plugin' : 'Streaming TTS Plugin',
+              license: entry.license || 'verify',
+              commercialUse: entry.commercial_use || 'verify',
+              upstreamId: entry.upstream_id || '',
+            };
+          }
+
           async function syncManifestTtsCatalog() {
             try {
-              const response = await fetch(\`\${API_URL}/models/available\`);
+              const response = await fetch(`${API_URL}/models/available`);
               if (!response.ok) return;
               const entries = await response.json();
               const plugins = Array.isArray(entries)
@@ -53,19 +69,14 @@
                 if (typeof MODEL_SPECS !== 'undefined' && !MODEL_SPECS[id]) {
                   MODEL_SPECS[id] = { targetSeconds: 10, badge: '10S ENROLLMENT', tier: 'short' };
                 }
-                if (typeof TTS_MODEL_SPECS !== 'undefined' && !TTS_MODEL_SPECS.some(model => model.id === id)) {
-                  const downloadGb = Number(entry.estimated_download_size_gb || 0);
-                  TTS_MODEL_SPECS.push({
-                    id,
-                    name: entry.name || id,
-                    shortName: entry.name || id,
-                    meta: downloadGb > 0 ? \`Plugin • \${downloadGb.toFixed(2)} GB download\` : 'Manifest TTS plugin',
-                    vramGb: estimatePluginVram(entry),
-                    desc: entry.voice_cloning_support ? 'Streaming Voice Cloning Plugin' : 'Streaming TTS Plugin',
-                    license: entry.license || 'verify',
-                    commercialUse: entry.commercial_use || 'verify',
-                    upstreamId: entry.upstream_id || '',
-                  });
+                if (typeof TTS_MODEL_SPECS !== 'undefined') {
+                  const runtimeSpec = pluginUiSpec(entry);
+                  const existing = TTS_MODEL_SPECS.find(model => model.id === id);
+                  if (existing) {
+                    Object.assign(existing, runtimeSpec);
+                  } else {
+                    TTS_MODEL_SPECS.push(runtimeSpec);
+                  }
                 }
               }
               if (typeof renderTtsModelWidgets === 'function') renderTtsModelWidgets();

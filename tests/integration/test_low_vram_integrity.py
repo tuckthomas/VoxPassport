@@ -27,13 +27,13 @@ def test_milmmt_auto_policy_reserves_low_vram_gpu_for_speech_models():
     assert "torch.bfloat16" not in text
 
 
-def test_omnivoice_does_not_prewarm_profiles_or_accumulate_prompt_cache():
-    text = source("runtime/inference/adapters/tts/omnivoice_tts_adapter.py")
-    assert "_prewarm_saved_profiles" not in text
-    assert "lazy voice-profile conditioning" in text
+def test_omnivoice_driver_is_lazy_and_bounds_speaker_cache():
+    text = source("runtime/workers/tts_host/drivers/omnivoice.py")
+    assert "Keep activation cheap" in text
     assert "self._speaker_cache.clear()" in text
     assert "with torch.inference_mode():" in text
     assert "_release_cuda_cache" in text
+    assert "if self._model is not None" in text
 
 
 def test_sortformer_uses_cpu_on_low_vram_systems():
@@ -44,12 +44,12 @@ def test_sortformer_uses_cpu_on_low_vram_systems():
     assert "self.resolved_device" in text
 
 
-def test_low_vram_policy_applies_to_preconference_and_live_paths_without_ui_forks():
+def test_low_vram_policy_applies_to_preconference_and_live_paths_without_tts_ui_forks():
     parakeet = source("runtime/inference/adapters/asr/parakeet_tdt_v3_asr_adapter.py")
     milmmt = source("runtime/inference/adapters/translation/milmmt46_translation_adapter.py")
-    omnivoice = source("runtime/inference/adapters/tts/omnivoice_tts_adapter.py")
-    # These policies live in the shared runtime adapters, so Voice Studio,
-    # Live Studio, Debug verification, and conference mode all inherit them.
+    omnivoice = source("runtime/workers/tts_host/drivers/omnivoice.py")
+    generic_tts = source("runtime/inference/adapters/tts/manifest_tts_adapter.py")
     assert "one physical Parakeet model" in parakeet
     assert "Voice Studio, Live Studio, and Debug verification" in milmmt
-    assert "Weights stay lazy" in omnivoice
+    assert "Keep activation cheap" in omnivoice
+    assert "heavy_gpu_inference" in generic_tts

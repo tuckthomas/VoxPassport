@@ -42,6 +42,12 @@ from runtime.inference.protocol import (
 )
 from runtime.inference.scheduler.degraded_mode_scheduler import DegradedModeScheduler
 from runtime.inference.server.caption_server import CaptionServer
+from runtime.inference.server.client_contract import ClientOriginPolicy
+from runtime.inference.server.client_http import (
+    create_client_cors_middleware,
+    register_client_contract_routes,
+    websocket_origin_allowed,
+)
 from runtime.inference.server.model_manager_api import ModelManagerController
 from runtime.inference.server.resource_monitor import ResourceSnapshotCollector
 from runtime.inference.tts_plugins import TtsManifestCatalog, manifest_registry_entry
@@ -470,7 +476,11 @@ class LiveTranslatorApp:
     async def _setup_http_server(self) -> None:
         from aiohttp import web
 
-        app = web.Application(client_max_size=200 * 1024 * 1024)
+        origin_policy = ClientOriginPolicy.from_environment()
+        app = web.Application(
+            client_max_size=200 * 1024 * 1024,
+            middlewares=[create_client_cors_middleware(origin_policy)],
+        )
 
         async def api_status(request):
             slots = self.model_manager.get_active_slots()
@@ -636,6 +646,8 @@ class LiveTranslatorApp:
                     self._resource_stream_task = None
 
         async def ws_resources(request):
+            if not websocket_origin_allowed(request.headers.get("Origin"), origin_policy):
+                return web.json_response({"error": "origin_not_allowed"}, status=403)
             websocket = web.WebSocketResponse(heartbeat=30)
             await websocket.prepare(request)
             self._resource_ws_clients.add(websocket)
@@ -1168,6 +1180,11 @@ class LiveTranslatorApp:
             except Exception as exc:
                 logger.exception("Local verification failed")
                 return web.json_response({"error": f"Verification error: {exc}"}, status=500)
+
+        register_client_contract_routes(
+            app,
+            capabilities_provider=lambda: [capability.value for capability in ModelCapability],
+        )
 
         app.router.add_get("/api/status", api_status)
         app.router.add_get("/api/hardware/profile", api_hardware_profile)

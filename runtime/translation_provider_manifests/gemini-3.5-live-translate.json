@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "strategy_id": "gemini-3.5-live-translate",
+  "display_name": "Gemini 3.5 Live Translate",
+  "provider": "google",
+  "model_id": "gemini-3.5-live-translate-preview",
+  "kind": "direct_speech_translation",
+  "capability": "DIRECT_SPEECH_TRANSLATION",
+  "execution_mode": "byo_api",
+  "transport": "websocket",
+  "auth": {
+    "kind": "api_key",
+    "environment_variable": "GEMINI_API_KEY"
+  },
+  "languages": {
+    "discovery": "provider",
+    "confirmed": ["en", "ro"]
+  },
+  "features": {
+    "streaming": true,
+    "bidirectional": true,
+    "voice_preservation": true
+  },
+  "lifecycle": "preview",
+  "metadata": {
+    "billing_owner": "user_or_deployment",
+    "communication_platform_agnostic": true
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "core": {
+      "interpreter": ".venv/Scripts/python.exe",
+      "interpreter_env": "VOXPASSPORT_CORE_TTS_PYTHON",
+      "startup_timeout_seconds": 30,
+      "idle_timeout_seconds": 60,
+      "environment": {},
+      "provisioning": {
+        "strategy": "shared-primary-environment",
+        "installer": "install.bat",
+        "notes": "The core TTS runtime is dependency-compatible with the primary VoxPassport Python environment."
+      }
+    },
+    "coqui-xtts": {
+      "interpreter": ".venv-xtts/Scripts/python.exe",
+      "interpreter_env": "VOXPASSPORT_XTTS_PYTHON",
+      "startup_timeout_seconds": 45,
+      "idle_timeout_seconds": 30,
+      "environment": {},
+      "provisioning": {
+        "strategy": "isolated-environment",
+        "requirements": "runtime/workers/tts_host/requirements-xtts.txt",
+        "installer": "scripts/manage_runtime_profile.py",
+        "notes": "Coqui/XTTS remains isolated because its dependency constraints must not constrain the main Transformers/Parakeet environment."
+      }
+    }
+  }
+}

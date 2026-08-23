@@ -1,91 +1,106 @@
-# Universal Expo Client + VoxPassport Cloud Architecture Plan
+# Desktop-First Universal Client + Platform Architecture Plan
 
 Status: In progress
 
-Purpose: Replace the prototype browser-only frontend architecture with a maintainable universal client built on Expo + React Native + React Native Web, while preserving the existing local inference runtime and defining VoxPassport Cloud as a control plane that allocates direct low-latency inference workers. The migration must correct underlying frontend defects rather than simply relocating `*-fixes.js` compatibility patches.
+Purpose: Replace the prototype browser-only frontend architecture with a maintainable shared client while prioritizing the installable desktop product. Desktop must own system-audio integration, local-runtime lifecycle, virtual microphone/loopback routing, and provider-agnostic translation. Android/iOS remain future targets using the same Expo/React Native client foundation, with a VoxPassport-native calling application as the preferred mobile path rather than attempting unsupported cross-app virtual-microphone injection. VoxPassport Cloud is optional/later; local/self-hosted operation remains a first-class product mode.
 
 ## Product architecture decision
 
-- [x] Use Expo + React Native + React Native Web as the primary client architecture for Android, iOS, and web/PWA.
+- [x] Use Expo + React Native + React Native Web as the shared client architecture.
 - [x] Use Expo Router for universal file-based navigation.
-- [x] Target Expo SDK 57 / React Native 0.86 / React 19.2.x as the current implementation baseline.
 - [x] Keep the browser extension separate because it is genuinely browser-specific integration code.
-- [x] Do not add a dedicated desktop application shell unless a concrete future capability requires one.
-- [x] Keep the web client usable with the local VoxPassport runtime for local/private inference.
-- [x] Treat Android/iOS as first-class product clients rather than wrappers around the legacy HTML application.
+- [x] Make desktop the immediate product target.
+- [x] Package the shared web export in a thin Tauri 2 desktop shell for Windows first, with macOS/Linux as later packaging targets.
+- [x] Keep native/system functions outside the React UI: audio devices, virtual microphone/loopback, runtime lifecycle, process cleanup, and OS integration belong to Rust/native/backend code.
+- [x] Keep web/PWA usable against the local VoxPassport runtime for development and users who explicitly prefer browser access.
+- [x] Defer mobile calling implementation; document VoxPassport-to-VoxPassport calling as the preferred future Android/iOS transport.
+- [x] Do not assume Android will gain a general public virtual-microphone API.
+- [x] Treat VoxPassport Cloud as optional managed infrastructure rather than a prerequisite for the local/personal edition.
 
-## Cloud topology
+## Commercial/product boundary
 
-- [x] Separate VoxPassport Cloud control-plane responsibilities from latency-sensitive media/inference transport.
-- [x] Cloud control plane owns authentication, subscription/entitlement state, region selection, worker allocation, session policy, short-lived worker credentials, and usage accounting.
-- [x] Client receives an allocated worker endpoint and short-lived session credential from the control plane.
-- [x] Client streams audio/captions/synthesized media directly to/from the allocated inference worker by default.
-- [x] Keep relay/proxy mode as an explicit fallback for networks or privacy/security configurations that require it.
-- [x] Keep provider/model implementation details behind worker capabilities rather than embedding AWS/model assumptions in the client.
-- [x] Design pricing/metering so hosted usage can include configurable margin above infrastructure cost without exposing provider cost internals to the client.
+- [x] Preserve a local/self-hosted path that does not require VoxPassport-hosted inference.
+- [x] Keep provider selection open: local modular ASR/NMT/TTS, direct speech-translation providers such as Gemini Live Translate, private workers, and future providers can coexist behind capability contracts.
+- [ ] Add `DIRECT_SPEECH_TRANSLATION` as a first-class inference strategy/capability rather than pretending direct audio-to-audio providers are ordinary ASR/NMT/TTS checkpoints.
+- [ ] Add provider metadata that distinguishes local, BYO-key cloud, managed cloud, and private/self-hosted execution.
+- [ ] Keep licensing/product-tier concerns outside inference implementation; do not hard-code commercial policy into model drivers.
 
 ## Repository organization
 
-- [ ] Make `apps/client/` the canonical universal product frontend.
+- [x] Make `apps/client/` the canonical shared product frontend.
+- [ ] Create `apps/desktop/` as the Tauri shell only; it must consume `apps/client` output rather than duplicate UI code.
 - [ ] Remove the misleading `apps/desktop-companion` naming from the long-term architecture.
-- [ ] Keep `apps/browser-extension/` for the browser extension only.
-- [ ] Create a clearly labeled legacy frontend location during migration rather than pretending the old page remains the architectural target.
-- [ ] Document ownership boundaries so humans and AI agents can infer where client, local runtime, cloud control plane, protocols, workers, and browser integration live.
-- [ ] Delete superseded pending frontend/mobile plans once their still-relevant requirements are incorporated here.
+- [x] Keep `apps/browser-extension/` for the browser extension only.
+- [ ] Move the legacy HTML frontend under a clearly labeled legacy/migration location until functional parity is reached.
+- [ ] Document ownership boundaries so humans and AI agents can infer where client, desktop shell, local runtime, inference providers, protocols, workers, and browser integration live.
+- [x] Delete superseded pending frontend/mobile plans once their still-relevant requirements are incorporated here.
 
-## Expo client foundation
+## Shared client foundation
 
-- [ ] Scaffold `apps/client` as a TypeScript Expo SDK 57 project.
-- [ ] Configure Expo Router and typed routes.
-- [ ] Configure React Native Web / Metro web output.
-- [ ] Add `expo-audio` for cross-platform microphone capture/playback capability.
-- [ ] Add native microphone permission configuration without enabling background recording by default.
-- [ ] Create shared visual primitives/theme rather than another giant monolithic page.
-- [ ] Create feature-oriented routes/screens for Translator, Models, Voice Profiles, Runtime/Diagnostics, and Settings.
-- [ ] Keep platform-specific implementation files narrowly scoped (`*.native.ts`, `*.web.ts`) when behavior genuinely differs.
+- [x] Scaffold `apps/client` as a TypeScript Expo project.
+- [x] Configure Expo Router/React Native Web dependencies and TypeScript.
+- [x] Add `expo-audio` and native microphone permission configuration without enabling background recording by default.
+- [x] Create shared visual primitives/theme rather than another monolithic HTML page.
+- [ ] Create feature-oriented routes/screens for Translator, Models/Engines, Voice Profiles, Runtime/Diagnostics, and Settings.
+- [ ] Keep platform-specific implementation files narrowly scoped (`*.native.ts`, `*.web.ts`) only where behavior genuinely differs.
+
+## Desktop shell
+
+- [ ] Scaffold `apps/desktop` with Tauri 2 and configure it to package the exported `apps/client` web bundle.
+- [ ] Add Tauri commands for local-runtime status/start/stop without putting process logic in React components.
+- [ ] Ensure runtime process ownership is explicit and cleanup occurs when VoxPassport-owned runtime processes exit/restart.
+- [ ] Add a native capability bridge for audio-device enumeration/status.
+- [ ] Reuse/extend `crates/audio-core` and platform crates rather than implementing audio logic in the Tauri UI shell.
+- [ ] Treat Windows WASAPI as the first executable desktop audio target.
+- [ ] Define portable audio traits/contracts so CoreAudio/PipeWire implementations can be added without changing client code.
+- [ ] Add explicit desktop capability reporting: physical microphone, loopback capture, virtual-mic output, runtime process control, and supported platform features.
+- [ ] Do not claim virtual-microphone support is complete until an actual selectable system endpoint/driver path is validated on the development machine.
 
 ## Client runtime abstraction
 
-- [ ] Define a client-side `RuntimeTarget` abstraction with at least `local` and `cloud` modes.
-- [ ] Keep screen/components independent from localhost, AWS, model process, and worker-port assumptions.
+- [x] Define typed runtime/session contracts.
+- [ ] Define a client-side `RuntimeTarget` abstraction with at least `local` and future `cloud`/`self_hosted` modes.
+- [ ] Keep screens/components independent from localhost, AWS, model process, and worker-port assumptions.
 - [ ] Centralize HTTP/API access in one typed API client.
 - [ ] Centralize live session/media transport behind a session service.
-- [ ] Define typed bootstrap/status/model/voice/session contracts.
-- [ ] Support local runtime URL configuration for self-hosted/local use.
-- [ ] Support VoxPassport Cloud base URL configuration for hosted use.
+- [ ] Support local runtime URL configuration.
 - [ ] Keep access/session tokens out of ordinary logs and UI state serialization.
 
 ## Local runtime compatibility
 
-- [ ] Add a versioned client/bootstrap endpoint to the local runtime so the Expo client can discover capabilities and websocket endpoints generically.
+- [ ] Add a versioned `/api/client/bootstrap` endpoint so the shared client can discover capabilities and endpoints generically.
 - [ ] Add explicit CORS handling for approved localhost development/web origins instead of relying on same-origin legacy HTML.
 - [ ] Preserve existing local APIs during migration.
-- [ ] Preserve the local runtime as the component that owns models, GPU processes, audio routing, and TTS supervision.
-- [ ] Do not make the Expo web client responsible for starting Python/CUDA workers.
+- [x] Preserve the local runtime as the owner of models, GPU processes, inference supervision, and TTS runtime management.
+- [ ] Move desktop system-audio ownership toward the native audio layer rather than browser media APIs.
+- [ ] Do not make the client responsible for starting Python/CUDA workers directly.
 
-## Session protocol
+## Translation-engine abstraction
 
-- [ ] Add a versioned shared session protocol/schema package.
-- [ ] Define session allocation request/response contracts.
-- [ ] Define worker capability negotiation.
-- [ ] Include source/target languages, requested features, codecs/formats, correlation/session IDs, and protocol version.
-- [ ] Define short-lived worker credential metadata and expiration.
-- [ ] Define media/control event envelopes for audio, partial/final captions, translations, TTS audio, state, latency, and errors.
-- [ ] Keep signaling/control messages separate from binary media frames.
-- [ ] Permit `direct_worker` and `relay` media modes.
+- [ ] Define translation strategies independently from communication transport.
+- [ ] Keep the existing modular pipeline (`VAD -> ASR -> NMT -> TTS`) as one strategy.
+- [ ] Add direct speech-to-speech strategy metadata suitable for Gemini Live Translate and future equivalents.
+- [ ] Do not hard-code Google/Gemini assumptions into generic session or UI components.
+- [ ] Show execution/provider information to users: local, provider API, private endpoint, or managed service.
+- [ ] Allow a future provider adapter to expose languages, voice-preservation capability, streaming support, cost/usage metadata, and authentication requirements.
 
-## VoxPassport Cloud control-plane scaffold
+## Desktop audio architecture
 
-- [ ] Create a separately packaged `services/cloud-control-plane` Python service.
-- [ ] Add `/health` and version endpoints.
-- [ ] Add session allocation endpoint using the shared v1 session contract.
-- [ ] Keep worker selection behind an allocator interface.
-- [ ] Add an in-memory development worker registry/allocator without hard-coding AWS in business logic.
-- [ ] Issue signed short-lived worker session credentials.
-- [ ] Return worker endpoint, media mode, protocol version, expiration, and pricing/metering metadata.
-- [ ] Add configurable cost-plus pricing policy with minimum margin support as a service-side concern.
-- [ ] Never trust client-reported usage for billing; reserve worker/control-plane usage reporting as the authoritative future path.
-- [ ] Mark real authentication, payment provider integration, durable worker registry, AWS orchestration, and production secrets as later deployment work.
+- [ ] Define three separate buses: physical microphone input, remote/system loopback input, and translated virtual-microphone output.
+- [ ] Keep raw high-frequency audio off Tauri/React IPC; native/runtime code owns realtime buffers and sends only UI-safe state/levels/events to the client.
+- [ ] Add device enumeration and stable device identifiers to the audio platform contract.
+- [ ] Add loopback capture selection for communication-app output.
+- [ ] Add translated-output sink abstraction for a virtual microphone/system endpoint.
+- [ ] Add echo/feedback ownership rules so synthesized translated output is not re-captured as source speech.
+- [ ] Keep optional Zoom/Meet/etc. overlays/extensions as UX enhancements, not required audio transport.
+
+## Mobile deferred phase
+
+- [x] Defer Android/iOS implementation while desktop architecture is established.
+- [x] Prefer a future VoxPassport-native calling app/WebRTC path on mobile instead of unsupported cross-app microphone injection.
+- [ ] Preserve mobile-compatible contracts in `apps/client`; do not add desktop-only assumptions to shared screens/services.
+- [ ] Revisit iOS microphone injection only if Apple permits the use case through public/approved APIs.
+- [ ] Revisit Android cross-app injection only if Google exposes a sanctioned public API.
 
 ## Fix-layer cleanup rule
 
@@ -93,16 +108,16 @@ For every legacy `*-fixes.js` behavior, classify it before touching it:
 
 - [ ] If it compensates for broken/obsolete original behavior: correct the owner implementation and delete the patch.
 - [ ] If it exists only for compatibility with a removed design: delete it entirely.
-- [ ] If it implements enduring domain behavior: reimplement that behavior in the proper Expo/client/backend abstraction, not by copying the patch.
+- [ ] If it implements enduring domain behavior: reimplement that behavior in the proper client/backend abstraction, not by copying the patch.
 - [ ] If it hard-codes metadata now available from APIs/manifests: make the UI data-driven and delete the hard-coded logic.
 - [ ] If it is temporary migration logic: finish the migration and delete it.
-- [ ] Do not create new `*-fixes.js`, iframe `eval()` bridges, hidden compatibility elements, or fetch monkey-patches.
+- [x] Do not create new `*-fixes.js`, iframe `eval()` bridges, hidden compatibility elements, or fetch monkey-patches.
 
 ## Legacy patch-specific migration
 
-- [ ] Replace `runtime-fixes.js` model-state synchronization with typed API/store state in the Expo client.
+- [ ] Replace `runtime-fixes.js` model-state synchronization with typed API/store state.
 - [ ] Replace `runtime-fixes.js` request interception by constructing correct API requests at their source.
-- [ ] Eliminate the hidden `studioCloneModelSelect` timer/model compatibility sentinel rather than recreating it.
+- [ ] Eliminate the hidden `studioCloneModelSelect` compatibility sentinel rather than recreating it.
 - [ ] Replace `engine-catalog-fixes.js` global-array mutation with backend-driven model catalog rendering.
 - [ ] Replace Silero v4-to-v6 UI repair with canonical backend metadata only.
 - [ ] Replace `stack-upgrade-fixes.js` hard-coded install exceptions with generic backend-provided installation state/reason metadata.
@@ -118,43 +133,48 @@ For every legacy `*-fixes.js` behavior, classify it before touching it:
 
 ## Tests and validation
 
-- [ ] Add static architecture tests that forbid new `*-fixes.js` files in the canonical client.
-- [ ] Add tests/validation for shared session schema examples.
-- [ ] Add cloud control-plane unit tests for allocation, credential expiration, pricing, and invalid requests.
-- [ ] Add local-runtime contract tests for client bootstrap/CORS behavior.
-- [ ] Add TypeScript typecheck/lint commands for `apps/client`.
+- [ ] Add static architecture tests that forbid new `*-fixes.js` files in the canonical client/desktop shell.
+- [ ] Add local-runtime contract tests for bootstrap/CORS behavior.
+- [ ] Add Rust tests/build checks for the desktop shell and audio capability contracts.
+- [ ] Add TypeScript typecheck commands for `apps/client`.
 - [ ] Add Expo project validation (`expo-doctor`) to documented local validation.
-- [ ] Add client checks to CI when Node package installation is available.
-- [ ] Run Python compile/tests available in this execution environment.
-- [ ] Run/install Expo dependencies and TypeScript validation in a connected development environment.
-- [ ] Validate web build in a browser.
-- [ ] Validate Android development build on a physical/emulated device.
-- [ ] Validate iOS development build on macOS/Xcode/device or simulator.
+- [ ] Add client/desktop checks to CI when Node/Rust package installation is available.
+- [ ] Run Python compile/tests available in the execution environment.
+- [ ] Validate the Expo web export consumed by Tauri.
+- [ ] Validate Tauri development build on Windows.
+- [ ] Validate actual WASAPI loopback capture and physical microphone enumeration.
+- [ ] Validate a real virtual-microphone endpoint/output path before marking system-wide conference integration complete.
+- [ ] Keep plan in `in-progress` while hardware/platform validation remains outstanding.
 
-## Migration completion criteria
-
-The migration is complete when:
+## Immediate desktop acceptance path
 
 ```text
-Android / iOS / Web
-        -> one Expo / React Native client
+Physical microphone
+        -> VoxPassport native audio/runtime
+        -> selected translation strategy
+        -> translated audio
+        -> virtual microphone/system endpoint
+        -> Zoom / Meet / Teams / Discord / softphone
 
-Local/private mode
-        -> client -> VoxPassport Local Runtime -> local inference
+Communication-app output
+        -> WASAPI loopback
+        -> VoxPassport translation strategy
+        -> local speaker/headphones
 
-Hosted mode
-        -> client -> VoxPassport Cloud control plane
-        -> allocated worker + short-lived credential
-        -> client <-> worker direct media stream
-
-Legacy HTML/JS patch architecture
-        -> removed
+Shared UI
+        -> Expo/React Native Web
+        -> Tauri desktop shell
+        -> typed commands/state only; no realtime PCM over React IPC
 ```
 
-- [ ] The Expo client covers the production workflows currently expected from the legacy Studio.
-- [ ] The local runtime no longer needs to serve `apps/desktop-companion/model-manager` as the primary UI.
-- [ ] The legacy `runtime-fixes.js`, `engine-catalog-fixes.js`, and `stack-upgrade-fixes.js` files are deleted because their causes were corrected/replaced, not merely renamed.
+## Completion criteria
+
+- [ ] The shared client covers the production workflows currently expected from the legacy Studio.
+- [ ] The desktop shell launches as an installable application and can discover/control the local runtime.
+- [ ] Windows audio-device/loopback capability works through native code.
+- [ ] The real virtual-microphone path is validated or explicitly separated as a remaining driver/install prerequisite.
+- [ ] The local runtime no longer serves `apps/desktop-companion/model-manager` as the primary product UI.
+- [ ] The legacy `runtime-fixes.js`, `engine-catalog-fixes.js`, and `stack-upgrade-fixes.js` are deleted because their causes were corrected/replaced.
 - [ ] The misleading `desktop-companion` directory is removed.
-- [ ] All relevant documentation/screenshots/commands reference the new client architecture.
-- [ ] If full parity/mobile validation requires the personal development environment, keep this plan in `in-progress` and record the exact remaining checks.
-- [ ] Move this plan to `.agents/plans/completed/` only after functional parity and required platform validation are complete.
+- [ ] Documentation and commands reference the desktop-first shared-client architecture.
+- [ ] Move this plan to `.agents/plans/completed/` only after desktop functional parity and required platform validation are complete.

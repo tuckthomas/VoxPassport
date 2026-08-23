@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 
@@ -13,12 +14,22 @@ def _server_source() -> str:
     return (_repo_root() / "runtime" / "inference" / "server" / "main.py").read_text(encoding="utf-8")
 
 
+def _plugin_server_source() -> str:
+    return (_repo_root() / "runtime" / "inference" / "server" / "tts_plugin_main.py").read_text(encoding="utf-8")
+
+
 def _playback_source() -> str:
     return (_repo_root() / "runtime" / "inference" / "pipeline" / "audio_playback.py").read_text(encoding="utf-8")
 
 
+def _tts_manifest(model_id: str) -> dict:
+    return json.loads(
+        (_repo_root() / "runtime" / "tts_manifests" / f"{model_id}.json").read_text(encoding="utf-8")
+    )
+
+
 def test_non_omnivoice_adapters_do_not_route_through_omnivoice():
-    for filename in ("higgs_tts_adapter.py", "moss_tts_adapter.py", "voxcpm_tts_adapter.py"):
+    for filename in ("higgs_tts_adapter.py", "manifest_tts_adapter.py"):
         source = _adapter_source(filename).lower()
         assert "from omnivoice" not in source
         assert "omnivoicegenerationconfig" not in source
@@ -32,10 +43,10 @@ def test_omnivoice_rejects_old_two_step_quality_shortcut():
     assert OmniVoiceTtsAdapter._quality_steps(32) == 32
 
 
-def test_voxcpm2_explicitly_rejects_romanian():
-    source = _adapter_source("voxcpm_tts_adapter.py").lower()
-    assert "does not publish romanian support" in source
-    assert '"romanian", "ro"' in source
+def test_voxcpm2_explicitly_rejects_romanian_through_manifest_capabilities():
+    manifest = _tts_manifest("voxcpm-2")
+    assert "en" in manifest["capabilities"]["languages"]
+    assert "ro" not in manifest["capabilities"]["languages"]
 
 
 def test_voice_profiles_are_not_bound_to_a_tts_engine():
@@ -52,6 +63,15 @@ def test_synthesize_uses_active_or_explicit_backend():
     assert "engine.generate_cloned_audio(" in server
 
 
+def test_manifest_daemon_has_no_migrated_model_name_branches():
+    source = _plugin_server_source().lower()
+    assert "moss-tts" not in source
+    assert "voxcpm" not in source
+    assert "xtts-v2" not in source
+    assert "ttsmanifestcatalog" in source
+    assert "manifestttadapter" in source or "manifestttsadapter" in source
+
+
 def test_server_never_reintroduces_two_step_or_silent_edge_fallback():
     source = _server_source().lower()
     assert "num_step=2" not in source
@@ -59,23 +79,30 @@ def test_server_never_reintroduces_two_step_or_silent_edge_fallback():
     assert '"x-voxpassport-tts-engine"' in source
 
 
-def test_higgs_moss_and_voxcpm_use_real_pcm_streaming():
-    for filename in ("higgs_tts_adapter.py", "moss_tts_adapter.py", "voxcpm_tts_adapter.py"):
-        source = _adapter_source(filename)
-        stream_body = source[source.index("async def synthesize_stream"):]
-        assert '"stream": True' in stream_body
-        assert '"response_format": "pcm"' in stream_body
-        assert "response.content.iter_chunked" in stream_body
-        assert "SampleFormat.PCM_S16LE" in stream_body
-        assert "NotImplementedError" not in stream_body.split("async def generate_cloned_audio", 1)[0]
-    assert '"stream_format": "audio"' in _adapter_source("voxcpm_tts_adapter.py")
+def test_worker_backed_tts_uses_real_pcm_streaming():
+    generic = _adapter_source("manifest_tts_adapter.py")
+    stream_body = generic[generic.index("async def synthesize_stream"):]
+    assert '"response_format": response_format' in generic
+    assert "response.content.iter_chunked" in stream_body
+    assert "SampleFormat.PCM_S16LE" in stream_body
+    assert "NotImplementedError" not in stream_body
+
+    higgs = _adapter_source("higgs_tts_adapter.py")
+    higgs_stream = higgs[higgs.index("async def synthesize_stream"):]
+    assert '"stream": True' in higgs_stream
+    assert '"response_format": "pcm"' in higgs_stream
+    assert "response.content.iter_chunked" in higgs_stream
 
 
-def test_external_tts_engines_resolve_common_active_profile():
+def test_manifest_tts_resolves_common_active_profile_once():
     helper = _adapter_source("profile_reference.py")
+    generic = _adapter_source("manifest_tts_adapter.py")
     assert '"active_selection.json"' in helper
-    for filename in ("higgs_tts_adapter.py", "moss_tts_adapter.py", "voxcpm_tts_adapter.py"):
-        assert "resolve_profile_reference(" in _adapter_source(filename)
+    assert "resolve_profile_reference(" in generic
+    for filename in ("moss_tts_adapter.py", "voxcpm_tts_adapter.py", "xtts_romanian_tts_adapter.py"):
+        source = _adapter_source(filename)
+        assert "ManifestTtsAdapter" in source
+        assert "resolve_profile_reference(" not in source
 
 
 def test_studio_preview_requests_are_cached_by_the_server():
@@ -93,6 +120,7 @@ def test_active_and_hugging_face_model_cards_link_license_icons():
     ).read_text(encoding="utf-8")
     assert "modelMetadataById" in studio
     assert "rememberModelMetadata(instData)" in studio
+    assert "renderTtsModelWidgets" in studio
     assert "renderModelLicenseIcon(m)" in studio
     assert "renderLicenseIcon(m.license, m.commercial_use, m.upstream_id, m.license_url)" in studio
     assert 'class="model-license-link ${classification}"' in studio

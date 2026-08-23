@@ -33,6 +33,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 .venv/
+.venv-xtts/
 .python312/
 .setup-temp/
 .pip-cache/

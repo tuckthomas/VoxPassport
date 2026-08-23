@@ -1,0 +1,8 @@
+# Installed into .venv-xtts by install_xtts_worker.bat.
+# Torch/TorchAudio/TorchCodec are installed separately from the official cu130 index.
+coqui-tts==0.27.5
+transformers>=4.45,<5
+aiohttp>=3.9
+huggingface-hub>=0.20
+numpy>=1.24
+soundfile>=0.12

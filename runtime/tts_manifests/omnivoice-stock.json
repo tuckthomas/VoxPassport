@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "model_id": "omnivoice-stock",
+  "display_name": "k2-fsa OmniVoice",
+  "aliases": [
+    "omnivoice",
+    "k2-fsa/OmniVoice"
+  ],
+  "driver": {
+    "entrypoint": "runtime.workers.tts_host.drivers.omnivoice:OmniVoiceDriver",
+    "options": {
+      "model_path": "k2-fsa/OmniVoice"
+    }
+  },
+  "worker": {
+    "base_url": "http://127.0.0.1:8098",
+    "base_url_env": "VOXPASSPORT_TTS_HOST_URL"
+  },
+  "capabilities": {
+    "languages": ["*"],
+    "streaming": true,
+    "voice_cloning": true,
+    "cross_lingual_voice_cloning": true
+  },
+  "voice_cloning": {
+    "reference_transcript_required": false
+  },
+  "audio": {
+    "sample_rate_hz": 24000,
+    "sample_format": "pcm_s16le"
+  },
+  "registry": {
+    "family": "omnivoice",
+    "provider": "k2-fsa",
+    "upstream_id": "k2-fsa/OmniVoice",
+    "revision": "main",
+    "download_gb": 2.45,
+    "vram": {"default": "benchmark locally"},
+    "ram_gb": 4.0,
+    "license": "CC-BY-NC weights / Apache-2.0 code",
+    "commercial_use": "no",
+    "redistribution": "verify",
+    "trust_level": "OFFICIAL_VERIFIED",
+    "recommendation": "RECOMMENDED_FOR_LOCAL_BENCHMARK"
+  }
+}

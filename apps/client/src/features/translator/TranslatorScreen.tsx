@@ -9,7 +9,10 @@ import { colors } from '@/theme';
 
 export default function TranslatorScreen() {
   const target = useRuntimeTarget();
-  const api = useMemo(() => new VoxPassportApi(target.activeBaseUrl), [target.activeBaseUrl]);
+  const api = useMemo(
+    () => new VoxPassportApi(target.activeBaseUrl, { nativeLocal: target.mode === 'local' }),
+    [target.activeBaseUrl, target.mode],
+  );
   const [languages, setLanguages] = useState<LanguageConfiguration | null>(null);
   const [source, setSource] = useState('en');
   const [destination, setDestination] = useState('ro');

@@ -143,7 +143,8 @@ jobs:
             [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
             if ($errors.Count -gt 0) {
               $failed = $true
-              Write-Error ("{0}: {1}" -f $_.Name, ($errors | ForEach-Object Message -join '; '))
+              $messages = (($errors | ForEach-Object { $_.Message }) -join '; ')
+              Write-Error ("{0}: {1}" -f $_.Name, $messages)
             }
           }
           if ($failed) { exit 1 }

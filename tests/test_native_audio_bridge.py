@@ -53,6 +53,7 @@ async def test_missing_helper_reports_conservative_capabilities(tmp_path: Path):
         "device_enumeration": False,
         "physical_microphone_capture": False,
         "loopback_capture": False,
+        "render_output": False,
         "virtual_microphone_output": False,
     }
     assert await bridge.devices_payload() == {"schema_version": 1, "devices": []}

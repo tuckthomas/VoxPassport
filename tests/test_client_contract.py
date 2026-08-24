@@ -1,3 +1,4 @@
+from runtime.config.deployment import DeploymentConfig
 from runtime.inference.server.client_contract import (
     CLIENT_PROTOCOL_VERSION,
     ClientOriginPolicy,
@@ -34,6 +35,11 @@ def test_client_bootstrap_is_versioned_and_exposes_discovery_urls():
     payload = build_client_bootstrap(
         capabilities=["TTS", "ASR", "DIRECT_SPEECH_TRANSLATION", "ASR"],
         app_version="0.1.0",
+        deployment=DeploymentConfig(
+            local_only=True,
+            accounts_enabled=False,
+            abuse_controls_enabled=False,
+        ),
     )
 
     assert payload["protocol_version"] == CLIENT_PROTOCOL_VERSION
@@ -41,8 +47,14 @@ def test_client_bootstrap_is_versioned_and_exposes_discovery_urls():
     assert payload["api_base_url"] == "http://127.0.0.1:8766"
     assert payload["audio_status_url"].endswith("/api/audio/status")
     assert payload["audio_devices_url"].endswith("/api/audio/devices")
+    assert payload["audio_routing_url"].endswith("/api/audio/routing")
     assert payload["translation_strategies_url"].endswith("/api/translation/strategies")
     assert payload["capabilities"] == ["ASR", "DIRECT_SPEECH_TRANSLATION", "TTS"]
+    assert payload["deployment"] == {
+        "local_only": True,
+        "accounts": {"enabled": False, "api_url": None},
+        "security": {"abuse_controls_enabled": False},
+    }
     assert payload["app_version"] == "0.1.0"
 
 
@@ -55,6 +67,7 @@ def test_audio_status_is_conservative_until_native_service_connects():
         "device_enumeration": False,
         "physical_microphone_capture": False,
         "loopback_capture": False,
+        "render_output": False,
         "virtual_microphone_output": False,
     }
     assert "not connected" in payload["note"]
@@ -67,14 +80,16 @@ def test_audio_status_reports_only_explicitly_confirmed_capabilities():
         device_enumeration=True,
         physical_microphone_capture=True,
         loopback_capture=False,
+        render_output=True,
         virtual_microphone_output=False,
-        note="enumeration and microphone capture connected",
+        note="enumeration, capture and render connected",
     )
 
     assert payload["service_connected"] is True
     assert payload["capabilities"]["device_enumeration"] is True
     assert payload["capabilities"]["physical_microphone_capture"] is True
     assert payload["capabilities"]["loopback_capture"] is False
+    assert payload["capabilities"]["render_output"] is True
     assert payload["capabilities"]["virtual_microphone_output"] is False
 
 

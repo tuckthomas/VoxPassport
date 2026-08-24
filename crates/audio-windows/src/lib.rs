@@ -30,6 +30,9 @@ use windows::Win32::System::Com::{
     COINIT_MULTITHREADED, STGM_READ,
 };
 
+pub const VOXPASSPORT_VIRTUAL_RENDER_NAME: &str = "VoxPassport Translation Sink";
+pub const VOXPASSPORT_VIRTUAL_CAPTURE_NAME: &str = "VoxPassport Virtual Microphone";
+
 pub struct WindowsAudioPlatform;
 
 impl WindowsAudioPlatform {
@@ -39,6 +42,23 @@ impl WindowsAudioPlatform {
         std::thread::spawn(enumerate_endpoints_mta)
             .join()
             .map_err(|_| AudioPlatformError::Platform("Windows endpoint enumeration thread panicked".into()))?
+    }
+
+    /// Returns true only when Windows currently exposes both sides of the
+    /// VoxPassport virtual-audio cable. Generic render capability is not
+    /// sufficient to claim a virtual microphone exists.
+    pub fn has_voxpassport_virtual_microphone(
+        endpoints: &[AudioEndpointDescriptor],
+    ) -> bool {
+        let render = endpoints.iter().any(|item| {
+            item.role == AudioEndpointRole::RenderOutput
+                && item.name.eq_ignore_ascii_case(VOXPASSPORT_VIRTUAL_RENDER_NAME)
+        });
+        let capture = endpoints.iter().any(|item| {
+            item.role == AudioEndpointRole::PhysicalMicrophone
+                && item.name.eq_ignore_ascii_case(VOXPASSPORT_VIRTUAL_CAPTURE_NAME)
+        });
+        render && capture
     }
 }
 
@@ -52,8 +72,8 @@ impl AudioPlatform for WindowsAudioPlatform {
             enumerate_render_endpoints: true,
             capture_loopback: true,
             render_output: true,
-            // A generic render stream is not itself an OS virtual microphone.
-            // This becomes true only when a validated virtual-audio endpoint/driver is integrated.
+            // Static platform capability remains conservative. The helper's
+            // probe reports the dynamic installed endpoint-pair state.
             virtual_microphone_output: false,
         }
     }

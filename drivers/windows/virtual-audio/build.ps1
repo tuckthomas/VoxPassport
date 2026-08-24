@@ -10,6 +10,25 @@ $DriverRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $PreparedRoot = (& (Join-Path $DriverRoot 'prepare.ps1') -Force:$ForcePrepare | Select-Object -Last 1)
 if (-not (Test-Path $PreparedRoot)) { throw "Prepared driver source missing: $PreparedRoot" }
 
+# Microsoft's current Windows-driver-samples CI uses WDK/SDK NuGet packages on
+# hosted Visual Studio runners. Restore the same x64 packages when NuGet is
+# available; Directory.Build.props in the prepared tree imports them before the
+# pinned sample projects evaluate their WindowsKernelModeDriver10.0 toolset.
+if ($Platform -eq 'x64') {
+    $nuget = Get-Command nuget.exe -ErrorAction SilentlyContinue
+    if (-not $nuget) { $nuget = Get-Command nuget -ErrorAction SilentlyContinue }
+    if ($nuget) {
+        $packagesConfig = Join-Path $DriverRoot 'packages.config'
+        $packagesDir = Join-Path $PreparedRoot 'packages'
+        Write-Host "Restoring WDK/SDK NuGet packages into $packagesDir..."
+        & $nuget.Source restore $packagesConfig -PackagesDirectory $packagesDir -NonInteractive
+        if ($LASTEXITCODE -ne 0) { throw "NuGet WDK restore failed with exit code $LASTEXITCODE" }
+    }
+    else {
+        Write-Host 'NuGet was not found; falling back to machine-installed WDK integration.'
+    }
+}
+
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 $msbuild = $null
 if (Test-Path $vswhere) {
@@ -28,8 +47,9 @@ if (-not $msbuild) {
 }
 
 $kitsRoot = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10'
-if (-not (Test-Path (Join-Path $kitsRoot 'Include'))) {
-    throw 'Windows Driver Kit was not detected under Windows Kits\10. Install the WDK before building.'
+$nugetWdkProps = Join-Path $PreparedRoot 'packages\Microsoft.Windows.WDK.x64.10.0.28000.2526\build\native\Microsoft.Windows.WDK.x64.props'
+if (-not (Test-Path (Join-Path $kitsRoot 'Include')) -and -not (Test-Path $nugetWdkProps)) {
+    throw 'Neither a machine WDK nor the restored WDK NuGet package was detected.'
 }
 
 $solution = Join-Path $PreparedRoot 'SimpleAudioSample.sln'

@@ -1,12 +1,14 @@
 //! VoxPassport Windows audio platform boundary.
 //!
-//! Endpoint discovery is implemented with Windows Core Audio/WASAPI. Realtime
-//! capture/render is intentionally separate and is not reported as available
-//! until a real stream implementation is validated.
+//! Endpoint discovery uses Windows Core Audio. Realtime microphone and system
+//! loopback capture use bounded shared-mode/event-driven WASAPI streams.
 
+mod capture;
+
+use capture::{start_capture, CaptureKind};
 use livetranslator_audio_core::{
-    AudioChunker, AudioEndpointDescriptor, AudioEndpointRole, AudioPlatform,
-    AudioPlatformCapabilities, AudioPlatformError,
+    AudioCaptureConfig, AudioCaptureStream, AudioChunker, AudioEndpointDescriptor,
+    AudioEndpointRole, AudioPlatform, AudioPlatformCapabilities, AudioPlatformError,
 };
 use livetranslator_protocol::{AudioBus, AudioFrame};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -32,11 +34,8 @@ impl WindowsAudioPlatform {
         Self
     }
 
-    /// Enumerate endpoints on a dedicated COM-initialized thread.
-    ///
-    /// Tauri/UI threads may already belong to another COM apartment. Keeping
-    /// discovery on a short-lived MTA worker avoids coupling endpoint discovery
-    /// to whichever apartment the application shell happens to use.
+    /// Enumerate endpoints on a dedicated COM-initialized thread so callers do
+    /// not need to own a particular COM apartment model.
     pub fn enumerate_endpoints_threaded(
         &self,
     ) -> Result<Vec<AudioEndpointDescriptor>, AudioPlatformError> {
@@ -56,15 +55,29 @@ impl AudioPlatform for WindowsAudioPlatform {
     fn capabilities(&self) -> AudioPlatformCapabilities {
         AudioPlatformCapabilities {
             enumerate_microphones: true,
-            capture_microphone: false,
+            capture_microphone: true,
             enumerate_render_endpoints: true,
-            capture_loopback: false,
+            capture_loopback: true,
             virtual_microphone_output: false,
         }
     }
 
     fn enumerate_endpoints(&self) -> Result<Vec<AudioEndpointDescriptor>, AudioPlatformError> {
         self.enumerate_endpoints_threaded()
+    }
+
+    fn start_microphone_capture(
+        &self,
+        config: AudioCaptureConfig,
+    ) -> Result<Box<dyn AudioCaptureStream>, AudioPlatformError> {
+        start_capture(CaptureKind::Microphone, config)
+    }
+
+    fn start_loopback_capture(
+        &self,
+        config: AudioCaptureConfig,
+    ) -> Result<Box<dyn AudioCaptureStream>, AudioPlatformError> {
+        start_capture(CaptureKind::Loopback, config)
     }
 }
 
@@ -94,12 +107,22 @@ fn enumerate_endpoints_initialized() -> Result<Vec<AudioEndpointDescriptor>, Aud
         AudioEndpointRole::PhysicalMicrophone,
         default_capture_id.as_deref(),
     )?);
-    endpoints.extend(enumerate_flow(
+
+    let render = enumerate_flow(
         &enumerator,
         eRender,
         AudioEndpointRole::RenderOutput,
         default_render_id.as_deref(),
-    )?);
+    )?;
+    endpoints.extend(render.iter().cloned());
+    // A render endpoint is also the stable identity used to request WASAPI
+    // system-loopback capture. Keep the roles separate for routing/UI clarity.
+    endpoints.extend(render.into_iter().map(|device| AudioEndpointDescriptor {
+        id: device.id,
+        name: format!("{} (system audio)", device.name),
+        role: AudioEndpointRole::LoopbackSource,
+        is_default: device.is_default,
+    }));
     Ok(endpoints)
 }
 
@@ -192,8 +215,7 @@ fn take_pwstr(value: PWSTR) -> Result<String, AudioPlatformError> {
     result
 }
 
-/// Compatibility type retained while realtime stream ownership migrates to
-/// concrete WASAPI capture/render implementations.
+/// Compatibility metadata retained while callers migrate to AudioEndpointDescriptor.
 pub struct WasapiAudioDevice {
     pub id: String,
     pub name: String,
@@ -201,7 +223,7 @@ pub struct WasapiAudioDevice {
     pub is_loopback: bool,
 }
 
-/// PCM chunking/session state only. This does not itself open a WASAPI device.
+/// In-memory PCM chunking utility retained for tests and non-device producers.
 pub struct WasapiStreamSession {
     bus: AudioBus,
     is_running: Arc<AtomicBool>,

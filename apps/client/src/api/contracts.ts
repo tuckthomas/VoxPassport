@@ -1,6 +1,17 @@
 export const SESSION_PROTOCOL = 'voxpassport.session.v1' as const;
 export const CLIENT_PROTOCOL = 'voxpassport.client.v1' as const;
 
+export type DeploymentClientConfig = {
+  local_only: boolean;
+  accounts: {
+    enabled: boolean;
+    api_url: string | null;
+  };
+  security: {
+    abuse_controls_enabled: boolean;
+  };
+};
+
 export type RuntimeBootstrap = {
   protocol_version: string;
   runtime: 'local';
@@ -12,6 +23,7 @@ export type RuntimeBootstrap = {
   audio_routing_url: string;
   translation_strategies_url: string;
   capabilities: string[];
+  deployment: DeploymentClientConfig;
   app_version?: string;
 };
 
@@ -25,6 +37,7 @@ export type RuntimeStatus = {
   model_residency: string;
   models_loaded: boolean;
   translation_strategy?: TranslationStrategyStatus;
+  live_translation_session?: LiveTranslationSessionStatus | null;
 };
 
 export type DesktopAudioCapabilities = {
@@ -142,6 +155,30 @@ export type TranslationStrategyValidation = {
   kind: 'modular_pipeline' | 'direct_speech_translation';
   reason: string;
   auth_configured: boolean | null;
+};
+
+export type LiveTranslationSessionStatus = {
+  schema_version: number;
+  active: boolean;
+  session_id: string | null;
+  strategy_id: string | null;
+  source_language: string | null;
+  target_language: string | null;
+  input: 'microphone' | 'loopback' | null;
+  output: 'monitor' | 'virtual_microphone' | null;
+  frames_forwarded: number;
+  translated_audio_chunks: number;
+  source_caption: string;
+  translated_caption: string;
+  state: string;
+  error: string | null;
+};
+
+export type LiveTranslationSessionStartRequest = {
+  source_language: string;
+  target_language: string;
+  input: 'microphone' | 'loopback';
+  output: 'monitor' | 'virtual_microphone';
 };
 
 export type LanguageConfiguration = {

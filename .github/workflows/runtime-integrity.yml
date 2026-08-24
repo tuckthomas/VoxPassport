@@ -25,7 +25,7 @@ jobs:
       - name: Install integrity-test dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pytest pytest-asyncio aiohttp
+          python -m pip install pytest pytest-asyncio aiohttp python-dotenv
 
       - name: Compile Python sources
         run: python -m compileall -q runtime agents tests benchmarks scripts
@@ -45,9 +45,13 @@ jobs:
           tests/test_translation_provider_catalog.py
           tests/test_translation_strategy_loader.py
           tests/test_translation_session.py
+          tests/test_translation_strategy_manager.py
           tests/test_gemini_live_translate.py
           tests/test_client_contract.py
           tests/test_client_http.py
+          tests/test_native_audio_bridge.py
+          tests/test_deployment_config.py
+          tests/test_live_translation_controller.py
 
   account-service:
     runs-on: ubuntu-latest
@@ -134,5 +138,5 @@ jobs:
       - name: Check portable audio crate
         run: cargo check --manifest-path crates/audio-core/Cargo.toml
 
-      - name: Check Windows audio crate
-        run: cargo check --manifest-path crates/audio-windows/Cargo.toml
+      - name: Check Windows audio crate and helper
+        run: cargo check --manifest-path crates/audio-windows/Cargo.toml --all-targets

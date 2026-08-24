@@ -47,23 +47,33 @@ def mono_samples(data: bytes) -> list[float]:
     return samples
 
 
-def tone_metrics(samples: list[float]) -> tuple[float, float]:
+def _window_metrics(samples: list[float]) -> tuple[float, float]:
     if not samples:
         return 0.0, 0.0
-    # Ignore startup/shutdown transients and retain at most one second.
-    trim = min(len(samples) // 10, SAMPLE_RATE // 4)
-    if len(samples) > trim * 2:
-        samples = samples[trim:-trim]
-    samples = samples[:SAMPLE_RATE]
-    rms = math.sqrt(sum(value * value for value in samples) / max(1, len(samples)))
+    rms = math.sqrt(sum(value * value for value in samples) / len(samples))
     sin_sum = 0.0
     cos_sum = 0.0
     for index, value in enumerate(samples):
         angle = 2.0 * math.pi * FREQUENCY_HZ * index / SAMPLE_RATE
         sin_sum += value * math.sin(angle)
         cos_sum += value * math.cos(angle)
-    tone_amplitude = 2.0 * math.sqrt(sin_sum * sin_sum + cos_sum * cos_sum) / max(1, len(samples))
+    tone_amplitude = 2.0 * math.sqrt(sin_sum * sin_sum + cos_sum * cos_sum) / len(samples)
     return rms, tone_amplitude
+
+
+def tone_metrics(samples: list[float]) -> tuple[float, float]:
+    if not samples:
+        return 0.0, 0.0
+    window = min(len(samples), SAMPLE_RATE // 2)
+    if len(samples) <= window:
+        return _window_metrics(samples)
+    step = max(1, SAMPLE_RATE // 10)
+    best = (0.0, 0.0)
+    for start in range(0, len(samples) - window + 1, step):
+        current = _window_metrics(samples[start : start + window])
+        if current[1] > best[1]:
+            best = current
+    return best
 
 
 def ensure_endpoint(kind: str, endpoint: str) -> None:
@@ -83,10 +93,12 @@ def main() -> None:
     tone = make_tone()
     with tempfile.TemporaryDirectory(prefix="voxpassport-pipewire-") as temp_dir:
         capture_path = Path(temp_dir) / "capture.raw"
+        # PipeWire 1.0's pw-cat aliases infer raw PCM from explicit format/rate/
+        # channel options and reject the old --raw switch, so keep the command
+        # portable across Ubuntu/WSL and newer PipeWire releases.
         record = subprocess.Popen(
             [
                 "pw-record",
-                "--raw",
                 "--rate", str(SAMPLE_RATE),
                 "--channels", str(CHANNELS),
                 "--format", "s16",
@@ -101,7 +113,6 @@ def main() -> None:
             play = subprocess.run(
                 [
                     "pw-play",
-                    "--raw",
                     "--rate", str(SAMPLE_RATE),
                     "--channels", str(CHANNELS),
                     "--format", "s16",
@@ -130,7 +141,7 @@ def main() -> None:
 
     samples = mono_samples(captured)
     rms, tone_amplitude = tone_metrics(samples)
-    print(f"captured_bytes={len(captured)} rms={rms:.5f} tone_440hz={tone_amplitude:.5f}")
+    print(f"captured_bytes={len(captured)} strongest_window_rms={rms:.5f} tone_440hz={tone_amplitude:.5f}")
     if len(captured) < SAMPLE_RATE * CHANNELS * 2 // 4:
         raise SystemExit("FAIL: too little PCM was captured from VoxPassport Virtual Microphone")
     if rms < 0.01:

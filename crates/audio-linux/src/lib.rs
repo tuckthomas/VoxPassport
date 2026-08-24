@@ -156,14 +156,12 @@ impl AudioPlatform for LinuxAudioPlatform {
 
         for source in sources {
             let id = json_string(source, "name")?;
-            // Sink monitors already appear above as loopback sources. Do not
-            // expose them as user-selectable physical microphones.
-            let monitor_of_sink = source
-                .get("monitor_of_sink")
-                .map(|value| !value.is_null())
-                .unwrap_or(false)
-                || id.ends_with(".monitor");
-            if monitor_of_sink {
+            // PulseAudio uses PA_INVALID_INDEX (u32::MAX) for a normal source,
+            // so merely checking monitor_of_sink for non-null incorrectly
+            // classifies physical microphones as monitors. A real monitor has
+            // an owning-sink name; the conventional .monitor suffix is retained
+            // as a compatibility fallback for PipeWire-Pulse variants.
+            if source_is_monitor(source, &id) {
                 continue;
             }
             let name = source
@@ -213,6 +211,25 @@ impl AudioPlatform for LinuxAudioPlatform {
         };
         Ok(Box::new(PipeWireRender::start(target, config)?))
     }
+}
+
+fn source_is_monitor(source: &Value, id: &str) -> bool {
+    if id.ends_with(".monitor") {
+        return true;
+    }
+    if source
+        .get("monitor_of_sink_name")
+        .and_then(Value::as_str)
+        .is_some_and(|name| !name.is_empty())
+    {
+        return true;
+    }
+    source
+        .get("properties")
+        .and_then(Value::as_object)
+        .and_then(|properties| properties.get("device.class"))
+        .and_then(Value::as_str)
+        .is_some_and(|class| class.eq_ignore_ascii_case("monitor"))
 }
 
 fn json_string(value: &Value, key: &str) -> Result<String, AudioPlatformError> {
@@ -542,6 +559,7 @@ fn timestamp_ns() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn endpoint(id: &str, name: &str, role: AudioEndpointRole) -> AudioEndpointDescriptor {
         AudioEndpointDescriptor {
@@ -566,5 +584,35 @@ mod tests {
         );
         assert!(!LinuxAudioPlatform::has_voxpassport_virtual_microphone(&[render.clone()]));
         assert!(LinuxAudioPlatform::has_voxpassport_virtual_microphone(&[render, capture]));
+    }
+
+    #[test]
+    fn physical_source_with_invalid_monitor_index_is_not_a_monitor() {
+        let source = json!({
+            "name": "alsa_input.pci-0000_00_1f.3.analog-stereo",
+            "monitor_of_sink": 4294967295u64,
+            "monitor_of_sink_name": null,
+            "properties": {"device.class": "sound"}
+        });
+        assert!(!source_is_monitor(
+            &source,
+            "alsa_input.pci-0000_00_1f.3.analog-stereo"
+        ));
+    }
+
+    #[test]
+    fn sink_monitor_is_classified_by_owner_name_or_suffix() {
+        let by_owner = json!({
+            "name": "custom-source",
+            "monitor_of_sink": 0,
+            "monitor_of_sink_name": "alsa_output.pci-0000_00_1f.3.analog-stereo"
+        });
+        assert!(source_is_monitor(&by_owner, "custom-source"));
+
+        let by_suffix = json!({"name": "voxpassport_translation_sink.monitor"});
+        assert!(source_is_monitor(
+            &by_suffix,
+            "voxpassport_translation_sink.monitor"
+        ));
     }
 }

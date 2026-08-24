@@ -184,7 +184,7 @@ def test_runtime_residency_switch_has_backend_and_header_controls():
     assert 'id="runtimeModeInput"' in studio
     assert 'class="runtime-switch-face"' in studio
     assert "toggleRuntimeResidency" in studio
-    assert "ON DEMAND" in studio
+    assert "On Demand unloads idle models to reduce GPU memory usage." in studio
 
 
 def test_playback_resamples_each_chunk_and_owns_consumer_lifecycle():

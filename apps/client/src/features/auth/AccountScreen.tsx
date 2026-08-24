@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'expo-router';
+import { Link, Redirect } from 'expo-router';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { Card } from '@/components/Card';
 import { Screen } from '@/components/Screen';
@@ -16,12 +16,14 @@ export default function AccountScreen() {
   const [error, setError] = useState('');
 
   if (!auth.ready) {
-    return <Screen title="Account"><Text style={{ color: colors.muted }}>Checking account session…</Text></Screen>;
+    return <Screen title="Account"><Text style={{ color: colors.muted }}>Checking account configuration…</Text></Screen>;
   }
+
+  if (!auth.enabled) return <Redirect href="/" />;
 
   if (!auth.user) {
     return (
-      <Screen title="Account" subtitle="An account is optional for local/private runtime use and will be required for VoxPassport Cloud.">
+      <Screen title="Account" subtitle="Accounts are enabled for this deployment, but local/private inference remains independent of account identity.">
         <Card title="Not signed in">
           {auth.error ? <Text style={{ color: colors.warning }}>{auth.error}</Text> : null}
           <View style={{ flexDirection: 'row', gap: 14, flexWrap: 'wrap' }}>
@@ -57,9 +59,6 @@ export default function AccountScreen() {
     <Screen title="Account" subtitle="Account identity is separate from the local inference runtime.">
       <Card title={auth.user.display_name || auth.user.email} subtitle={auth.user.email}>
         <Text style={{ color: colors.muted }}>Account ID: {auth.user.id}</Text>
-        <Text style={{ color: auth.user.email_verified ? colors.success : colors.warning }}>
-          Email {auth.user.email_verified ? 'verified' : 'not verified'}
-        </Text>
         <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
           <Pressable onPress={() => void auth.logout()} style={buttonStyle}>
             <Text style={{ color: colors.text }}>Sign out here</Text>

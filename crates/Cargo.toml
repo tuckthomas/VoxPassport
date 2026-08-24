@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "audio-core",
+    "audio-linux",
     "audio-windows",
     "protocol",
 ]

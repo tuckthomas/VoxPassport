@@ -32,6 +32,7 @@ class NativeAudioBridgeError(RuntimeError):
 @dataclass(frozen=True, slots=True)
 class NativeAudioProbe:
     helper_path: Path
+    platform: str
     endpoint_count: int
     capabilities: dict[str, bool]
 
@@ -68,13 +69,30 @@ class NativeAudioBridge:
         configured = os.getenv("VOXPASSPORT_AUDIO_HELPER", "").strip()
         if configured:
             candidates.append(Path(configured).expanduser())
+
         executable = "voxpassport-audio-helper.exe" if sys.platform == "win32" else "voxpassport-audio-helper"
         candidates.extend([
             self.project_root / "target" / "release" / executable,
             self.project_root / "target" / "debug" / executable,
-            self.project_root / "crates" / "audio-windows" / "target" / "release" / executable,
-            self.project_root / "crates" / "audio-windows" / "target" / "debug" / executable,
+            self.project_root / "crates" / "target" / "release" / executable,
+            self.project_root / "crates" / "target" / "debug" / executable,
         ])
+        if sys.platform == "win32":
+            candidates.extend([
+                self.project_root / "crates" / "audio-windows" / "target" / "release" / executable,
+                self.project_root / "crates" / "audio-windows" / "target" / "debug" / executable,
+            ])
+        elif sys.platform.startswith("linux"):
+            candidates.extend([
+                self.project_root / "crates" / "audio-linux" / "target" / "release" / executable,
+                self.project_root / "crates" / "audio-linux" / "target" / "debug" / executable,
+            ])
+        elif sys.platform == "darwin":
+            candidates.extend([
+                self.project_root / "native" / "macos" / "audio-helper" / ".build" / "release" / executable,
+                self.project_root / "native" / "macos" / "audio-helper" / ".build" / "debug" / executable,
+            ])
+
         for candidate in candidates:
             try:
                 resolved = candidate.resolve()
@@ -101,8 +119,12 @@ class NativeAudioBridge:
             capabilities = payload.get("capabilities")
             if not isinstance(capabilities, dict):
                 raise NativeAudioBridgeError("native audio probe did not return capabilities")
+            platform = str(payload.get("platform") or "").strip()
+            if not platform:
+                raise NativeAudioBridgeError("native audio probe did not return a platform")
             result = NativeAudioProbe(
                 helper_path=helper,
+                platform=platform,
                 endpoint_count=int(payload.get("endpoint_count", 0)),
                 capabilities={str(k): bool(v) for k, v in capabilities.items()},
             )
@@ -126,12 +148,12 @@ class NativeAudioBridge:
                     "render_output": False,
                     "virtual_microphone_output": False,
                 },
-                "note": "native Windows audio helper is not built or could not be probed",
+                "note": "native desktop audio helper is not built or could not be probed",
             }
         return {
             "schema_version": 1,
             "transport": "runtime_native_service",
-            "platform": "windows",
+            "platform": probe.platform,
             "service_connected": True,
             "capabilities": {
                 "device_enumeration": bool(probe.capabilities.get("device_enumeration")),
@@ -140,7 +162,7 @@ class NativeAudioBridge:
                 "render_output": bool(probe.capabilities.get("render_output")),
                 "virtual_microphone_output": bool(probe.capabilities.get("virtual_microphone_output")),
             },
-            "note": f"native helper connected; {probe.endpoint_count} endpoint roles discovered",
+            "note": f"native {probe.platform} helper connected; {probe.endpoint_count} endpoint roles discovered",
         }
 
     async def devices_payload(self) -> dict[str, Any]:

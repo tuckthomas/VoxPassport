@@ -26,7 +26,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     match command.as_str() {
         "probe" => {
             let capabilities = platform.capabilities();
-            let endpoint_count = platform.enumerate_endpoints()?.len();
+            let endpoints = platform.enumerate_endpoints()?;
+            let endpoint_count = endpoints.len();
+            let virtual_microphone_output =
+                WindowsAudioPlatform::has_voxpassport_virtual_microphone(&endpoints);
             println!(
                 "{}",
                 serde_json::to_string(&json!({
@@ -38,7 +41,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         "physical_microphone_capture": capabilities.capture_microphone,
                         "loopback_capture": capabilities.capture_loopback,
                         "render_output": capabilities.render_output,
-                        "virtual_microphone_output": capabilities.virtual_microphone_output,
+                        "virtual_microphone_output": virtual_microphone_output,
                     }
                 }))?
             );

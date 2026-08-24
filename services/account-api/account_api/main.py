@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from account_api.config import Settings, get_settings
 from account_api.database import get_db
 from account_api.models import ProviderCredential, RefreshSession, User
+from account_api.rate_limit import install_account_guard_middleware
 from account_api.schemas import (
     AuthResponse,
     ChangePasswordRequest,
@@ -55,6 +56,7 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-VoxPassport-Client-Kind", "X-VoxPassport-Client-Label"],
 )
+install_account_guard_middleware(app, settings)
 
 
 @dataclass(frozen=True)
@@ -157,9 +159,23 @@ def require_auth(
 
 
 @app.get("/health")
-def health(db: Session = Depends(get_db)) -> dict[str, str]:
+def health(db: Session = Depends(get_db)) -> dict[str, str | bool]:
     db.execute(text("SELECT 1"))
-    return {"status": "ok", "database": "postgresql"}
+    return {
+        "status": "ok",
+        "database": "postgresql",
+        "accounts_enabled": settings.auth_enabled,
+        "abuse_controls_enabled": settings.abuse_controls_enabled,
+    }
+
+
+@app.get("/v1/config")
+def public_config() -> dict[str, bool]:
+    return {
+        "accounts_enabled": settings.auth_enabled,
+        "local_only": settings.local_only,
+        "abuse_controls_enabled": settings.abuse_controls_enabled,
+    }
 
 
 @app.post("/v1/auth/signup", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)

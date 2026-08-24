@@ -11,6 +11,7 @@ from aiohttp import web
 
 from runtime.inference.native_audio_bridge import NativeAudioBridge
 from runtime.inference.native_audio_routing import NativeAudioRoutingStore
+from runtime.inference.protocol import LanguageCode
 from runtime.inference.server.client_contract import ClientOriginPolicy, build_client_bootstrap
 from runtime.inference.translation_provider_catalog import (
     TranslationProviderCatalog,
@@ -28,11 +29,7 @@ _DEFAULT_NATIVE_AUDIO_ROUTING = NativeAudioRoutingStore(
 )
 
 
-def create_client_cors_middleware(
-    policy: ClientOriginPolicy | None = None,
-) -> web.middleware:
-    """Create restricted CORS middleware for local `/api/` calls."""
-
+def create_client_cors_middleware(policy: ClientOriginPolicy | None = None) -> web.middleware:
     origin_policy = policy or ClientOriginPolicy.from_environment()
 
     @web.middleware
@@ -42,10 +39,7 @@ def create_client_cors_middleware(
         origin = request.headers.get("Origin")
         if origin and not origin_policy.allows(origin):
             return web.json_response({"error": "origin_not_allowed"}, status=403)
-        if request.method == "OPTIONS":
-            response = web.Response(status=204)
-        else:
-            response = await handler(request)
+        response = web.Response(status=204) if request.method == "OPTIONS" else await handler(request)
         if origin:
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Vary"] = "Origin"
@@ -57,10 +51,7 @@ def create_client_cors_middleware(
     return middleware
 
 
-def websocket_origin_allowed(
-    origin: str | None,
-    policy: ClientOriginPolicy | None = None,
-) -> bool:
+def websocket_origin_allowed(origin: str | None, policy: ClientOriginPolicy | None = None) -> bool:
     if not origin:
         return True
     return (policy or ClientOriginPolicy.from_environment()).allows(origin)
@@ -80,6 +71,9 @@ def register_client_contract_routes(
     audio_devices_provider: Callable[[], dict[str, Any]] | None = None,
     translation_strategies_provider: Callable[[], dict[str, Any]] | None = None,
     audio_routing_store: NativeAudioRoutingStore | None = None,
+    translation_strategy_manager: Any | None = None,
+    language_pair_provider: Callable[[], tuple[LanguageCode, LanguageCode]] | None = None,
+    cascade_should_start_provider: Callable[[], bool] | None = None,
 ) -> None:
     """Register stable Expo-facing runtime discovery/control routes."""
 
@@ -127,6 +121,55 @@ def register_client_contract_routes(
     app.router.add_route("PUT", "/api/audio/routing", audio_routing)
     app.router.add_post("/api/audio/routing/confirm-virtual-microphone", confirm_virtual_microphone)
     app.router.add_get("/api/translation/strategies", translation_strategies)
+
+    if translation_strategy_manager is not None:
+        if language_pair_provider is None:
+            raise ValueError("language_pair_provider is required with translation_strategy_manager")
+
+        async def strategy_status(_request: web.Request) -> web.Response:
+            return web.json_response(translation_strategy_manager.status_payload())
+
+        async def strategy_validate(request: web.Request) -> web.Response:
+            try:
+                data = await request.json()
+                strategy_id = str(data.get("strategy_id", "")).strip()
+                if not strategy_id:
+                    raise ValueError("strategy_id is required")
+                default_source, default_target = language_pair_provider()
+                source = LanguageCode(str(data.get("source_language") or default_source.value))
+                target = LanguageCode(str(data.get("target_language") or default_target.value))
+                result = await translation_strategy_manager.validate(
+                    strategy_id=strategy_id,
+                    source_language=source,
+                    target_language=target,
+                )
+                return web.json_response(result.to_dict())
+            except Exception as exc:
+                return web.json_response({"error": str(exc)}, status=400)
+
+        async def strategy_activate(request: web.Request) -> web.Response:
+            try:
+                data = await request.json()
+                strategy_id = str(data.get("strategy_id", "")).strip()
+                if not strategy_id:
+                    raise ValueError("strategy_id is required")
+                default_source, default_target = language_pair_provider()
+                source = LanguageCode(str(data.get("source_language") or default_source.value))
+                target = LanguageCode(str(data.get("target_language") or default_target.value))
+                should_start = True if cascade_should_start_provider is None else bool(cascade_should_start_provider())
+                await translation_strategy_manager.activate(
+                    strategy_id=strategy_id,
+                    source_language=source,
+                    target_language=target,
+                    start_cascade_when_selected=should_start,
+                )
+                return web.json_response(translation_strategy_manager.status_payload())
+            except Exception as exc:
+                return web.json_response({"error": str(exc)}, status=400)
+
+        app.router.add_get("/api/translation/strategy", strategy_status)
+        app.router.add_post("/api/translation/strategy/validate", strategy_validate)
+        app.router.add_post("/api/translation/strategy/activate", strategy_activate)
 
 
 async def _resolve_provider(provider):

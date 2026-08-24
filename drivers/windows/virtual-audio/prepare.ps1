@@ -58,6 +58,12 @@ $license = Join-Path $archiveRoot.FullName 'LICENSE'
 if (-not (Test-Path $license)) { throw 'Microsoft license file missing from pinned archive.' }
 Copy-Item -Force $license (Join-Path $PreparedRoot 'MICROSOFT-LICENSE.txt')
 
+# The pinned Simple Audio Sample predates the current WDK NuGet CI setup. Keep
+# the driver source pinned, but surround it with Microsoft's current WDK/SDK
+# property imports so hosted Visual Studio runners resolve kernel headers such
+# as portcls.h without relying on machine-global WDK/VS integration.
+Copy-Item -Force (Join-Path $DriverRoot 'Directory.Build.props') (Join-Path $PreparedRoot 'Directory.Build.props')
+
 $MainDir = Join-Path $PreparedRoot 'Source\Main'
 $FiltersDir = Join-Path $PreparedRoot 'Source\Filters'
 $StreamPath = Join-Path $MainDir 'minwavertstream.cpp'

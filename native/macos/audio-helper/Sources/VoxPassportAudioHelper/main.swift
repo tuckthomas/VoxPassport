@@ -159,7 +159,7 @@ func encodeFrame(sequence: UInt64, rate: UInt32, channels: UInt16, payload: Data
     appendLE(DispatchTime.now().uptimeNanoseconds, to: &output)
     appendLE(rate, to: &output)
     appendLE(channels, to: &output)
-    output.append(1) // pcm_s16le
+    output.append(1)
     appendLE(UInt32(payload.count), to: &output)
     output.append(payload)
     return output
@@ -169,7 +169,8 @@ func readExact(_ handle: FileHandle, count: Int) throws -> Data? {
     var data = Data()
     while data.count < count {
         guard let part = try handle.read(upToCount: count - data.count), !part.isEmpty else {
-            return data.isEmpty ? nil : { throw HelperError.message("truncated native audio frame") }()
+            if data.isEmpty { return nil }
+            throw HelperError.message("truncated native audio frame")
         }
         data.append(part)
     }
@@ -409,7 +410,12 @@ func run() throws {
     case "capture-loopback":
         guard #available(macOS 14.2, *) else { throw HelperError.message("Core Audio process taps require macOS 14.2 or newer") }
         let options = try parseCapture(args.dropFirst(2))
-        let outputUID = options.endpoint ?? (try defaultUID(kAudioHardwarePropertyDefaultOutputDevice))
+        let outputUID: String
+        if let endpoint = options.endpoint {
+            outputUID = endpoint
+        } else {
+            outputUID = try defaultUID(kAudioHardwarePropertyDefaultOutputDevice)
+        }
         let tap = try SystemAudioTap(outputUID: outputUID)
         withExtendedLifetime(tap) {
             do { try runAudioQueueCapture(options: options, endpointUID: tap.aggregateUID) }

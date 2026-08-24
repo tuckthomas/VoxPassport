@@ -67,25 +67,45 @@ def read_capture(proc: subprocess.Popen[bytes], output: bytearray) -> None:
         output.extend(payload)
 
 
-def metrics(data: bytes) -> tuple[float, float]:
-    samples = []
-    frame_bytes = CHANNELS * 2
-    for off in range(0, len(data) - frame_bytes + 1, frame_bytes):
-        l, r = struct.unpack_from("<hh", data, off)
-        samples.append((l + r) / 2 / 32768.0)
-    if len(samples) > RATE // 2:
-        samples = samples[RATE // 4 : -RATE // 4]
-    samples = samples[:RATE]
+def _window_metrics(samples: list[float]) -> tuple[float, float]:
     if not samples:
         return 0.0, 0.0
     rms = math.sqrt(sum(x * x for x in samples) / len(samples))
     s = c = 0.0
     for i, x in enumerate(samples):
-        a = 2 * math.pi * FREQ * i / RATE
-        s += x * math.sin(a)
-        c += x * math.cos(a)
-    amp = 2 * math.sqrt(s * s + c * c) / len(samples)
-    return rms, amp
+        angle = 2 * math.pi * FREQ * i / RATE
+        s += x * math.sin(angle)
+        c += x * math.cos(angle)
+    amplitude = 2 * math.sqrt(s * s + c * c) / len(samples)
+    return rms, amplitude
+
+
+def metrics(data: bytes) -> tuple[float, float]:
+    samples: list[float] = []
+    frame_bytes = CHANNELS * 2
+    for off in range(0, len(data) - frame_bytes + 1, frame_bytes):
+        left, right = struct.unpack_from("<hh", data, off)
+        samples.append((left + right) / 2 / 32768.0)
+    if not samples:
+        return 0.0, 0.0
+
+    # Capture begins before render and ends after the sink is drained, so a
+    # fixed window can dilute the deterministic tone with intentional silence.
+    # Scan overlapping 500 ms windows and require a strong coherent 440 Hz
+    # component in the best window instead of selecting a timing-sensitive
+    # offset. Random noise cannot satisfy the coherent-tone threshold.
+    window = min(len(samples), RATE // 2)
+    step = max(1, RATE // 10)
+    best_rms = 0.0
+    best_amplitude = 0.0
+    if len(samples) <= window:
+        return _window_metrics(samples)
+    for start in range(0, len(samples) - window + 1, step):
+        rms, amplitude = _window_metrics(samples[start : start + window])
+        if amplitude > best_amplitude:
+            best_rms = rms
+            best_amplitude = amplitude
+    return best_rms, best_amplitude
 
 
 def process_error(label: str, proc: subprocess.Popen[bytes]) -> str:
@@ -141,7 +161,7 @@ def main() -> None:
         reader.join(timeout=1)
 
     rms, amp = metrics(bytes(captured))
-    print(f"captured_bytes={len(captured)} rms={rms:.5f} tone_440hz={amp:.5f}")
+    print(f"captured_bytes={len(captured)} strongest_window_rms={rms:.5f} tone_440hz={amp:.5f}")
     if len(captured) < RATE * CHANNELS * 2 // 4:
         raise SystemExit("FAIL: too little PCM captured from VoxPassport Virtual Microphone")
     if rms < 0.01:

@@ -1,0 +1,1 @@
+Temporary validation marker. This branch exists only to trigger pull-request CI against the current main desktop/audio/auth state.

@@ -1,9 +1,4 @@
-"""Stable client-facing contracts for the VoxPassport local runtime.
-
-This module deliberately contains no aiohttp route registration. It owns the
-versioned payload shapes and origin policy so they can be tested independently
-from the large local daemon and reused by future runtime/service entrypoints.
-"""
+"""Stable client-facing contracts for the VoxPassport local runtime."""
 
 from __future__ import annotations
 
@@ -12,6 +7,8 @@ import platform
 from dataclasses import dataclass
 from typing import Iterable
 from urllib.parse import urlparse
+
+from runtime.config.deployment import DeploymentConfig
 
 
 CLIENT_PROTOCOL_VERSION = "voxpassport.client.v1"
@@ -83,8 +80,10 @@ def build_client_bootstrap(
     captions_websocket_url: str = DEFAULT_CAPTIONS_WS_URL,
     resources_websocket_url: str = DEFAULT_RESOURCES_WS_URL,
     app_version: str | None = None,
+    deployment: DeploymentConfig | None = None,
 ) -> dict:
     base = api_base_url.rstrip("/")
+    deployment_config = deployment or DeploymentConfig.load()
     payload = {
         "protocol_version": CLIENT_PROTOCOL_VERSION,
         "runtime": "local",
@@ -96,6 +95,7 @@ def build_client_bootstrap(
         "audio_devices_url": f"{base}/api/audio/devices",
         "audio_routing_url": f"{base}/api/audio/routing",
         "translation_strategies_url": f"{base}/api/translation/strategies",
+        "deployment": deployment_config.client_payload(),
     }
     if app_version:
         payload["app_version"] = str(app_version)

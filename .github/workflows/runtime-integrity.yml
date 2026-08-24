@@ -157,7 +157,7 @@ jobs:
 
   windows-audio:
     runs-on: windows-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -194,6 +194,12 @@ jobs:
           if ($inf -notmatch 'VoxPassport Translation Sink' -or $inf -notmatch 'VoxPassport Virtual Microphone') { throw 'endpoint names missing' }
           if ($mic -notmatch '192000' -or $mic -notmatch 'MICARRAY_BITS_PER_SAMPLE_PCM') { throw 'capture PCM normalization missing' }
           if (-not (Test-Path "$root/MICROSOFT-LICENSE.txt")) { throw 'Microsoft MS-PL license was not preserved' }
+
+      - name: Install Windows Driver Kit
+        shell: pwsh
+        run: >-
+          winget install --id Microsoft.WindowsWDK.10.0.28000 --exact --silent
+          --accept-package-agreements --accept-source-agreements --disable-interactivity
 
       - name: Compile WDK virtual audio driver
         shell: pwsh

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 import json
 from pathlib import Path
@@ -7,218 +5,332 @@ from pathlib import Path
 import pytest
 
 from runtime.inference.adapters.tts.manifest_tts_adapter import ManifestTtsAdapter
-from runtime.inference.tts_plugins.controller import TtsPluginController
-from runtime.inference.tts_plugins.driver_loader import load_driver_class
-from runtime.inference.tts_plugins.manifest import TtsManifestCatalog, TtsManifestError
+from runtime.inference.model_registry.catalog import get_builtin_catalog
+from runtime.inference.protocol import ModelCapability
+from runtime.inference.tts_plugins.backend_runtime import BackendRuntimeCatalog
+from runtime.inference.tts_plugins.manifest import (
+    TtsManifest,
+    TtsManifestCatalog,
+    TtsManifestError,
+)
 from runtime.inference.tts_plugins.runtime_profiles import RuntimeProfileCatalog
-from runtime.workers.tts_host.protocol import SpeechRequest
+from runtime.inference.tts_plugins.runtime_supervisor import TtsRuntimeSupervisor
+from runtime.workers.tts_host import server as tts_host_server
+from runtime.workers.tts_host.driver_loader import load_driver_class
+from runtime.workers.tts_host.protocol import TtsDriver, TtsDriverRequest
+
+PROXY_ENTRYPOINT = "runtime.workers.tts_host.drivers.openai_proxy:OpenAiSpeechProxyDriver"
+LOCAL_TTS_MODELS = {
+    "omnivoice-stock",
+    "higgs-tts-3",
+    "higgs-tts-3-q4_k_m",
+    "moss-tts-1.5",
+    "voxcpm-2",
+    "xtts-v2-romanian-v2",
+}
+PROXY_BACKEND_RUNTIMES = {
+    "higgs-tts-3": "higgs-openai-server",
+    "moss-tts-1.5": "moss-openai-server",
+    "voxcpm-2": "voxcpm-openai-server",
+}
+
+
+class FakeDriver(TtsDriver):
+    def __init__(self, manifest):
+        super().__init__(manifest)
+        self.loaded = False
+        self.last_request = None
+
+    def load(self) -> None:
+        self.loaded = True
+
+    def unload(self) -> None:
+        self.loaded = False
+
+    def synthesize_pcm(self, request: TtsDriverRequest):
+        assert self.loaded
+        assert request.text
+        self.last_request = request
+        yield b"\x00\x00" * 240
+        yield b"\x01\x00" * 240
+
+    def health_check(self) -> bool:
+        return self.loaded
+
+    def metrics(self) -> dict:
+        return {"fake": True, "loaded": self.loaded}
 
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def _manifest_payload(model_id: str, profile: str = "core") -> dict:
+def _manifest_dir() -> Path:
+    return _repo_root() / "runtime" / "tts_manifests"
+
+
+def _backend_runtime_dir() -> Path:
+    return _repo_root() / "runtime" / "tts_backend_runtimes"
+
+
+def _fake_manifest_dict(entrypoint: str = PROXY_ENTRYPOINT, runtime_profile: str = "core") -> dict:
     return {
         "schema_version": 3,
-        "model_id": model_id,
-        "display_name": model_id,
-        "aliases": [],
-        "runtime_profile": profile,
-        "driver": {
-            "entrypoint": "tests.fake_tts_driver:FakeTtsDriver",
-            "options": {},
-        },
+        "model_id": "future-tts",
+        "display_name": "Future TTS",
+        "aliases": ["future"],
+        "runtime_profile": runtime_profile,
+        "driver": {"entrypoint": entrypoint, "options": {}},
         "capabilities": {
             "languages": ["en", "ro"],
             "streaming": True,
             "voice_cloning": True,
             "cross_lingual_voice_cloning": True,
         },
+        "voice_cloning": {"reference_transcript_required": False},
         "audio": {"sample_rate_hz": 24000, "sample_format": "pcm_s16le"},
+        "registry": {"provider": "test"},
     }
 
 
 def test_all_local_tts_models_are_manifests():
-    catalog = TtsManifestCatalog().load()
-    ids = {manifest.model_id for manifest in catalog.manifests()}
-    assert {
-        "omnivoice-stock",
-        "higgs-tts-3",
-        "higgs-tts-3-q4_k_m",
-        "moss-tts-1.5",
-        "voxcpm-2",
-        "xtts-v2-romanian-v2",
-    }.issubset(ids)
+    catalog = TtsManifestCatalog(_manifest_dir()).load()
+    assert {manifest.model_id for manifest in catalog.manifests()} == LOCAL_TTS_MODELS
+    assert all(entry.capability != ModelCapability.TTS for entry in get_builtin_catalog())
+    assert all(manifest.schema_version == 3 for manifest in catalog.manifests())
+    assert all("worker" not in manifest.raw for manifest in catalog.manifests())
 
 
 def test_backend_runtime_catalog_is_reusable_and_separate_from_models():
-    from runtime.inference.tts_plugins.backend_runtime import BackendRuntimeCatalog
-
-    catalog = BackendRuntimeCatalog().load()
-    ids = {runtime.runtime_id for runtime in catalog.runtimes()}
-    assert {"higgs-openai-server", "moss-openai-server", "voxcpm-openai-server"}.issubset(ids)
+    runtime_catalog = BackendRuntimeCatalog(_backend_runtime_dir()).load()
+    assert {runtime.backend_runtime_id for runtime in runtime_catalog.runtimes()} == {
+        "higgs-openai-server",
+        "moss-openai-server",
+        "voxcpm-openai-server",
+    }
+    catalog = TtsManifestCatalog(
+        _manifest_dir(), backend_runtime_catalog=runtime_catalog
+    ).load()
+    for model_id, runtime_id in PROXY_BACKEND_RUNTIMES.items():
+        manifest = catalog.resolve(model_id)
+        assert manifest.backend_runtime == runtime_id
+        assert manifest.backend_args.get("checkpoint")
+        assert "backend_process" not in manifest.driver_options
+        assert "backend_url" not in manifest.driver_options
+        assert "backend_url_env" not in manifest.driver_options
+        runtime = runtime_catalog.resolve(runtime_id)
+        assert runtime.command_env.startswith("VOXPASSPORT_TTS_BACKEND_")
+        assert runtime.remote_url_env.startswith("VOXPASSPORT_TTS_BACKEND_")
+        assert runtime.resolve_args(manifest.backend_args)["checkpoint"] == manifest.backend_args["checkpoint"]
 
 
 def test_direct_worker_models_do_not_invent_backend_runtimes():
-    catalog = TtsManifestCatalog().load()
-    assert catalog.resolve("omnivoice-stock").backend_runtime is None
-    assert catalog.resolve("higgs-tts-3-q4_k_m").backend_runtime is None
-    assert catalog.resolve("xtts-v2-romanian-v2").backend_runtime is None
+    catalog = TtsManifestCatalog(_manifest_dir()).load()
+    for model_id in ("omnivoice-stock", "higgs-tts-3-q4_k_m", "xtts-v2-romanian-v2"):
+        manifest = catalog.resolve(model_id)
+        assert manifest.backend_runtime is None
+        assert manifest.backend_args == {}
 
 
 def test_manifest_catalog_resolves_models_aliases_and_runtime_profiles():
-    catalog = TtsManifestCatalog().load()
+    catalog = TtsManifestCatalog(_manifest_dir()).load()
     assert catalog.resolve("omnivoice").model_id == "omnivoice-stock"
-    assert catalog.resolve("xtts-romanian").model_id == "xtts-v2-romanian-v2"
-    assert catalog.resolve("higgs-q4").runtime_profile == "core"
-    assert catalog.resolve("xtts-romanian").runtime_profile == "coqui-xtts"
+    assert catalog.resolve("higgs-native").model_id == "higgs-tts-3-q4_k_m"
+    assert catalog.resolve("higgs").model_id == "higgs-tts-3"
+    assert catalog.resolve("xtts-ro-v2").model_id == "xtts-v2-romanian-v2"
+    assert catalog.resolve("moss").model_id == "moss-tts-1.5"
+    assert catalog.resolve("openbmb/VoxCPM2").model_id == "voxcpm-2"
+    assert catalog.resolve("xtts-ro-v2").runtime_profile == "coqui-xtts"
+    assert {
+        manifest.runtime_profile for manifest in catalog.manifests() if manifest.model_id != "xtts-v2-romanian-v2"
+    } == {"core"}
 
 
 def test_runtime_profile_catalog_groups_dependency_families():
     profiles = RuntimeProfileCatalog().load()
-    assert profiles.resolve("core").profile_id == "core"
-    assert profiles.resolve("coqui-xtts").profile_id == "coqui-xtts"
+    assert {profile.profile_id for profile in profiles.profiles()} == {"core", "coqui-xtts"}
+    assert profiles.resolve("core").interpreter.endswith(".venv/Scripts/python.exe")
+    assert profiles.resolve("coqui-xtts").interpreter.endswith(
+        "runtime/profiles/coqui-xtts/.venv/Scripts/python.exe"
+    )
+    assert profiles.resolve("coqui-xtts").provisioning["prefer_uv"] is True
+    assert profiles.resolve("coqui-xtts").provisioning["uv_project"] == "runtime/profiles/coqui-xtts"
+    assert (_repo_root() / "runtime" / "profiles" / "coqui-xtts" / "pyproject.toml").exists()
 
 
 def test_every_local_tts_model_uses_one_main_process_adapter():
-    catalog = TtsManifestCatalog().load()
-    for manifest in catalog.manifests():
-        adapter = ManifestTtsAdapter(manifest, profiles_root=Path("data/voice_profiles"), catalog=catalog)
-        assert adapter.model_id == manifest.model_id
+    catalog = TtsManifestCatalog(_manifest_dir()).load()
+    adapters = [ManifestTtsAdapter(manifest, catalog=catalog) for manifest in catalog.manifests()]
+    assert {type(adapter) for adapter in adapters} == {ManifestTtsAdapter}
+    assert {adapter.manifest.runtime_profile for adapter in adapters} == {"core", "coqui-xtts"}
+    assert all(not hasattr(adapter.manifest, "worker_base_url") for adapter in adapters)
 
 
 def test_voxcpm_language_restriction_is_manifest_data():
-    manifest = TtsManifestCatalog().load().resolve("voxcpm-2")
-    assert manifest.languages == ("en", "zh")
+    manifest = TtsManifestCatalog(_manifest_dir()).load().resolve("voxcpm-2")
+    assert "en" in manifest.languages
+    assert "ro" not in manifest.languages
 
 
 def test_openai_compatible_models_share_reusable_proxy_driver():
-    catalog = TtsManifestCatalog().load()
-    entrypoints = {
-        catalog.resolve("higgs-tts-3").driver_entrypoint,
-        catalog.resolve("moss-tts-1.5").driver_entrypoint,
-        catalog.resolve("voxcpm-2").driver_entrypoint,
-    }
-    assert entrypoints == {"runtime.workers.tts_host.drivers.openai_speech_proxy:OpenAiSpeechProxyDriver"}
+    catalog = TtsManifestCatalog(_manifest_dir()).load()
+    models = [catalog.resolve(model_id) for model_id in ("moss-tts-1.5", "voxcpm-2", "higgs-tts-3")]
+    assert {model.driver_entrypoint for model in models} == {PROXY_ENTRYPOINT}
+    assert len({load_driver_class(model.driver_entrypoint) for model in models}) == 1
 
 
 def test_model_library_drivers_import_without_loading_heavy_libraries():
-    catalog = TtsManifestCatalog().load()
-    for manifest in catalog.manifests():
-        cls = load_driver_class(manifest.driver_entrypoint)
-        assert cls is not None
+    catalog = TtsManifestCatalog(_manifest_dir()).load()
+    expected = {
+        "xtts-v2-romanian-v2": "XttsRomanianDriver",
+        "omnivoice-stock": "OmniVoiceDriver",
+        "higgs-tts-3-q4_k_m": "HiggsNativeDriver",
+    }
+    for model_id, class_name in expected.items():
+        assert load_driver_class(catalog.resolve(model_id).driver_entrypoint).__name__ == class_name
 
 
 def test_main_daemon_has_no_local_tts_model_dispatch_or_concrete_adapters():
     source = (_repo_root() / "runtime" / "inference" / "server" / "main.py").read_text(encoding="utf-8")
-    assert "HiggsNativeTtsAdapter" not in source
-    assert "OmniVoiceTtsAdapter" not in source
-    assert "XttsRomanianTtsAdapter" not in source
-    assert "if model_id ==" not in source
+    lowered = source.lower()
+    assert "ManifestTtsAdapter" in source
+    assert "TtsManifestCatalog" in source
+    for legacy_class in (
+        "OmniVoiceTtsAdapter", "HiggsTtsAdapter", "HiggsNativeTtsAdapter",
+        "MossTtsAdapter", "VoxCpmTtsAdapter", "XttsRomanianTtsAdapter",
+    ):
+        assert legacy_class not in source
+    assert "if any(k in model" not in source
+    assert "selected_model != \"omnivoice\"" not in source
+    assert "reference_transcript_required" not in lowered
+    assert "manifest.transcript_required" in source
 
 
 def test_orchestrator_tts_hot_swap_is_manifest_only():
     source = (_repo_root() / "runtime" / "inference" / "pipeline" / "duplex_orchestrator.py").read_text(encoding="utf-8")
-    assert "TtsManifestCatalog" in source
     assert "ManifestTtsAdapter" in source
-    assert "higgs" not in source.lower()
-    assert "omnivoice" not in source.lower()
-    assert "xtts" not in source.lower()
+    assert "TtsManifestCatalog" in source
+    for old_module in (
+        "higgs_native_tts_adapter", "higgs_tts_adapter", "moss_tts_adapter",
+        "voxcpm_tts_adapter", "omnivoice_tts_adapter",
+    ):
+        assert old_module not in source
+    assert "await previous.unload()" in source
 
 
 def test_runtime_supervisor_owns_dynamic_ports_and_has_no_model_name_dispatch():
     source = (_repo_root() / "runtime" / "inference" / "tts_plugins" / "runtime_supervisor.py").read_text(encoding="utf-8")
-    assert "_free_port" in source
-    assert "backend_runtime" in source
-    for name in ("higgs", "moss", "voxcpm", "omnivoice", "xtts"):
-        assert f'== "{name}' not in source.lower()
+    assert 'sock.bind(("127.0.0.1", 0))' in source
+    assert "BackendRuntimeCatalog" in source
+    assert "backend_runtime_catalog.resolve" in source
+    assert "subprocess.Popen" in source
+    assert "8098" not in source
+    assert "8099" not in source
+    for model_name in ("omnivoice", "higgs", "moss", "voxcpm", "xtts"):
+        assert model_name not in source.lower()
 
 
-def test_unused_runtime_profiles_do_not_spawn_workers():
-    source = (_repo_root() / "runtime" / "inference" / "tts_plugins" / "runtime_supervisor.py").read_text(encoding="utf-8")
-    assert "create_subprocess_exec" in source
-    assert "for profile in" not in source[source.index("async def start"):source.index("async def shutdown")] if "async def start" in source else True
+def test_unused_runtime_profiles_do_not_spawn_workers(tmp_path: Path):
+    profile_file = tmp_path / "runtime_profiles.json"
+    profile_file.write_text(json.dumps({
+        "schema_version": 1,
+        "profiles": {
+            "core": {
+                "interpreter": "missing/python.exe",
+                "startup_timeout_seconds": 1,
+                "idle_timeout_seconds": 1,
+                "environment": {},
+                "provisioning": {},
+            }
+        },
+    }), encoding="utf-8")
+    manifest_dir = tmp_path / "manifests"
+    manifest_dir.mkdir()
+    (manifest_dir / "future.json").write_text(json.dumps(_fake_manifest_dict()), encoding="utf-8")
+    supervisor = TtsRuntimeSupervisor(
+        manifest_catalog=TtsManifestCatalog(manifest_dir).load(),
+        profile_catalog=RuntimeProfileCatalog(profile_file).load(),
+        project_root=tmp_path,
+        log_dir=tmp_path / "logs",
+    )
+
+    async def exercise():
+        state = await supervisor.status()
+        assert state["active_model_id"] is None
+        assert state["profiles"][0]["running"] is False
+        assert state["profiles"][0]["installed"] is False
+
+    asyncio.run(exercise())
 
 
 def test_obsolete_concrete_tts_adapter_files_are_removed():
-    root = _repo_root() / "runtime" / "inference" / "adapters" / "tts"
-    obsolete = {
-        "omnivoice_tts_adapter.py",
-        "higgs_tts_adapter.py",
-        "higgs_native_tts_adapter.py",
-        "moss_tts_adapter.py",
-        "voxcpm_tts_adapter.py",
-        "xtts_romanian_tts_adapter.py",
-    }
-    assert not any((root / name).exists() for name in obsolete)
+    tts_dir = _repo_root() / "runtime" / "inference" / "adapters" / "tts"
+    assert {path.name for path in tts_dir.glob("*_tts_adapter.py")} == {"manifest_tts_adapter.py"}
+    assert not (_repo_root() / "runtime" / "inference" / "server" / "tts_plugin_main.py").exists()
+    assert not (_repo_root() / "runtime" / "inference" / "server" / "xtts_main.py").exists()
+    assert not (_repo_root() / "runtime" / "workers" / "xtts_romanian" / "server.py").exists()
 
 
 def test_synthetic_new_manifest_routes_without_daemon_model_branch(tmp_path: Path):
     manifest_dir = tmp_path / "manifests"
     manifest_dir.mkdir()
-    (manifest_dir / "future.json").write_text(json.dumps(_manifest_payload("future-tts")), encoding="utf-8")
-    catalog = TtsManifestCatalog(manifest_dir, validate_backend_runtimes=False).load()
-    manifest = catalog.resolve("future-tts")
-    assert manifest.model_id == "future-tts"
-    assert "future-tts" not in (_repo_root() / "runtime" / "inference" / "server" / "main.py").read_text(encoding="utf-8")
+    path = manifest_dir / "future.json"
+    path.write_text(json.dumps(_fake_manifest_dict()), encoding="utf-8")
+    catalog = TtsManifestCatalog(manifest_dir).load()
+    manifest = catalog.resolve("future")
+    adapter = ManifestTtsAdapter(manifest, profiles_root=tmp_path, catalog=catalog)
+    assert adapter.manifest.model_id == "future-tts"
+    daemon_source = (_repo_root() / "runtime" / "inference" / "server" / "main.py").read_text(encoding="utf-8").lower()
+    supervisor_source = (_repo_root() / "runtime" / "inference" / "tts_plugins" / "runtime_supervisor.py").read_text(encoding="utf-8").lower()
+    assert "future-tts" not in daemon_source
+    assert "future-tts" not in supervisor_source
 
 
 def test_manifest_validation_rejects_missing_driver_worker_and_backend_topology(tmp_path: Path):
-    bad = _manifest_payload("bad")
-    bad.pop("driver")
+    raw = _fake_manifest_dict()
+    raw.pop("driver")
     path = tmp_path / "bad.json"
-    path.write_text(json.dumps(bad), encoding="utf-8")
+    path.write_text(json.dumps(raw), encoding="utf-8")
     with pytest.raises(TtsManifestError):
-        TtsManifestCatalog(tmp_path, validate_backend_runtimes=False).load()
+        TtsManifest.load(path)
 
-    old_worker = _manifest_payload("old-worker")
-    old_worker["worker"] = {"command": ["python", "worker.py"]}
-    path = tmp_path / "old-worker.json"
-    path.write_text(json.dumps(old_worker), encoding="utf-8")
+    raw = _fake_manifest_dict()
+    raw["worker"] = {"base_url": "http://127.0.0.1:9999"}
+    path.write_text(json.dumps(raw), encoding="utf-8")
     with pytest.raises(TtsManifestError):
-        TtsManifestCatalog(tmp_path, validate_backend_runtimes=False).load()
+        TtsManifest.load(path)
 
-    old_backend = _manifest_payload("old-backend")
-    old_backend["driver"]["options"]["backend_url_env"] = "OLD_URL"
-    path = tmp_path / "old-backend.json"
-    path.write_text(json.dumps(old_backend), encoding="utf-8")
-    with pytest.raises(TtsManifestError):
-        TtsManifestCatalog(tmp_path, validate_backend_runtimes=False).load()
+    for deprecated in ("backend_process", "backend_url", "backend_url_env"):
+        raw = _fake_manifest_dict()
+        raw["driver"]["options"][deprecated] = {} if deprecated == "backend_process" else "legacy"
+        path.write_text(json.dumps(raw), encoding="utf-8")
+        with pytest.raises(TtsManifestError, match="deprecated backend topology"):
+            TtsManifest.load(path)
 
 
 def test_generic_controller_load_stream_wav_capabilities_clone_reference_and_unload(tmp_path: Path, monkeypatch):
     manifest_dir = tmp_path / "manifests"
     manifest_dir.mkdir()
-    (manifest_dir / "future.json").write_text(json.dumps(_manifest_payload("future-tts")), encoding="utf-8")
-    catalog = TtsManifestCatalog(manifest_dir, validate_backend_runtimes=False).load()
-
+    (manifest_dir / "future.json").write_text(json.dumps(_fake_manifest_dict()), encoding="utf-8")
     created_drivers = []
 
-    class FakeDriver:
-        def __init__(self, *args, **kwargs):
-            self.last_request = None
-            created_drivers.append(self)
-        def load(self, *args, **kwargs): pass
-        def unload(self): pass
-        def capabilities(self): return {"fake": True}
-        def metrics(self): return {"fake": True}
-        def synthesize(self, request):
-            self.last_request = request
-            return [b"\x00\x00" * 100]
+    def create_fake_driver(manifest):
+        driver = FakeDriver(manifest)
+        created_drivers.append(driver)
+        return driver
 
-    monkeypatch.setattr("runtime.inference.tts_plugins.controller.load_driver_class", lambda _: FakeDriver)
-    controller = TtsPluginController(catalog=catalog)
+    monkeypatch.setattr(tts_host_server, "create_driver", create_fake_driver)
+    controller = tts_host_server.TtsDriverController(TtsManifestCatalog(manifest_dir).load())
+    reference = tmp_path / "reference.wav"
+    target_conditioning = tmp_path / "conditioning-ro.wav"
+    reference.write_bytes(b"RIFFfake-reference")
+    target_conditioning.write_bytes(b"RIFFfake-conditioning")
 
     async def exercise():
-        await controller.load("future-tts")
-        assert controller.loaded_model_id == "future-tts"
-        assert controller.capabilities()["fake"] is True
-        reference = tmp_path / "reference.wav"
-        reference.write_bytes(b"RIFF")
-        target_conditioning = tmp_path / "target.wav"
-        target_conditioning.write_bytes(b"RIFF")
-        request = SpeechRequest(
+        capabilities = await controller.load("future")
+        assert capabilities["protocol"] == "voxpassport.tts.v1"
+        assert capabilities["voice_cloning"] is True
+        request = TtsDriverRequest(
             text="Salut",
             language="ro",
             reference_audio=reference,

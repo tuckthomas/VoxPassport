@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import inspect
+import json
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from aiohttp import web
 
+from runtime.inference.live_translation_controller import (
+    LiveTranslationController,
+    LiveTranslationStartConfig,
+)
 from runtime.inference.native_audio_bridge import NativeAudioBridge
 from runtime.inference.native_audio_routing import NativeAudioRoutingStore
 from runtime.inference.protocol import LanguageCode
@@ -29,6 +35,29 @@ _DEFAULT_NATIVE_AUDIO_ROUTING = NativeAudioRoutingStore(
 )
 
 
+@dataclass(slots=True)
+class RuntimeClientServices:
+    translation_strategy_manager: Any
+    live_translation_controller: LiveTranslationController
+    audio_routing_store: NativeAudioRoutingStore
+    language_pair_provider: Callable[[], tuple[LanguageCode, LanguageCode]]
+    cascade_should_start_provider: Callable[[], bool]
+
+
+_RUNTIME_CLIENT_SERVICES: RuntimeClientServices | None = None
+
+
+def configure_runtime_client_services(services: RuntimeClientServices | None) -> None:
+    """Install or clear the runtime-owned services used by Expo API routes.
+
+    This is explicit process composition, not hidden discovery: the integrated
+    daemon configures it during construction and clears it during shutdown.
+    """
+
+    global _RUNTIME_CLIENT_SERVICES
+    _RUNTIME_CLIENT_SERVICES = services
+
+
 def create_client_cors_middleware(policy: ClientOriginPolicy | None = None) -> web.middleware:
     origin_policy = policy or ClientOriginPolicy.from_environment()
 
@@ -40,6 +69,22 @@ def create_client_cors_middleware(policy: ClientOriginPolicy | None = None) -> w
         if origin and not origin_policy.allows(origin):
             return web.json_response({"error": "origin_not_allowed"}, status=403)
         response = web.Response(status=204) if request.method == "OPTIONS" else await handler(request)
+
+        # The legacy /api/status route remains owned by the daemon. Merge the
+        # new strategy/media state here so we do not duplicate or rewrite its
+        # large HTTP route table during migration.
+        if request.path == "/api/status" and response.content_type == "application/json":
+            services = _RUNTIME_CLIENT_SERVICES
+            if services is not None:
+                try:
+                    payload = json.loads(response.body.decode("utf-8"))
+                    if isinstance(payload, dict):
+                        payload["translation_strategy"] = services.translation_strategy_manager.status_payload()
+                        payload["live_translation_session"] = services.live_translation_controller.status_payload()
+                        response = web.json_response(payload, status=response.status)
+                except Exception:
+                    pass
+
         if origin:
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Vary"] = "Origin"
@@ -72,12 +117,18 @@ def register_client_contract_routes(
     translation_strategies_provider: Callable[[], dict[str, Any]] | None = None,
     audio_routing_store: NativeAudioRoutingStore | None = None,
     translation_strategy_manager: Any | None = None,
+    live_translation_controller: LiveTranslationController | None = None,
     language_pair_provider: Callable[[], tuple[LanguageCode, LanguageCode]] | None = None,
     cascade_should_start_provider: Callable[[], bool] | None = None,
 ) -> None:
     """Register stable Expo-facing runtime discovery/control routes."""
 
-    routing_store = audio_routing_store or _DEFAULT_NATIVE_AUDIO_ROUTING
+    services = _RUNTIME_CLIENT_SERVICES
+    routing_store = audio_routing_store or (services.audio_routing_store if services else None) or _DEFAULT_NATIVE_AUDIO_ROUTING
+    strategy_manager = translation_strategy_manager or (services.translation_strategy_manager if services else None)
+    live_controller = live_translation_controller or (services.live_translation_controller if services else None)
+    pair_provider = language_pair_provider or (services.language_pair_provider if services else None)
+    cascade_provider = cascade_should_start_provider or (services.cascade_should_start_provider if services else None)
 
     async def client_bootstrap(_request: web.Request) -> web.Response:
         capabilities = await _resolve_provider(capabilities_provider)
@@ -98,6 +149,11 @@ def register_client_contract_routes(
             data = await request.json()
             if not isinstance(data, dict):
                 raise ValueError("routing payload must be an object")
+            if live_controller is not None and live_controller.active:
+                return web.json_response(
+                    {"error": "stop live translation before changing audio routing"},
+                    status=409,
+                )
             return web.json_response(await routing_store.update(data))
         except Exception as exc:
             return web.json_response({"error": str(exc)}, status=400)
@@ -122,12 +178,12 @@ def register_client_contract_routes(
     app.router.add_post("/api/audio/routing/confirm-virtual-microphone", confirm_virtual_microphone)
     app.router.add_get("/api/translation/strategies", translation_strategies)
 
-    if translation_strategy_manager is not None:
-        if language_pair_provider is None:
+    if strategy_manager is not None:
+        if pair_provider is None:
             raise ValueError("language_pair_provider is required with translation_strategy_manager")
 
         async def strategy_status(_request: web.Request) -> web.Response:
-            return web.json_response(translation_strategy_manager.status_payload())
+            return web.json_response(strategy_manager.status_payload())
 
         async def strategy_validate(request: web.Request) -> web.Response:
             try:
@@ -135,10 +191,10 @@ def register_client_contract_routes(
                 strategy_id = str(data.get("strategy_id", "")).strip()
                 if not strategy_id:
                     raise ValueError("strategy_id is required")
-                default_source, default_target = language_pair_provider()
+                default_source, default_target = pair_provider()
                 source = LanguageCode(str(data.get("source_language") or default_source.value))
                 target = LanguageCode(str(data.get("target_language") or default_target.value))
-                result = await translation_strategy_manager.validate(
+                result = await strategy_manager.validate(
                     strategy_id=strategy_id,
                     source_language=source,
                     target_language=target,
@@ -148,28 +204,62 @@ def register_client_contract_routes(
                 return web.json_response({"error": str(exc)}, status=400)
 
         async def strategy_activate(request: web.Request) -> web.Response:
+            if live_controller is not None and live_controller.active:
+                return web.json_response(
+                    {"error": "stop live translation before changing strategy"},
+                    status=409,
+                )
             try:
                 data = await request.json()
                 strategy_id = str(data.get("strategy_id", "")).strip()
                 if not strategy_id:
                     raise ValueError("strategy_id is required")
-                default_source, default_target = language_pair_provider()
+                default_source, default_target = pair_provider()
                 source = LanguageCode(str(data.get("source_language") or default_source.value))
                 target = LanguageCode(str(data.get("target_language") or default_target.value))
-                should_start = True if cascade_should_start_provider is None else bool(cascade_should_start_provider())
-                await translation_strategy_manager.activate(
+                should_start = True if cascade_provider is None else bool(cascade_provider())
+                await strategy_manager.activate(
                     strategy_id=strategy_id,
                     source_language=source,
                     target_language=target,
                     start_cascade_when_selected=should_start,
                 )
-                return web.json_response(translation_strategy_manager.status_payload())
+                return web.json_response(strategy_manager.status_payload())
             except Exception as exc:
                 return web.json_response({"error": str(exc)}, status=400)
 
         app.router.add_get("/api/translation/strategy", strategy_status)
         app.router.add_post("/api/translation/strategy/validate", strategy_validate)
         app.router.add_post("/api/translation/strategy/activate", strategy_activate)
+
+    if live_controller is not None:
+        async def live_status(_request: web.Request) -> web.Response:
+            return web.json_response(live_controller.status_payload())
+
+        async def live_start(request: web.Request) -> web.Response:
+            try:
+                data = await request.json()
+                default_source, default_target = (
+                    pair_provider() if pair_provider is not None else (LanguageCode.EN, LanguageCode.RO)
+                )
+                source = LanguageCode(str(data.get("source_language") or default_source.value))
+                target = LanguageCode(str(data.get("target_language") or default_target.value))
+                mode = str(data.get("mode") or "full_duplex")
+                payload = await live_controller.start(LiveTranslationStartConfig(
+                    source_language=source,
+                    target_language=target,
+                    mode=mode,
+                ))
+                return web.json_response(payload)
+            except Exception as exc:
+                return web.json_response({"error": str(exc)}, status=400)
+
+        async def live_stop(_request: web.Request) -> web.Response:
+            return web.json_response(await live_controller.stop())
+
+        app.router.add_get("/api/translation/live", live_status)
+        app.router.add_post("/api/translation/live/start", live_start)
+        app.router.add_post("/api/translation/live/stop", live_stop)
 
 
 async def _resolve_provider(provider):

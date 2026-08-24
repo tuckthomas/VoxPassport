@@ -4,7 +4,6 @@
 namespace
 {
 constexpr ULONG VP_BRIDGE_CAPACITY = 64 * 1024;
-constexpr ULONG VP_POOLTAG = 'BPVV';
 
 KSPIN_LOCK g_BridgeLock = 0;
 volatile LONG g_InitState = 0;
@@ -70,9 +69,14 @@ ULONG AlignDown(ULONG value, ULONG alignment)
     return alignment > 1 ? value - (value % alignment) : value;
 }
 
+ULONG MinUlong(ULONG left, ULONG right)
+{
+    return left < right ? left : right;
+}
+
 void CopyIntoRing(_In_reads_bytes_(count) const BYTE* source, ULONG count)
 {
-    ULONG first = min(count, VP_BRIDGE_CAPACITY - g_WriteOffset);
+    ULONG first = MinUlong(count, VP_BRIDGE_CAPACITY - g_WriteOffset);
     RtlCopyMemory(g_BridgeBuffer + g_WriteOffset, source, first);
     if (count > first)
     {
@@ -83,7 +87,7 @@ void CopyIntoRing(_In_reads_bytes_(count) const BYTE* source, ULONG count)
 
 void CopyFromRing(_Out_writes_bytes_(count) BYTE* destination, ULONG count)
 {
-    ULONG first = min(count, VP_BRIDGE_CAPACITY - g_ReadOffset);
+    ULONG first = MinUlong(count, VP_BRIDGE_CAPACITY - g_ReadOffset);
     RtlCopyMemory(destination, g_BridgeBuffer + g_ReadOffset, first);
     if (count > first)
     {
@@ -102,7 +106,6 @@ VpAudioBridgeWrite(
     _In_ const WAVEFORMATEX* Format
     )
 {
-    UNREFERENCED_PARAMETER(VP_POOLTAG);
     if (Source == nullptr || Format == nullptr || ByteCount == 0 || Format->nBlockAlign == 0)
     {
         return;
@@ -117,7 +120,7 @@ VpAudioBridgeWrite(
         ResetLocked(Format);
     }
 
-    ULONG blockAlign = max<ULONG>(1, g_BlockAlign);
+    ULONG blockAlign = g_BlockAlign > 0 ? static_cast<ULONG>(g_BlockAlign) : 1UL;
     ULONG count = AlignDown(ByteCount, blockAlign);
     const BYTE* source = Source;
 
@@ -139,8 +142,9 @@ VpAudioBridgeWrite(
         {
             // Drop the oldest complete PCM frames rather than queueing stale
             // translated speech behind newer speech.
-            ULONG drop = AlignDown(count - freeBytes + blockAlign - 1, blockAlign);
-            drop = min(drop, g_BytesAvailable);
+            ULONG requiredDrop = count - freeBytes;
+            ULONG drop = ((requiredDrop + blockAlign - 1) / blockAlign) * blockAlign;
+            drop = MinUlong(drop, g_BytesAvailable);
             g_ReadOffset = (g_ReadOffset + drop) % VP_BRIDGE_CAPACITY;
             g_BytesAvailable -= drop;
         }
@@ -177,10 +181,10 @@ VpAudioBridgeRead(
 
     if (FormatMatches(Format) && g_BytesAvailable > 0)
     {
-        ULONG blockAlign = max<ULONG>(1, g_BlockAlign);
+        ULONG blockAlign = g_BlockAlign > 0 ? static_cast<ULONG>(g_BlockAlign) : 1UL;
         ULONG requested = AlignDown(ByteCount, blockAlign);
         ULONG available = AlignDown(g_BytesAvailable, blockAlign);
-        ULONG count = min(requested, available);
+        ULONG count = MinUlong(requested, available);
         if (count > 0)
         {
             CopyFromRing(Destination, count);

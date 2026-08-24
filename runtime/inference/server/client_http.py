@@ -4,16 +4,13 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable, Iterable
+from pathlib import Path
 from typing import Any
 
 from aiohttp import web
 
-from runtime.inference.server.client_contract import (
-    ClientOriginPolicy,
-    build_audio_devices,
-    build_client_bootstrap,
-    build_desktop_audio_status,
-)
+from runtime.inference.native_audio_bridge import NativeAudioBridge
+from runtime.inference.server.client_contract import ClientOriginPolicy, build_client_bootstrap
 from runtime.inference.translation_provider_catalog import (
     TranslationProviderCatalog,
     serialize_provider_catalog,
@@ -22,6 +19,9 @@ from runtime.inference.translation_provider_catalog import (
 
 _ALLOWED_METHODS = "GET, POST, DELETE, OPTIONS"
 _ALLOWED_HEADERS = "Accept, Authorization, Content-Type"
+_DEFAULT_NATIVE_AUDIO_BRIDGE = NativeAudioBridge(
+    project_root=Path(__file__).resolve().parents[3]
+)
 
 
 def create_client_cors_middleware(
@@ -97,8 +97,8 @@ def register_client_contract_routes(
 ) -> None:
     """Register bootstrap, native-audio, and translation-strategy discovery routes.
 
-    Providers can later be replaced with live native/service implementations
-    without changing the Expo API contract.
+    The default audio providers probe the native helper. Tests/deployments can
+    inject alternate providers without changing the Expo API contract.
     """
 
     async def client_bootstrap(_request: web.Request) -> web.Response:
@@ -111,18 +111,12 @@ def register_client_contract_routes(
         )
 
     async def audio_status(_request: web.Request) -> web.Response:
-        if audio_status_provider is None:
-            payload = build_desktop_audio_status()
-        else:
-            payload = await _resolve_provider(audio_status_provider)
-        return web.json_response(payload)
+        provider = audio_status_provider or _DEFAULT_NATIVE_AUDIO_BRIDGE.status_payload
+        return web.json_response(await _resolve_provider(provider))
 
     async def audio_devices(_request: web.Request) -> web.Response:
-        if audio_devices_provider is None:
-            payload = build_audio_devices()
-        else:
-            payload = await _resolve_provider(audio_devices_provider)
-        return web.json_response(payload)
+        provider = audio_devices_provider or _DEFAULT_NATIVE_AUDIO_BRIDGE.devices_payload
+        return web.json_response(await _resolve_provider(provider))
 
     async def translation_strategies(_request: web.Request) -> web.Response:
         provider = translation_strategies_provider or default_translation_strategies

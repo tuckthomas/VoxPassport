@@ -9,7 +9,8 @@ const destinations = [
   ['/models', 'Models & Engines', 'Inspect local or provider-backed translation engines.'],
   ['/voice-profiles', 'Voice Profiles', 'Manage speaker reference profiles and cloning state.'],
   ['/runtime', 'Runtime & Audio', 'Inspect the local runtime and desktop audio capabilities.'],
-  ['/settings', 'Settings', 'Choose local/self-hosted targets and connection settings.'],
+  ['/account', 'Account', 'Sign in, create an account, and manage account sessions.'],
+  ['/settings', 'Settings', 'Choose runtime/account targets and provider credentials.'],
 ] as const;
 
 export default function HomeScreen() {

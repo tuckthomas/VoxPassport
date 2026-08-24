@@ -5,6 +5,7 @@ pub mod platform;
 pub use platform::{
     AudioCaptureConfig, AudioCaptureStats, AudioCaptureStream, AudioEndpointDescriptor,
     AudioEndpointRole, AudioPlatform, AudioPlatformCapabilities, AudioPlatformError,
+    AudioRenderConfig, AudioRenderStats, AudioRenderStream,
 };
 
 use livetranslator_protocol::{AudioBus, AudioFrame, SampleFormat};

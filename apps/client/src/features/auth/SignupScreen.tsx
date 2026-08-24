@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { router, Link } from 'expo-router';
+import { Redirect, router, Link } from 'expo-router';
 import { Pressable, Text, TextInput } from 'react-native';
 import { Card } from '@/components/Card';
 import { Screen } from '@/components/Screen';
@@ -14,6 +14,8 @@ export default function SignupScreen() {
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+
+  if (auth.ready && !auth.enabled) return <Redirect href="/" />;
 
   async function submit() {
     if (busy) return;

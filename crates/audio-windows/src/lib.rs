@@ -1,14 +1,17 @@
 //! VoxPassport Windows audio platform boundary.
 //!
-//! Endpoint discovery uses Windows Core Audio. Realtime microphone and system
-//! loopback capture use bounded shared-mode/event-driven WASAPI streams.
+//! Endpoint discovery uses Windows Core Audio. Realtime microphone, system
+//! loopback capture, and render output use bounded shared-mode/event-driven WASAPI streams.
 
 mod capture;
+mod render;
 
 use capture::{start_capture, CaptureKind};
+use render::start_render;
 use livetranslator_audio_core::{
     AudioCaptureConfig, AudioCaptureStream, AudioChunker, AudioEndpointDescriptor,
     AudioEndpointRole, AudioPlatform, AudioPlatformCapabilities, AudioPlatformError,
+    AudioRenderConfig, AudioRenderStream,
 };
 use livetranslator_protocol::{AudioBus, AudioFrame};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -30,26 +33,16 @@ use windows::Win32::System::Com::{
 pub struct WindowsAudioPlatform;
 
 impl WindowsAudioPlatform {
-    pub fn new() -> Self {
-        Self
-    }
+    pub fn new() -> Self { Self }
 
-    /// Enumerate endpoints on a dedicated COM-initialized thread so callers do
-    /// not need to own a particular COM apartment model.
-    pub fn enumerate_endpoints_threaded(
-        &self,
-    ) -> Result<Vec<AudioEndpointDescriptor>, AudioPlatformError> {
+    pub fn enumerate_endpoints_threaded(&self) -> Result<Vec<AudioEndpointDescriptor>, AudioPlatformError> {
         std::thread::spawn(enumerate_endpoints_mta)
             .join()
             .map_err(|_| AudioPlatformError::Platform("Windows endpoint enumeration thread panicked".into()))?
     }
 }
 
-impl Default for WindowsAudioPlatform {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+impl Default for WindowsAudioPlatform { fn default() -> Self { Self::new() } }
 
 impl AudioPlatform for WindowsAudioPlatform {
     fn capabilities(&self) -> AudioPlatformCapabilities {
@@ -58,6 +51,9 @@ impl AudioPlatform for WindowsAudioPlatform {
             capture_microphone: true,
             enumerate_render_endpoints: true,
             capture_loopback: true,
+            render_output: true,
+            // A generic render stream is not itself an OS virtual microphone.
+            // This becomes true only when a validated virtual-audio endpoint/driver is integrated.
             virtual_microphone_output: false,
         }
     }
@@ -66,18 +62,16 @@ impl AudioPlatform for WindowsAudioPlatform {
         self.enumerate_endpoints_threaded()
     }
 
-    fn start_microphone_capture(
-        &self,
-        config: AudioCaptureConfig,
-    ) -> Result<Box<dyn AudioCaptureStream>, AudioPlatformError> {
+    fn start_microphone_capture(&self, config: AudioCaptureConfig) -> Result<Box<dyn AudioCaptureStream>, AudioPlatformError> {
         start_capture(CaptureKind::Microphone, config)
     }
 
-    fn start_loopback_capture(
-        &self,
-        config: AudioCaptureConfig,
-    ) -> Result<Box<dyn AudioCaptureStream>, AudioPlatformError> {
+    fn start_loopback_capture(&self, config: AudioCaptureConfig) -> Result<Box<dyn AudioCaptureStream>, AudioPlatformError> {
         start_capture(CaptureKind::Loopback, config)
+    }
+
+    fn start_render_output(&self, config: AudioRenderConfig) -> Result<Box<dyn AudioRenderStream>, AudioPlatformError> {
+        start_render(config)
     }
 }
 
@@ -96,27 +90,12 @@ fn enumerate_endpoints_initialized() -> Result<Vec<AudioEndpointDescriptor>, Aud
         CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)
             .map_err(|error| AudioPlatformError::Platform(format!("MMDeviceEnumerator creation failed: {error}")))?
     };
-
     let default_capture_id = default_endpoint_id(&enumerator, eCapture).ok();
     let default_render_id = default_endpoint_id(&enumerator, eRender).ok();
-
     let mut endpoints = Vec::new();
-    endpoints.extend(enumerate_flow(
-        &enumerator,
-        eCapture,
-        AudioEndpointRole::PhysicalMicrophone,
-        default_capture_id.as_deref(),
-    )?);
-
-    let render = enumerate_flow(
-        &enumerator,
-        eRender,
-        AudioEndpointRole::RenderOutput,
-        default_render_id.as_deref(),
-    )?;
+    endpoints.extend(enumerate_flow(&enumerator, eCapture, AudioEndpointRole::PhysicalMicrophone, default_capture_id.as_deref())?);
+    let render = enumerate_flow(&enumerator, eRender, AudioEndpointRole::RenderOutput, default_render_id.as_deref())?;
     endpoints.extend(render.iter().cloned());
-    // A render endpoint is also the stable identity used to request WASAPI
-    // system-loopback capture. Keep the roles separate for routing/UI clarity.
     endpoints.extend(render.into_iter().map(|device| AudioEndpointDescriptor {
         id: device.id,
         name: format!("{} (system audio)", device.name),
@@ -133,97 +112,47 @@ fn enumerate_flow(
     default_id: Option<&str>,
 ) -> Result<Vec<AudioEndpointDescriptor>, AudioPlatformError> {
     let collection = unsafe {
-        enumerator
-            .EnumAudioEndpoints(flow, DEVICE_STATE_ACTIVE)
+        enumerator.EnumAudioEndpoints(flow, DEVICE_STATE_ACTIVE)
             .map_err(|error| AudioPlatformError::Platform(format!("EnumAudioEndpoints failed: {error}")))?
     };
-    let count = unsafe {
-        collection
-            .GetCount()
-            .map_err(|error| AudioPlatformError::Platform(format!("IMMDeviceCollection::GetCount failed: {error}")))?
-    };
-
+    let count = unsafe { collection.GetCount().map_err(|error| AudioPlatformError::Platform(format!("IMMDeviceCollection::GetCount failed: {error}")))? };
     let mut devices = Vec::with_capacity(count as usize);
     for index in 0..count {
-        let device = unsafe {
-            collection
-                .Item(index)
-                .map_err(|error| AudioPlatformError::Platform(format!("IMMDeviceCollection::Item({index}) failed: {error}")))?
-        };
+        let device = unsafe { collection.Item(index).map_err(|error| AudioPlatformError::Platform(format!("IMMDeviceCollection::Item({index}) failed: {error}")))? };
         let id = device_id(&device)?;
         let name = friendly_name(&device).unwrap_or_else(|_| id.clone());
-        devices.push(AudioEndpointDescriptor {
-            is_default: default_id == Some(id.as_str()),
-            id,
-            name,
-            role,
-        });
+        devices.push(AudioEndpointDescriptor { is_default: default_id == Some(id.as_str()), id, name, role });
     }
     Ok(devices)
 }
 
-fn default_endpoint_id(
-    enumerator: &IMMDeviceEnumerator,
-    flow: EDataFlow,
-) -> Result<String, AudioPlatformError> {
-    let device = unsafe {
-        enumerator
-            .GetDefaultAudioEndpoint(flow, eConsole)
-            .map_err(|error| AudioPlatformError::Platform(format!("GetDefaultAudioEndpoint failed: {error}")))?
-    };
+fn default_endpoint_id(enumerator: &IMMDeviceEnumerator, flow: EDataFlow) -> Result<String, AudioPlatformError> {
+    let device = unsafe { enumerator.GetDefaultAudioEndpoint(flow, eConsole).map_err(|error| AudioPlatformError::Platform(format!("GetDefaultAudioEndpoint failed: {error}")))? };
     device_id(&device)
 }
 
 fn device_id(device: &IMMDevice) -> Result<String, AudioPlatformError> {
-    let id = unsafe {
-        device
-            .GetId()
-            .map_err(|error| AudioPlatformError::Platform(format!("IMMDevice::GetId failed: {error}")))?
-    };
+    let id = unsafe { device.GetId().map_err(|error| AudioPlatformError::Platform(format!("IMMDevice::GetId failed: {error}")))? };
     take_pwstr(id)
 }
 
 fn friendly_name(device: &IMMDevice) -> Result<String, AudioPlatformError> {
-    let store = unsafe {
-        device
-            .OpenPropertyStore(STGM_READ)
-            .map_err(|error| AudioPlatformError::Platform(format!("OpenPropertyStore failed: {error}")))?
-    };
-    let mut value = unsafe {
-        store
-            .GetValue(&PKEY_Device_FriendlyName)
-            .map_err(|error| AudioPlatformError::Platform(format!("Friendly-name property lookup failed: {error}")))?
-    };
-    let text = unsafe {
-        PropVariantToStringAlloc(&value)
-            .map_err(|error| AudioPlatformError::Platform(format!("Friendly-name conversion failed: {error}")))?
-    };
+    let store = unsafe { device.OpenPropertyStore(STGM_READ).map_err(|error| AudioPlatformError::Platform(format!("OpenPropertyStore failed: {error}")))? };
+    let mut value = unsafe { store.GetValue(&PKEY_Device_FriendlyName).map_err(|error| AudioPlatformError::Platform(format!("Friendly-name property lookup failed: {error}")))? };
+    let text = unsafe { PropVariantToStringAlloc(&value).map_err(|error| AudioPlatformError::Platform(format!("Friendly-name conversion failed: {error}")))? };
     let result = take_pwstr(text);
-    unsafe {
-        let _ = PropVariantClear(&mut value);
-    }
+    unsafe { let _ = PropVariantClear(&mut value); }
     result
 }
 
 fn take_pwstr(value: PWSTR) -> Result<String, AudioPlatformError> {
-    let result = unsafe {
-        value
-            .to_string()
-            .map_err(|error| AudioPlatformError::Platform(format!("Windows UTF-16 conversion failed: {error}")))
-    };
+    let result = unsafe { value.to_string().map_err(|error| AudioPlatformError::Platform(format!("Windows UTF-16 conversion failed: {error}"))) };
     unsafe { CoTaskMemFree(Some(value.0.cast())) };
     result
 }
 
-/// Compatibility metadata retained while callers migrate to AudioEndpointDescriptor.
-pub struct WasapiAudioDevice {
-    pub id: String,
-    pub name: String,
-    pub is_default: bool,
-    pub is_loopback: bool,
-}
+pub struct WasapiAudioDevice { pub id: String, pub name: String, pub is_default: bool, pub is_loopback: bool }
 
-/// In-memory PCM chunking utility retained for tests and non-device producers.
 pub struct WasapiStreamSession {
     bus: AudioBus,
     is_running: Arc<AtomicBool>,
@@ -232,33 +161,14 @@ pub struct WasapiStreamSession {
 
 impl WasapiStreamSession {
     pub fn new(bus: AudioBus, sample_rate_hz: u32, channels: u16) -> Self {
-        Self {
-            bus,
-            is_running: Arc::new(AtomicBool::new(false)),
-            chunker: AudioChunker::new(bus, sample_rate_hz, channels, 20),
-        }
+        Self { bus, is_running: Arc::new(AtomicBool::new(false)), chunker: AudioChunker::new(bus, sample_rate_hz, channels, 20) }
     }
-
-    pub fn start(&mut self) {
-        self.is_running.store(true, Ordering::SeqCst);
-    }
-
-    pub fn stop(&mut self) {
-        self.is_running.store(false, Ordering::SeqCst);
-    }
-
-    pub fn is_active(&self) -> bool {
-        self.is_running.load(Ordering::SeqCst)
-    }
-
-    pub fn bus(&self) -> AudioBus {
-        self.bus
-    }
-
+    pub fn start(&mut self) { self.is_running.store(true, Ordering::SeqCst); }
+    pub fn stop(&mut self) { self.is_running.store(false, Ordering::SeqCst); }
+    pub fn is_active(&self) -> bool { self.is_running.load(Ordering::SeqCst) }
+    pub fn bus(&self) -> AudioBus { self.bus }
     pub fn feed_pcm_data(&mut self, data: Vec<u8>) -> Option<AudioFrame> {
-        if !self.is_active() {
-            return None;
-        }
+        if !self.is_active() { return None; }
         Some(self.chunker.process_raw_bytes(data))
     }
 }

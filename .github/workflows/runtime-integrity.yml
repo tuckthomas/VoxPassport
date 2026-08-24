@@ -157,7 +157,7 @@ jobs:
 
   windows-audio:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -195,6 +195,18 @@ jobs:
           if ($mic -notmatch '192000' -or $mic -notmatch 'MICARRAY_BITS_PER_SAMPLE_PCM') { throw 'capture PCM normalization missing' }
           if (-not (Test-Path "$root/MICROSOFT-LICENSE.txt")) { throw 'Microsoft MS-PL license was not preserved' }
 
+      - name: Compile WDK virtual audio driver
+        shell: pwsh
+        run: ./drivers/windows/virtual-audio/build.ps1 -Configuration Release -Platform x64
+
+      - name: Verify staged WDK package
+        shell: pwsh
+        run: |
+          $out = 'drivers/windows/virtual-audio/out/x64/Release'
+          if (-not (Test-Path "$out/SimpleAudioSample.inf")) { throw 'Built INF missing' }
+          if (-not (Get-ChildItem -Recurse -File $out -Filter 'SimpleAudioSample.sys' | Select-Object -First 1)) { throw 'Built SYS missing' }
+          if (-not (Test-Path "$out/MICROSOFT-LICENSE.txt")) { throw 'Staged license missing' }
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -206,7 +218,7 @@ jobs:
 
   macos-audio:
     runs-on: macos-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -227,3 +239,17 @@ jobs:
           python3 -m py_compile scripts/validate_macos_virtual_audio.py
           native/macos/audio-helper/.build/release/voxpassport-audio-helper --help
           test -d drivers/macos/virtual-audio/build/VoxPassportVirtualAudio.driver
+
+      - name: Install HAL plug-in on hosted macOS runner
+        run: |
+          ./drivers/macos/virtual-audio/install.sh
+          sleep 4
+          native/macos/audio-helper/.build/release/voxpassport-audio-helper probe
+          native/macos/audio-helper/.build/release/voxpassport-audio-helper devices
+
+      - name: Validate macOS virtual cable crossover
+        run: python3 scripts/validate_macos_virtual_audio.py
+
+      - name: Uninstall hosted-runner HAL plug-in
+        if: always()
+        run: ./drivers/macos/virtual-audio/uninstall.sh

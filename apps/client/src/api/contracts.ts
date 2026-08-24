@@ -157,6 +157,13 @@ export type TranslationStrategyValidation = {
   auth_configured: boolean | null;
 };
 
+export type LiveTranslationMode = 'full_duplex' | 'outbound' | 'inbound';
+
+export type LiveTranslationLegCaptions = Record<string, {
+  source: string;
+  translation: string;
+}>;
+
 export type LiveTranslationSessionStatus = {
   schema_version: number;
   active: boolean;
@@ -164,12 +171,12 @@ export type LiveTranslationSessionStatus = {
   strategy_id: string | null;
   source_language: string | null;
   target_language: string | null;
-  input: 'microphone' | 'loopback' | null;
-  output: 'monitor' | 'virtual_microphone' | null;
+  mode: LiveTranslationMode | null;
   frames_forwarded: number;
   translated_audio_chunks: number;
   source_caption: string;
   translated_caption: string;
+  leg_captions: LiveTranslationLegCaptions;
   state: string;
   error: string | null;
 };
@@ -177,8 +184,7 @@ export type LiveTranslationSessionStatus = {
 export type LiveTranslationSessionStartRequest = {
   source_language: string;
   target_language: string;
-  input: 'microphone' | 'loopback';
-  output: 'monitor' | 'virtual_microphone';
+  mode: LiveTranslationMode;
 };
 
 export type LanguageConfiguration = {

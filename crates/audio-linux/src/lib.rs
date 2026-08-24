@@ -300,8 +300,10 @@ struct PipeWireCapture {
 
 impl PipeWireCapture {
     fn start(target: String, config: AudioCaptureConfig) -> Result<Self, AudioPlatformError> {
+        // Ubuntu 24.04 PipeWire's pw-cat aliases infer raw PCM from the
+        // explicit rate/channels/format options; they do not accept --raw.
+        // Omitting that non-portable switch also works on newer PipeWire.
         let mut child = Command::new("pw-record")
-            .arg("--raw")
             .arg("--rate")
             .arg(config.sample_rate_hz.to_string())
             .arg("--channels")
@@ -431,7 +433,6 @@ struct PipeWireRender {
 impl PipeWireRender {
     fn start(target: String, config: AudioRenderConfig) -> Result<Self, AudioPlatformError> {
         let mut child = Command::new("pw-play")
-            .arg("--raw")
             .arg("--rate")
             .arg(config.sample_rate_hz.to_string())
             .arg("--channels")

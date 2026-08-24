@@ -1,22 +1,46 @@
-"""Bridge TTS manifests into the existing ModelRegistry model schema."""
+"""Bridge TTS manifests into the current ModelRegistry schema."""
 
 from __future__ import annotations
 
 from runtime.inference.model_registry.registry import ModelRegistryEntry
-from runtime.inference.protocol import ModelCapability
+from runtime.inference.protocol import (
+    InstallationStatus,
+    ModelCapability,
+    RecommendationState,
+)
 from runtime.inference.tts_plugins.manifest import TtsManifest
 
 
-def manifest_registry_entry(manifest: TtsManifest) -> ModelRegistryEntry:
+def _recommendation(value: object) -> RecommendationState:
+    try:
+        return RecommendationState(str(value or "CANDIDATE"))
+    except ValueError:
+        return RecommendationState.CANDIDATE
+
+
+def manifest_registry_entry(
+    manifest: TtsManifest,
+    existing: ModelRegistryEntry | None = None,
+) -> ModelRegistryEntry:
+    """Project manifest-owned TTS metadata into ``ModelRegistryEntry``.
+
+    Discovery metadata belongs to the manifest, while mutable installation/use
+    state belongs to the registry. Re-registering a manifest during daemon
+    startup therefore refreshes metadata without erasing installed/active state.
+    """
+
     meta = manifest.registry
-    quantizations = tuple(str(v) for v in meta.get("quantization_options", ["default"]))
-    vram = dict(meta.get("vram", {}))
-    supports_en = "en" in manifest.languages or "*" in manifest.languages
-    supports_ro = "ro" in manifest.languages or "*" in manifest.languages
+    quantizations = [str(v) for v in meta.get("quantization_options", ["default"])]
+    vram = {str(k): str(v) for k, v in dict(meta.get("vram", {})).items()}
+    languages = [str(value).lower() for value in manifest.languages]
+    supports_en = "en" in languages or "*" in languages
+    supports_ro = "ro" in languages or "*" in languages
     upstream_id = str(meta.get("upstream_id", manifest.model_id))
-    required_runtime = ["tts-driver", f"tts-profile:{manifest.runtime_profile}"]
+
+    runtime_parts = ["tts-driver", f"tts-profile:{manifest.runtime_profile}"]
     if manifest.backend_runtime:
-        required_runtime.append(f"tts-backend-runtime:{manifest.backend_runtime}")
+        runtime_parts.append(f"tts-backend-runtime:{manifest.backend_runtime}")
+
     return ModelRegistryEntry(
         model_id=manifest.model_id,
         name=manifest.display_name,
@@ -25,33 +49,49 @@ def manifest_registry_entry(manifest: TtsManifest) -> ModelRegistryEntry:
         capability=ModelCapability.TTS,
         upstream_id=upstream_id,
         revision=str(meta.get("revision", "main")),
-        quantization_options=quantizations,
-        default_quantization=str(meta.get("default_quantization", quantizations[0] if quantizations else "default")),
-        download_gb=float(meta.get("download_gb", 0.0)),
-        vram_gb_by_quantization=vram,
-        ram_gb=float(meta.get("ram_gb", 0.0)),
+        supported_source_languages=languages,
+        supported_target_languages=languages,
         supports_english=supports_en,
         supports_romanian=supports_ro,
         streaming_support=bool(manifest.capabilities.get("streaming", True)),
         voice_cloning_support=manifest.supports_voice_cloning,
-        required_runtime=tuple(required_runtime),
+        cross_lingual_voice_cloning=manifest.cross_lingual_voice_cloning,
+        required_runtime=";".join(runtime_parts),
+        min_runtime_version=str(meta.get("min_runtime_version", "")),
+        quantization_options=quantizations,
+        estimated_download_size_gb=float(meta.get("download_gb", 0.0)),
+        installed_size_gb=(
+            existing.installed_size_gb if existing is not None else None
+        ),
+        expected_vram_tiers=vram,
+        expected_ram_gb=(
+            float(meta["ram_gb"]) if meta.get("ram_gb") is not None else None
+        ),
         license=str(meta.get("license", "unknown")),
         commercial_use=str(meta.get("commercial_use", "verify")),
         redistribution=str(meta.get("redistribution", "verify")),
+        upstream_benchmarks=(
+            dict(existing.upstream_benchmarks) if existing is not None else {}
+        ),
+        local_benchmarks=(
+            dict(existing.local_benchmarks) if existing is not None else {}
+        ),
+        installation_status=(
+            existing.installation_status
+            if existing is not None
+            else InstallationStatus.NOT_INSTALLED
+        ),
+        last_used=existing.last_used if existing is not None else None,
+        last_benchmarked=existing.last_benchmarked if existing is not None else None,
+        is_active=existing.is_active if existing is not None else False,
+        is_pinned=existing.is_pinned if existing is not None else False,
+        eligible_for_cleanup=(
+            existing.eligible_for_cleanup if existing is not None else True
+        ),
+        is_pipeline_enabled=(
+            existing.is_pipeline_enabled if existing is not None else True
+        ),
+        requires_remote_code=bool(meta.get("requires_remote_code", False)),
         trust_level=str(meta.get("trust_level", "MANIFEST")),
-        recommendation=str(meta.get("recommendation", "CANDIDATE")),
-        source_url=str(meta.get("source_url", f"https://huggingface.co/{upstream_id}")),
-        license_url=str(meta.get("license_url", "")),
-        readme_summary=str(meta.get("readme_summary", f"Manifest-driven TTS plugin using {manifest.driver_entrypoint}")),
-        tags=tuple(str(v) for v in meta.get("tags", ["tts", "plugin", "voice-cloning"])),
-        languages=manifest.languages,
-        model_type=str(meta.get("model_type", "text-to-speech")),
-        library_name=str(meta.get("library_name", "voxpassport-tts-plugin")),
-        created_at=str(meta.get("created_at", "")),
-        last_modified=str(meta.get("last_modified", "")),
-        downloads=int(meta.get("downloads", 0)),
-        likes=int(meta.get("likes", 0)),
-        resolved_revision=str(meta.get("resolved_revision", "")),
-        artifact=str(meta.get("artifact", "")),
-        provenance=dict(meta.get("provenance", {})),
+        recommendation_state=_recommendation(meta.get("recommendation")),
     )

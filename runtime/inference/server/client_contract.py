@@ -20,17 +20,12 @@ DEFAULT_API_BASE_URL = "http://127.0.0.1:8766"
 DEFAULT_CAPTIONS_WS_URL = "ws://127.0.0.1:8765/ws/captions"
 DEFAULT_RESOURCES_WS_URL = "ws://127.0.0.1:8766/ws/resources"
 
-# Expo/Metro commonly chooses 8081. Expo web development can use other local
-# ports, so default policy is host-based for loopback origins rather than tied
-# to one development port. Non-loopback origins require an explicit env allow.
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
 
 
 @dataclass(frozen=True, slots=True)
 class ClientOriginPolicy:
-    """Restricted origin policy for the local runtime's browser/PWA API."""
-
     extra_origins: frozenset[str] = frozenset()
 
     @classmethod
@@ -56,8 +51,6 @@ class ClientOriginPolicy:
 
 
 def normalize_origin(value: str | None) -> str | None:
-    """Return a canonical origin, rejecting paths, credentials and unsafe schemes."""
-
     raw = str(value or "").strip()
     if not raw:
         return None
@@ -91,8 +84,6 @@ def build_client_bootstrap(
     resources_websocket_url: str = DEFAULT_RESOURCES_WS_URL,
     app_version: str | None = None,
 ) -> dict:
-    """Build the stable bootstrap document consumed by the Expo client."""
-
     base = api_base_url.rstrip("/")
     payload = {
         "protocol_version": CLIENT_PROTOCOL_VERSION,
@@ -103,6 +94,7 @@ def build_client_bootstrap(
         "capabilities": sorted({str(value) for value in capabilities if str(value).strip()}),
         "audio_status_url": f"{base}/api/audio/status",
         "audio_devices_url": f"{base}/api/audio/devices",
+        "audio_routing_url": f"{base}/api/audio/routing",
         "translation_strategies_url": f"{base}/api/translation/strategies",
     }
     if app_version:
@@ -117,15 +109,10 @@ def build_desktop_audio_status(
     device_enumeration: bool = False,
     physical_microphone_capture: bool = False,
     loopback_capture: bool = False,
+    render_output: bool = False,
     virtual_microphone_output: bool = False,
     note: str | None = None,
 ) -> dict:
-    """Build conservative native-audio status.
-
-    No capability becomes true merely because a Rust implementation exists in
-    source. The runtime/service integration must explicitly report it.
-    """
-
     platform_value = str(platform_name or platform.system() or "unknown").lower()
     if note is None and not service_connected:
         note = "native desktop audio service is not connected"
@@ -138,6 +125,7 @@ def build_desktop_audio_status(
             "device_enumeration": bool(device_enumeration),
             "physical_microphone_capture": bool(physical_microphone_capture),
             "loopback_capture": bool(loopback_capture),
+            "render_output": bool(render_output),
             "virtual_microphone_output": bool(virtual_microphone_output),
         },
         "note": note or "",
@@ -145,8 +133,6 @@ def build_desktop_audio_status(
 
 
 def build_audio_devices(*, devices: Iterable[dict] = ()) -> dict:
-    """Return the versioned device-list envelope expected by the Expo client."""
-
     return {
         "schema_version": AUDIO_CONTRACT_VERSION,
         "devices": [dict(device) for device in devices],

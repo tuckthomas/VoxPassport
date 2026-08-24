@@ -273,6 +273,11 @@ class DuplexOrchestrator:
             logger.warning("Could not start optional Sortformer diarization sidecar", exc_info=True)
             return None
 
+    def _voice_spec_for_current_mode(self, language: LanguageCode) -> VoiceSpec:
+        if self.tts_mode == TtsMode.CLONED:
+            return VoiceSpec(language=language, voice_profile_id="active", is_cloned=True)
+        return VoiceSpec(language=language, voice_profile_id="default", is_cloned=False)
+
     async def start(self) -> None:
         if self._is_active:
             return
@@ -282,7 +287,7 @@ class DuplexOrchestrator:
             self.mt_adapter, self.tts_adapter_ro, self.tts_adapter_en,
         ])
         self.diarization_adapter = await self._maybe_load_diarization_sidecar()
-        speak = self.mode != PipelineMode.CAPTIONS_ONLY
+        synthesize_audio = self.mode != PipelineMode.CAPTIONS_ONLY
 
         if self.mode in (PipelineMode.FULL_DUPLEX, PipelineMode.OUTBOUND_TRANSLATION, PipelineMode.CAPTIONS_ONLY):
             self.outbound_pipeline = OutboundTranslationPipeline(
@@ -296,10 +301,10 @@ class DuplexOrchestrator:
                 caption_callback=self.caption_callback,
                 phrase_config=self._phrase_config,
                 tts_mode=self.tts_mode,
-                voice_spec=self._voice_spec_for_current_mode(),
+                voice_spec=self._voice_spec_for_current_mode(self.remote_language),
                 source_language=self.user_language,
                 target_language=self.remote_language,
-                speak_enabled=speak,
+                synthesize_audio=synthesize_audio,
             )
         if self.mode in (PipelineMode.FULL_DUPLEX, PipelineMode.INBOUND_TRANSLATION, PipelineMode.CAPTIONS_ONLY):
             self.inbound_pipeline = InboundTranslationPipeline(
@@ -313,10 +318,11 @@ class DuplexOrchestrator:
                 caption_callback=self.caption_callback,
                 phrase_config=self._phrase_config,
                 tts_mode=self.tts_mode,
-                voice_spec=self._voice_spec_for_current_mode(),
+                voice_spec=self._voice_spec_for_current_mode(self.user_language),
                 source_language=self.remote_language,
                 target_language=self.user_language,
-                speak_enabled=speak,
+                synthesize_audio=synthesize_audio,
+                diarization_adapter=self.diarization_adapter,
             )
         await self.mic_capture.start()
         await self.conf_capture.start()
@@ -371,8 +377,3 @@ class DuplexOrchestrator:
         self.tts_mode = tts_mode
         if was_active:
             await self.start()
-
-    def _voice_spec_for_current_mode(self) -> VoiceSpec:
-        if self.tts_mode == TtsMode.CLONED:
-            return VoiceSpec(voice_profile_id="active", is_cloned=True)
-        return VoiceSpec(voice_profile_id="default", is_cloned=False)

@@ -9,6 +9,7 @@ export type RuntimeBootstrap = {
   resources_websocket_url: string;
   audio_status_url: string;
   audio_devices_url: string;
+  audio_routing_url: string;
   translation_strategies_url: string;
   capabilities: string[];
   app_version?: string;
@@ -23,12 +24,14 @@ export type RuntimeStatus = {
   active_slots: Record<string, string>;
   model_residency: string;
   models_loaded: boolean;
+  translation_strategy?: TranslationStrategyStatus;
 };
 
 export type DesktopAudioCapabilities = {
   device_enumeration: boolean;
   physical_microphone_capture: boolean;
   loopback_capture: boolean;
+  render_output: boolean;
   virtual_microphone_output: boolean;
 };
 
@@ -58,6 +61,34 @@ export type DesktopAudioDevicesResponse = {
   schema_version: number;
   devices: DesktopAudioDevice[];
 };
+
+export type NativeAudioRouting = {
+  schema_version: number;
+  microphone_endpoint_id: string | null;
+  loopback_endpoint_id: string | null;
+  monitor_render_endpoint_id: string | null;
+  virtual_microphone_render_endpoint_id: string | null;
+  virtual_microphone_capture_endpoint_id: string | null;
+  virtual_microphone_validated: boolean;
+  available: boolean;
+  selection_status: {
+    microphone: boolean;
+    loopback: boolean;
+    monitor: boolean;
+    virtual_microphone_render: boolean;
+    virtual_microphone_capture: boolean;
+  };
+  virtual_microphone_configured: boolean;
+  virtual_microphone_ready: boolean;
+};
+
+export type NativeAudioRoutingPatch = Partial<Pick<NativeAudioRouting,
+  | 'microphone_endpoint_id'
+  | 'loopback_endpoint_id'
+  | 'monitor_render_endpoint_id'
+  | 'virtual_microphone_render_endpoint_id'
+  | 'virtual_microphone_capture_endpoint_id'
+>>;
 
 export type TranslationStrategyExecutionMode =
   | 'local'
@@ -94,6 +125,23 @@ export type TranslationStrategyDescriptor = {
 export type TranslationStrategiesResponse = {
   schema_version: number;
   strategies: TranslationStrategyDescriptor[];
+};
+
+export type TranslationStrategyStatus = {
+  schema_version: number;
+  kind: 'modular_pipeline' | 'direct_speech_translation';
+  strategy_id: string;
+  transitioning: boolean;
+  direct_loaded: boolean;
+  cascade_active: boolean;
+};
+
+export type TranslationStrategyValidation = {
+  valid: boolean;
+  strategy_id: string;
+  kind: 'modular_pipeline' | 'direct_speech_translation';
+  reason: string;
+  auth_configured: boolean | null;
 };
 
 export type LanguageConfiguration = {

@@ -72,6 +72,10 @@ target/
 crates/*/target/
 Cargo.lock
 
+# --- Windows Driver Build Artifacts ---
+drivers/windows/virtual-audio/.work/
+drivers/windows/virtual-audio/out/
+
 # --- Node / Web Build Artifacts ---
 node_modules/
 dist/

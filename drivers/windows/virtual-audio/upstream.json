@@ -1,0 +1,9 @@
+{
+  "repository": "microsoft/Windows-driver-samples",
+  "commit": "717778a20ba4dd2440fe609f69153a1f8a64f597",
+  "sample_path": "audio/simpleaudiosample",
+  "license": "MS-PL",
+  "render_endpoint_name": "VoxPassport Translation Sink",
+  "capture_endpoint_name": "VoxPassport Virtual Microphone",
+  "hardware_id": "ROOT\\VoxPassportVirtualAudio"
+}

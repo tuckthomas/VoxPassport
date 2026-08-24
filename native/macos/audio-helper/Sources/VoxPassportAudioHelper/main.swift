@@ -409,7 +409,11 @@ func run() throws {
         ])
     case "capture-mic":
         let options = try parseCapture(args.dropFirst(2))
-        try runAudioQueueCapture(options: options, endpointUID: options.endpoint)
+        if options.endpoint == voxPassportVirtualMicrophoneUID {
+            try runDirectVirtualCapture(options: options)
+        } else {
+            try runAudioQueueCapture(options: options, endpointUID: options.endpoint)
+        }
     case "capture-loopback":
         guard #available(macOS 14.2, *) else { throw HelperError.message("Core Audio process taps require macOS 14.2 or newer") }
         let options = try parseCapture(args.dropFirst(2))
@@ -425,7 +429,12 @@ func run() throws {
             catch { fputs("voxpassport-audio-helper: \(error)\n", stderr); exit(1) }
         }
     case "render":
-        try runAudioQueueRender(options: parseRender(args.dropFirst(2)))
+        let options = try parseRender(args.dropFirst(2))
+        if options.endpoint == voxPassportVirtualSinkUID {
+            try runDirectVirtualRender(options: options)
+        } else {
+            try runAudioQueueRender(options: options)
+        }
     case "help", "--help", "-h":
         print("VoxPassport CoreAudio helper")
         print("  probe | devices | capture-mic | capture-loopback | render")

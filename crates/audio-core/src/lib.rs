@@ -3,8 +3,8 @@
 
 pub mod platform;
 pub use platform::{
-    AudioEndpointDescriptor, AudioEndpointRole, AudioPlatform, AudioPlatformCapabilities,
-    AudioPlatformError,
+    AudioCaptureConfig, AudioCaptureStats, AudioCaptureStream, AudioEndpointDescriptor,
+    AudioEndpointRole, AudioPlatform, AudioPlatformCapabilities, AudioPlatformError,
 };
 
 use livetranslator_protocol::{AudioBus, AudioFrame, SampleFormat};

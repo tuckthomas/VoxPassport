@@ -165,7 +165,6 @@ func runDirectVirtualRender(options: RenderOptions) throws {
     let callbackQueue = DispatchQueue(label: "com.voxpassport.audio.direct-render", qos: .userInteractive)
     var ioProcID: AudioDeviceIOProcID?
     try check(AudioDeviceCreateIOProcIDWithBlock(&ioProcID, device, callbackQueue) { _, _, _, outputData, _ in
-        guard let outputData else { return }
         for buffer in UnsafeMutableAudioBufferListPointer(outputData) {
             guard let target = buffer.mData else { continue }
             _ = ring.read(into: target, count: Int(buffer.mDataByteSize))

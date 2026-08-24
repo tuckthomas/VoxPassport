@@ -302,7 +302,7 @@ def test_adapter_recovers_worker_crash_before_first_audio(tmp_path: Path):
         async for chunk in adapter.synthesize_stream(
             "hello",
             LanguageCode.EN,
-            VoiceSpec(voice_profile_id="default", is_cloned=False),
+            VoiceSpec(language=LanguageCode.EN, voice_profile_id="default", is_cloned=False),
         ):
             chunks.append(chunk)
         assert marker.exists()

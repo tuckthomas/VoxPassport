@@ -52,6 +52,7 @@ jobs:
           tests/test_native_audio_bridge.py
           tests/test_deployment_config.py
           tests/test_live_translation_controller.py
+          tests/test_virtual_audio_driver_overlay.py
 
   account-service:
     runs-on: ubuntu-latest
@@ -127,16 +128,48 @@ jobs:
 
   windows-audio:
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Validate virtual-driver PowerShell syntax
+        shell: pwsh
+        run: |
+          $failed = $false
+          Get-ChildItem drivers/windows/virtual-audio -Filter *.ps1 | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              $failed = $true
+              Write-Error ("{0}: {1}" -f $_.Name, ($errors | ForEach-Object Message -join '; '))
+            }
+          }
+          if ($failed) { exit 1 }
+
+      - name: Prepare pinned Microsoft virtual-audio substrate
+        shell: pwsh
+        run: ./drivers/windows/virtual-audio/prepare.ps1
+
+      - name: Verify prepared virtual cable patches
+        shell: pwsh
+        run: |
+          $root = 'drivers/windows/virtual-audio/.work/simpleaudiosample'
+          $stream = Get-Content -Raw "$root/Source/Main/minwavertstream.cpp"
+          $inf = Get-Content -Raw "$root/Source/Main/SimpleAudioSample.inx"
+          $mic = Get-Content -Raw "$root/Source/Filters/micarraywavtable.h"
+          if ($stream -notmatch 'VpAudioBridgeWrite' -or $stream -notmatch 'VpAudioBridgeRead') { throw 'PCM bridge patch missing' }
+          if ($inf -notmatch 'ROOT\\VoxPassportVirtualAudio') { throw 'VoxPassport hardware id missing' }
+          if ($inf -notmatch 'VoxPassport Translation Sink' -or $inf -notmatch 'VoxPassport Virtual Microphone') { throw 'endpoint names missing' }
+          if ($mic -notmatch '192000' -or $mic -notmatch 'MICARRAY_BITS_PER_SAMPLE_PCM') { throw 'capture PCM normalization missing' }
+          if (-not (Test-Path "$root/MICROSOFT-LICENSE.txt")) { throw 'Microsoft MS-PL license was not preserved' }
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Check portable audio crate
-        run: cargo check --manifest-path crates/audio-core/Cargo.toml
+      - name: Test portable audio crate
+        run: cargo test --manifest-path crates/audio-core/Cargo.toml --all-targets
 
-      - name: Check Windows audio crate and helper
-        run: cargo check --manifest-path crates/audio-windows/Cargo.toml --all-targets
+      - name: Test Windows audio crate and helper
+        run: cargo test --manifest-path crates/audio-windows/Cargo.toml --all-targets

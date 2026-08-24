@@ -10,7 +10,10 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import time
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 from runtime.inference.live_translation_controller import LiveTranslationController
 from runtime.inference.native_audio_bridge import NativeAudioBridge
@@ -96,7 +99,7 @@ class IntegratedLiveTranslatorApp(LiveTranslatorApp):
                 and self.translation_strategy_manager.state.kind == TranslationStrategyKind.MODULAR_PIPELINE
                 and self.orchestrator._is_active
                 and not self.live_translation_controller.active
-                and asyncio.get_running_loop().time() - self._runtime_last_activity >= 30.0
+                and time.monotonic() - self._runtime_last_activity >= 30.0
             ):
                 await self._stop_cascade_runtime()
                 logger.info("On Demand mode released idle modular inference models")
@@ -111,8 +114,6 @@ class IntegratedLiveTranslatorApp(LiveTranslatorApp):
         self._save_runtime_residency()
 
         if self.translation_strategy_manager.state.kind != TranslationStrategyKind.MODULAR_PIPELINE:
-            # Direct provider residency is owned by its adapter/session rather
-            # than the local model-residency policy.
             await self._stop_cascade_runtime()
             return
 
@@ -126,9 +127,6 @@ class IntegratedLiveTranslatorApp(LiveTranslatorApp):
 
     async def start(self) -> None:
         logger.info("Initializing integrated VoxPassport daemon")
-
-        # Preserve the legacy daemon's persisted model restoration before any
-        # strategy chooses whether the modular pipeline should be resident.
         saved_tts = self.model_manager.get_active_slots().get("TTS") or self._selected_tts_model
         persisted_tts = self._normalize_clone_model(saved_tts)
         persisted_tts_engine = self._tts_engine_for_model(persisted_tts)[0]
@@ -153,13 +151,11 @@ class IntegratedLiveTranslatorApp(LiveTranslatorApp):
 
         logger.info("Restored persisted TTS engine before strategy startup: %s", persisted_tts)
         await self.caption_server.start()
-
         await self.translation_strategy_manager.restore(
             source_language=self.orchestrator.user_language,
             target_language=self.orchestrator.remote_language,
             start_cascade_if_selected=self._runtime_residency == "ready",
         )
-
         await self._setup_http_server()
         await self._mark_default_runtime_models()
         await self.discovery_agent.start()
@@ -180,6 +176,8 @@ class IntegratedLiveTranslatorApp(LiveTranslatorApp):
 
 
 async def main() -> None:
+    # Actual .env support. Existing process environment wins over .env values.
+    load_dotenv(PROJECT_ROOT / ".env", override=False)
     parser = argparse.ArgumentParser(description="VoxPassport Integrated Runtime Daemon")
     parser.add_argument("--data-dir", default="data")
     args = parser.parse_args()

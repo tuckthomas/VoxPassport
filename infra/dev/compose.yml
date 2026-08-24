@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:18.6
+    environment:
+      POSTGRES_DB: voxpassport
+      POSTGRES_USER: voxpassport
+      POSTGRES_PASSWORD: voxpassport-dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - voxpassport-postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U voxpassport -d voxpassport"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  account-api:
+    build:
+      context: ../..
+      dockerfile: services/account-api/Dockerfile
+    environment:
+      VOXPASSPORT_ACCOUNTS_ENVIRONMENT: development
+      VOXPASSPORT_ACCOUNTS_DATABASE_URL: postgresql+psycopg://voxpassport:voxpassport-dev@postgres:5432/voxpassport
+      VOXPASSPORT_ACCOUNTS_JWT_SECRET: dev-only-change-me-before-production
+      VOXPASSPORT_ACCOUNTS_CREDENTIAL_MASTER_SECRET: dev-only-provider-credential-master-secret-change-me
+      VOXPASSPORT_ACCOUNTS_ALLOWED_ORIGINS: http://localhost:8081,http://127.0.0.1:8081,http://localhost:19006,http://127.0.0.1:19006
+      VOXPASSPORT_ACCOUNTS_COOKIE_SECURE: "false"
+    ports:
+      - "8780:8780"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  voxpassport-postgres:

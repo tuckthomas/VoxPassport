@@ -5,7 +5,6 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $DriverRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$RepoRoot = (Resolve-Path (Join-Path $DriverRoot '..\..\..')).Path
 $ConfigPath = Join-Path $DriverRoot 'upstream.json'
 $Config = Get-Content -Raw $ConfigPath | ConvertFrom-Json
 $WorkRoot = Join-Path $DriverRoot '.work'
@@ -36,23 +35,28 @@ if ($Force -and (Test-Path $WorkRoot)) {
 }
 New-Item -ItemType Directory -Force $WorkRoot | Out-Null
 
-if (-not (Test-Path $PreparedRoot)) {
-    if (-not (Test-Path $DownloadPath)) {
-        $archiveUrl = "https://github.com/$($Config.repository)/archive/$($Config.commit).zip"
-        Write-Host "Downloading pinned Microsoft driver samples $($Config.commit)..."
-        Invoke-WebRequest -UseBasicParsing -Uri $archiveUrl -OutFile $DownloadPath
-    }
-    if (Test-Path $ExtractRoot) { Remove-Item -Recurse -Force $ExtractRoot }
-    Expand-Archive -Path $DownloadPath -DestinationPath $ExtractRoot -Force
-    $archiveRoot = Get-ChildItem -Directory $ExtractRoot | Select-Object -First 1
-    if (-not $archiveRoot) { throw 'Could not locate extracted Windows-driver-samples root.' }
-    $sampleSource = Join-Path $archiveRoot.FullName ($Config.sample_path -replace '/', '\')
-    if (-not (Test-Path $sampleSource)) { throw "Pinned sample path missing: $sampleSource" }
-    Copy-Item -Recurse -Force $sampleSource $PreparedRoot
-    $license = Join-Path $archiveRoot.FullName 'LICENSE'
-    if (-not (Test-Path $license)) { throw 'Microsoft license file missing from pinned archive.' }
-    Copy-Item -Force $license (Join-Path $PreparedRoot 'MICROSOFT-LICENSE.txt')
+if (-not (Test-Path $DownloadPath)) {
+    $archiveUrl = "https://github.com/$($Config.repository)/archive/$($Config.commit).zip"
+    Write-Host "Downloading pinned Microsoft driver samples $($Config.commit)..."
+    Invoke-WebRequest -UseBasicParsing -Uri $archiveUrl -OutFile $DownloadPath
 }
+
+if (-not (Test-Path $ExtractRoot)) {
+    Expand-Archive -Path $DownloadPath -DestinationPath $ExtractRoot -Force
+}
+$archiveRoot = Get-ChildItem -Directory $ExtractRoot | Select-Object -First 1
+if (-not $archiveRoot) { throw 'Could not locate extracted Windows-driver-samples root.' }
+$sampleSource = Join-Path $archiveRoot.FullName ($Config.sample_path -replace '/', '\')
+if (-not (Test-Path $sampleSource)) { throw "Pinned sample path missing: $sampleSource" }
+
+# Always rebuild the prepared tree from the pristine pinned archive. This makes
+# prepare.ps1 idempotent and prevents a second invocation from patching an
+# already-patched Microsoft source tree.
+if (Test-Path $PreparedRoot) { Remove-Item -Recurse -Force $PreparedRoot }
+Copy-Item -Recurse -Force $sampleSource $PreparedRoot
+$license = Join-Path $archiveRoot.FullName 'LICENSE'
+if (-not (Test-Path $license)) { throw 'Microsoft license file missing from pinned archive.' }
+Copy-Item -Force $license (Join-Path $PreparedRoot 'MICROSOFT-LICENSE.txt')
 
 $MainDir = Join-Path $PreparedRoot 'Source\Main'
 $FiltersDir = Join-Path $PreparedRoot 'Source\Filters'

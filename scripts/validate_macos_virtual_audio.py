@@ -88,6 +88,16 @@ def metrics(data: bytes) -> tuple[float, float]:
     return rms, amp
 
 
+def process_error(label: str, proc: subprocess.Popen[bytes]) -> str:
+    stderr = b""
+    if proc.stderr is not None:
+        try:
+            stderr = proc.stderr.read()
+        except Exception:
+            pass
+    return f"{label} exited with code {proc.returncode}: {stderr.decode(errors='replace').strip()}"
+
+
 def main() -> None:
     helper = helper_path()
     devices = json.loads(subprocess.check_output([str(helper), "devices"], text=True))["devices"]
@@ -104,6 +114,8 @@ def main() -> None:
     reader.start()
     try:
         time.sleep(0.35)
+        if capture.poll() is not None:
+            raise SystemExit(process_error("capture helper", capture))
         render = subprocess.Popen(
             [str(helper), "render", "--endpoint", sink, "--rate", str(RATE), "--channels", str(CHANNELS), "--queue", "16"],
             stdin=subprocess.PIPE,
@@ -115,10 +127,13 @@ def main() -> None:
             render.stdin.write(tone_chunk(sequence))
         render.stdin.close()
         if render.wait(timeout=8) != 0:
-            raise SystemExit(f"render helper failed: {(render.stderr.read() if render.stderr else b'').decode(errors='replace')}")
+            raise SystemExit(process_error("render helper", render))
         time.sleep(0.35)
+        if capture.poll() is not None:
+            raise SystemExit(process_error("capture helper", capture))
     finally:
-        capture.terminate()
+        if capture.poll() is None:
+            capture.terminate()
         try:
             capture.wait(timeout=3)
         except subprocess.TimeoutExpired:

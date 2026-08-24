@@ -26,7 +26,7 @@ export default function SettingsScreen() {
   useEffect(() => setAccountUrl(auth.accountBaseUrl), [auth.accountBaseUrl]);
 
   async function reloadCredentials() {
-    if (!auth.user) {
+    if (!auth.enabled || !auth.user) {
       setCredentials([]);
       return;
     }
@@ -39,7 +39,7 @@ export default function SettingsScreen() {
 
   useEffect(() => {
     void reloadCredentials();
-  }, [auth.user?.id, auth.accessToken]);
+  }, [auth.enabled, auth.user?.id, auth.accessToken]);
 
   async function saveCredential() {
     if (!provider.trim() || !providerSecret || credentialBusy) return;
@@ -73,7 +73,16 @@ export default function SettingsScreen() {
   }
 
   return (
-    <Screen title="Settings" subtitle="Local runtime is the desktop default. Managed cloud remains optional.">
+    <Screen title="Settings" subtitle={auth.localOnly ? 'Single-user local deployment.' : 'Local runtime is the desktop default. Managed cloud remains optional.'}>
+      {auth.localOnly ? (
+        <Card title="Deployment mode" subtitle="Configured by VOXPASSPORT_LOCAL_ONLY or deployment JSON.">
+          <Text style={{ color: colors.success }}>Local-only · accounts disabled</Text>
+          <Text style={{ color: colors.muted }}>
+            Login, signup, account sessions, account credential vaults, and multi-user abuse controls are not used by this deployment.
+          </Text>
+        </Card>
+      ) : null}
+
       <Card title="Processing target">
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
           <ModeButton label="Local" value="local" selected={target.mode} onSelect={target.setMode} />
@@ -93,56 +102,67 @@ export default function SettingsScreen() {
           <Text style={{ color: colors.text }}>Save self-hosted URL</Text>
         </Pressable>
       </Card>
-      <Card title="Account service URL" subtitle="Separate from inference so local/private use does not require an account.">
-        <TextInput value={accountUrl} onChangeText={setAccountUrl} autoCapitalize="none" style={inputStyle} />
-        <Pressable onPress={() => void auth.setAccountBaseUrl(accountUrl)} style={buttonStyle}>
-          <Text style={{ color: colors.text }}>Save account URL</Text>
-        </Pressable>
-      </Card>
 
-      <Card title="Provider credential vault" subtitle="Provider secrets are encrypted by the account service and are never returned by list APIs.">
-        {!auth.user ? (
-          <Text style={{ color: colors.muted }}>
-            <Link href="/login" style={{ color: colors.accent }}>Sign in</Link> to store provider credentials for account/cloud use.
-          </Text>
-        ) : (
-          <>
-            <TextInput
-              value={provider}
-              onChangeText={setProvider}
-              autoCapitalize="none"
-              autoCorrect={false}
-              placeholder="Provider, e.g. google"
-              placeholderTextColor={colors.muted}
-              style={inputStyle}
-            />
-            <TextInput
-              value={providerSecret}
-              onChangeText={setProviderSecret}
-              secureTextEntry
-              autoCapitalize="none"
-              autoCorrect={false}
-              placeholder="API key / provider secret"
-              placeholderTextColor={colors.muted}
-              style={inputStyle}
-            />
-            <Pressable disabled={credentialBusy || !providerSecret} onPress={() => void saveCredential()} style={buttonStyle}>
-              <Text style={{ color: colors.text }}>{credentialBusy ? 'Saving…' : 'Encrypt & save credential'}</Text>
+      {auth.enabled ? (
+        <>
+          <Card title="Account service URL" subtitle="Separate from inference so local/private use does not require an account.">
+            <TextInput value={accountUrl} onChangeText={setAccountUrl} autoCapitalize="none" style={inputStyle} />
+            <Pressable onPress={() => void auth.setAccountBaseUrl(accountUrl)} style={buttonStyle}>
+              <Text style={{ color: colors.text }}>Save account URL</Text>
             </Pressable>
-            {credentialMessage ? <Text style={{ color: colors.success }}>{credentialMessage}</Text> : null}
-            {credentialError ? <Text style={{ color: colors.danger }}>{credentialError}</Text> : null}
-            {credentials.length ? credentials.map((item) => (
-              <View key={item.id} style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10, gap: 6 }}>
-                <Text style={{ color: colors.text, fontWeight: '700' }}>{item.provider} · {item.label}</Text>
-                <Text style={{ color: colors.muted }}>Encrypted credential · key version {item.key_version}</Text>
-                <Pressable disabled={credentialBusy} onPress={() => void removeCredential(item)} style={buttonStyle}>
-                  <Text style={{ color: colors.danger }}>Delete</Text>
+          </Card>
+
+          <Card title="Provider credential vault" subtitle="Provider secrets are encrypted by the account service and are never returned by list APIs.">
+            {!auth.user ? (
+              <Text style={{ color: colors.muted }}>
+                <Link href="/login" style={{ color: colors.accent }}>Sign in</Link> to store provider credentials for account/cloud use.
+              </Text>
+            ) : (
+              <>
+                <TextInput
+                  value={provider}
+                  onChangeText={setProvider}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  placeholder="Provider, e.g. google"
+                  placeholderTextColor={colors.muted}
+                  style={inputStyle}
+                />
+                <TextInput
+                  value={providerSecret}
+                  onChangeText={setProviderSecret}
+                  secureTextEntry
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  placeholder="API key / provider secret"
+                  placeholderTextColor={colors.muted}
+                  style={inputStyle}
+                />
+                <Pressable disabled={credentialBusy || !providerSecret} onPress={() => void saveCredential()} style={buttonStyle}>
+                  <Text style={{ color: colors.text }}>{credentialBusy ? 'Saving…' : 'Encrypt & save credential'}</Text>
                 </Pressable>
-              </View>
-            )) : <Text style={{ color: colors.muted }}>No account-scoped provider credentials saved.</Text>}
-          </>
-        )}
-      </Card>
+                {credentialMessage ? <Text style={{ color: colors.success }}>{credentialMessage}</Text> : null}
+                {credentialError ? <Text style={{ color: colors.danger }}>{credentialError}</Text> : null}
+                {credentials.length ? credentials.map((item) => (
+                  <View key={item.id} style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10, gap: 6 }}>
+                    <Text style={{ color: colors.text, fontWeight: '700' }}>{item.provider} · {item.label}</Text>
+                    <Text style={{ color: colors.muted }}>Encrypted credential · key version {item.key_version}</Text>
+                    <Pressable disabled={credentialBusy} onPress={() => void removeCredential(item)} style={buttonStyle}>
+                      <Text style={{ color: colors.danger }}>Delete</Text>
+                    </Pressable>
+                  </View>
+                )) : <Text style={{ color: colors.muted }}>No account-scoped provider credentials saved.</Text>}
+              </>
+            )}
+          </Card>
+        </>
+      ) : (
+        <Card title="Local provider credentials">
+          <Text style={{ color: colors.muted }}>
+            Account-backed credential storage is disabled. BYO provider adapters use deployment/runtime secrets such as GEMINI_API_KEY; no account database is required.
+          </Text>
+        </Card>
+      )}
     </Screen>
   );
 }

@@ -3,10 +3,14 @@ import type {
   DesktopAudioStatus,
   LanguageConfiguration,
   ModelEntry,
+  NativeAudioRouting,
+  NativeAudioRoutingPatch,
   RuntimeBootstrap,
   RuntimeStatus,
   TranslationResponse,
   TranslationStrategiesResponse,
+  TranslationStrategyStatus,
+  TranslationStrategyValidation,
   VoiceProfilesResponse,
 } from './contracts';
 
@@ -30,6 +34,7 @@ export class VoxPassportApi {
       const responseBody = await response.text();
       throw new Error(apiErrorMessage(response.status, responseBody, response.statusText));
     }
+    if (response.status === 204) return undefined as T;
     return response.json() as Promise<T>;
   }
 
@@ -49,8 +54,52 @@ export class VoxPassportApi {
     return this.request('/api/audio/devices');
   }
 
+  audioRouting(): Promise<NativeAudioRouting> {
+    return this.request('/api/audio/routing');
+  }
+
+  updateAudioRouting(patch: NativeAudioRoutingPatch): Promise<NativeAudioRouting> {
+    return this.request('/api/audio/routing', {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    });
+  }
+
+  confirmVirtualMicrophone(confirmed: boolean): Promise<NativeAudioRouting> {
+    return this.request('/api/audio/routing/confirm-virtual-microphone', {
+      method: 'POST',
+      body: JSON.stringify({ confirmed }),
+    });
+  }
+
   translationStrategies(): Promise<TranslationStrategiesResponse> {
     return this.request('/api/translation/strategies');
+  }
+
+  translationStrategyStatus(): Promise<TranslationStrategyStatus> {
+    return this.request('/api/translation/strategy');
+  }
+
+  validateTranslationStrategy(strategyId: string, sourceLanguage: string, targetLanguage: string): Promise<TranslationStrategyValidation> {
+    return this.request('/api/translation/strategy/validate', {
+      method: 'POST',
+      body: JSON.stringify({
+        strategy_id: strategyId,
+        source_language: sourceLanguage,
+        target_language: targetLanguage,
+      }),
+    });
+  }
+
+  activateTranslationStrategy(strategyId: string, sourceLanguage: string, targetLanguage: string): Promise<TranslationStrategyStatus> {
+    return this.request('/api/translation/strategy/activate', {
+      method: 'POST',
+      body: JSON.stringify({
+        strategy_id: strategyId,
+        source_language: sourceLanguage,
+        target_language: targetLanguage,
+      }),
+    });
   }
 
   languages(): Promise<LanguageConfiguration> {
@@ -85,6 +134,7 @@ function apiErrorMessage(status: number, responseBody: string, statusText = ''):
     const payload = JSON.parse(responseBody) as { error?: string; detail?: string };
     if (payload.error && payload.detail) return `${payload.error}: ${payload.detail}`;
     if (payload.error) return payload.error;
+    if (payload.detail) return payload.detail;
   } catch {
     // Non-JSON errors fall through to the HTTP status/body summary.
   }

@@ -1,6 +1,6 @@
 @echo off
 echo ===================================================
-echo   Starting VoxPassport Conference Runtime
+echo   Starting VoxPassport Runtime
 echo ===================================================
 echo.
 
@@ -17,13 +17,12 @@ if not exist ".venv\Scripts\python.exe" (
     exit /b 1
 )
 
-echo Starting Unified Inference Daemon on ws://127.0.0.1:8765...
+echo Starting integrated inference/native-audio daemon...
 echo Local TTS workers will be launched on demand by the runtime-profile supervisor.
-start /b .venv\Scripts\python.exe runtime\inference\server\main.py
-
-echo Opening Desktop Caption Overlay...
-start "" "apps\desktop-companion\overlay\index.html"
+start /b .venv\Scripts\python.exe -m runtime.inference.server.integrated_main
 
 echo.
-echo VoxPassport is active. Press Ctrl+C in this terminal to stop.
+echo VoxPassport runtime is active at http://127.0.0.1:8766.
+echo Launch the Expo client separately during migration/development.
+echo Press Ctrl+C in this terminal to stop.
 pause

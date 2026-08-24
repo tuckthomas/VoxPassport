@@ -50,6 +50,7 @@ jobs:
           tests/test_client_contract.py
           tests/test_client_http.py
           tests/test_native_audio_bridge.py
+          tests/test_cross_platform_native_audio.py
           tests/test_deployment_config.py
           tests/test_live_translation_controller.py
           tests/test_virtual_audio_driver_overlay.py
@@ -126,6 +127,34 @@ jobs:
       - name: Export Expo web client
         run: npm run --prefix apps/client export:web
 
+  linux-audio:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install PipeWire client tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pipewire-bin pulseaudio-utils
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Test Linux PipeWire audio crate and helper
+        run: cargo test --manifest-path crates/audio-linux/Cargo.toml --all-targets
+
+      - name: Compile Linux helper release binary
+        run: cargo build --manifest-path crates/audio-linux/Cargo.toml --release
+
+      - name: Validate Linux virtual-audio scripts
+        run: |
+          bash -n drivers/linux/virtual-audio/install.sh
+          bash -n drivers/linux/virtual-audio/uninstall.sh
+          python -m py_compile scripts/validate_pipewire_virtual_audio.py
+          crates/target/release/voxpassport-audio-helper --help
+
   windows-audio:
     runs-on: windows-latest
     timeout-minutes: 20
@@ -174,3 +203,27 @@ jobs:
 
       - name: Test Windows audio crate and helper
         run: cargo test --manifest-path crates/audio-windows/Cargo.toml --all-targets
+
+  macos-audio:
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Compile CoreAudio helper
+        run: swift build --package-path native/macos/audio-helper -c release
+
+      - name: Configure macOS virtual-audio HAL plug-in
+        run: cmake -S drivers/macos/virtual-audio -B drivers/macos/virtual-audio/build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Compile macOS virtual-audio HAL plug-in
+        run: cmake --build drivers/macos/virtual-audio/build --config Release
+
+      - name: Validate macOS audio tooling
+        run: |
+          bash -n drivers/macos/virtual-audio/install.sh
+          bash -n drivers/macos/virtual-audio/uninstall.sh
+          python3 -m py_compile scripts/validate_macos_virtual_audio.py
+          native/macos/audio-helper/.build/release/voxpassport-audio-helper --help
+          test -d drivers/macos/virtual-audio/build/VoxPassportVirtualAudio.driver

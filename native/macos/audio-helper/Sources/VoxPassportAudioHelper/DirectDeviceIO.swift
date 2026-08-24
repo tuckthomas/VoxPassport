@@ -19,6 +19,56 @@ func audioDeviceID(forUID uid: String) throws -> AudioDeviceID {
     throw HelperError.message("CoreAudio endpoint \(uid) is not available")
 }
 
+private func pcmS16(_ data: Data, frame: Int, channel: Int, channels: Int) -> Int16 {
+    let offset = (frame * channels + channel) * 2
+    let bits = UInt16(data[offset]) | (UInt16(data[offset + 1]) << 8)
+    return Int16(bitPattern: bits)
+}
+
+/// Convert provider PCM into the fixed 48 kHz / 16-bit / stereo format exposed
+/// by the HAL virtual cable. Direct speech providers commonly emit 24 kHz mono;
+/// keeping conversion here lets the live-session controller remain platform
+/// neutral and keeps the system-facing virtual device format stable.
+func normalizeForVirtualCable(_ data: Data, sourceRate: UInt32, sourceChannels: UInt16) throws -> Data {
+    guard sourceRate > 0 else { throw HelperError.message("source PCM sample rate must be positive") }
+    guard sourceChannels == 1 || sourceChannels == 2 else {
+        throw HelperError.message("VoxPassport virtual render currently supports mono or stereo pcm_s16le")
+    }
+    let channels = Int(sourceChannels)
+    let sourceFrameBytes = channels * 2
+    let sourceFrames = data.count / sourceFrameBytes
+    guard sourceFrames > 0 else { return Data() }
+
+    if sourceRate == virtualRate && sourceChannels == virtualChannels {
+        return data.prefix(sourceFrames * sourceFrameBytes)
+    }
+
+    let destinationFrames = max(
+        1,
+        Int((UInt64(sourceFrames) * UInt64(virtualRate) + UInt64(sourceRate) / 2) / UInt64(sourceRate))
+    )
+    var output = Data()
+    output.reserveCapacity(destinationFrames * virtualFrameBytes)
+
+    let rateRatio = Double(sourceRate) / Double(virtualRate)
+    for destinationFrame in 0..<destinationFrames {
+        let sourcePosition = Double(destinationFrame) * rateRatio
+        let firstFrame = min(Int(sourcePosition), sourceFrames - 1)
+        let secondFrame = min(firstFrame + 1, sourceFrames - 1)
+        let fraction = sourcePosition - Double(firstFrame)
+
+        for destinationChannel in 0..<Int(virtualChannels) {
+            let sourceChannel = channels == 1 ? 0 : destinationChannel
+            let first = Double(pcmS16(data, frame: firstFrame, channel: sourceChannel, channels: channels))
+            let second = Double(pcmS16(data, frame: secondFrame, channel: sourceChannel, channels: channels))
+            let interpolated = first + (second - first) * fraction
+            let clipped = max(Double(Int16.min), min(Double(Int16.max), interpolated.rounded()))
+            appendLE(Int16(clipped), to: &output)
+        }
+    }
+    return output
+}
+
 final class LockedPcmRing {
     private let capacity: Int
     private var storage: [UInt8]
@@ -156,8 +206,8 @@ func runDirectVirtualRender(options: RenderOptions) throws {
     guard options.endpoint == voxPassportVirtualSinkUID else {
         throw HelperError.message("direct CoreAudio render is reserved for the VoxPassport translation sink")
     }
-    guard options.rate == virtualRate, options.channels == UInt32(virtualChannels) else {
-        throw HelperError.message("VoxPassport Translation Sink requires 48000 Hz stereo PCM")
+    guard options.rate > 0, options.channels == 1 || options.channels == 2 else {
+        throw HelperError.message("VoxPassport Translation Sink accepts positive-rate mono or stereo pcm_s16le")
     }
 
     let device = try audioDeviceID(forUID: voxPassportVirtualSinkUID)
@@ -176,13 +226,13 @@ func runDirectVirtualRender(options: RenderOptions) throws {
     let input = FileHandle.standardInput
     do {
         while let frame = try readFrame(input) {
-            guard frame.rate == virtualRate && frame.channels == virtualChannels else {
-                throw HelperError.message("VoxPassport virtual render frame shape must be 48000 Hz stereo")
+            guard frame.rate == options.rate && frame.channels == UInt16(options.channels) else {
+                throw HelperError.message("CoreAudio render frame shape does not match configured input")
             }
             guard frame.format == 1 else {
                 throw HelperError.message("VoxPassport virtual render requires pcm_s16le")
             }
-            ring.write(frame.data)
+            ring.write(try normalizeForVirtualCable(frame.data, sourceRate: frame.rate, sourceChannels: frame.channels))
         }
 
         let deadline = Date().addingTimeInterval(4.0)

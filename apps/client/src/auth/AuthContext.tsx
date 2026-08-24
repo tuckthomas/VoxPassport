@@ -9,6 +9,8 @@ import {
   type PropsWithChildren,
 } from 'react';
 import { Platform } from 'react-native';
+import { VoxPassportApi } from '@/api/client';
+import { useRuntimeTarget } from '@/config/RuntimeTargetContext';
 import { getSetting, setSetting } from '@/storage/settingsStorage';
 import { AccountApi, AccountApiError } from './AccountApi';
 import { loadNativeRefreshToken, saveNativeRefreshToken } from './authStorage';
@@ -18,6 +20,8 @@ const DEFAULT_ACCOUNT_API_URL = 'http://127.0.0.1:8780';
 
 type AuthContextValue = {
   ready: boolean;
+  enabled: boolean;
+  localOnly: boolean;
   user: AccountUser | null;
   accessToken: string | null;
   accountBaseUrl: string;
@@ -41,8 +45,12 @@ function normalizeBaseUrl(value: string): string {
 }
 
 export function AuthProvider({ children }: PropsWithChildren) {
+  const target = useRuntimeTarget();
   const [accountBaseUrl, setAccountBaseUrlState] = useState(DEFAULT_ACCOUNT_API_URL);
   const [baseReady, setBaseReady] = useState(false);
+  const [deploymentReady, setDeploymentReady] = useState(false);
+  const [enabled, setEnabled] = useState(true);
+  const [localOnly, setLocalOnly] = useState(false);
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<AccountUser | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
@@ -64,16 +72,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
     return () => { active = false; };
   }, []);
 
-  const applyAuth = useCallback(async (result: AuthResponse) => {
-    setAccessToken(result.access_token);
-    setUser(result.user);
-    setAccessExpiresAt(Date.now() + result.expires_in_seconds * 1000);
-    if (Platform.OS !== 'web') {
-      await saveNativeRefreshToken(result.refresh_token);
-    }
-    setError('');
-  }, []);
-
   const clearAuth = useCallback(async () => {
     setAccessToken(null);
     setUser(null);
@@ -81,7 +79,47 @@ export function AuthProvider({ children }: PropsWithChildren) {
     if (Platform.OS !== 'web') await saveNativeRefreshToken(null);
   }, []);
 
+  useEffect(() => {
+    if (!target.ready) return;
+    let active = true;
+    const runtimeApi = new VoxPassportApi(target.activeBaseUrl);
+    runtimeApi.bootstrap()
+      .then(async (bootstrap) => {
+        if (!active) return;
+        const nextEnabled = Boolean(bootstrap.deployment?.accounts?.enabled);
+        const nextLocalOnly = Boolean(bootstrap.deployment?.local_only);
+        setEnabled(nextEnabled);
+        setLocalOnly(nextLocalOnly);
+        if (nextEnabled && bootstrap.deployment.accounts.api_url) {
+          setAccountBaseUrlState(normalizeBaseUrl(bootstrap.deployment.accounts.api_url));
+        }
+        if (!nextEnabled) await clearAuth();
+        setDeploymentReady(true);
+      })
+      .catch(() => {
+        if (!active) return;
+        // Preserve account availability for older/self-hosted runtimes that do
+        // not yet expose deployment metadata.
+        setEnabled(true);
+        setLocalOnly(false);
+        setDeploymentReady(true);
+      });
+    return () => { active = false; };
+  }, [target.ready, target.activeBaseUrl, clearAuth]);
+
+  const applyAuth = useCallback(async (result: AuthResponse) => {
+    setAccessToken(result.access_token);
+    setUser(result.user);
+    setAccessExpiresAt(Date.now() + result.expires_in_seconds * 1000);
+    if (Platform.OS !== 'web') await saveNativeRefreshToken(result.refresh_token);
+    setError('');
+  }, []);
+
   const refreshSession = useCallback(async (): Promise<boolean> => {
+    if (!enabled) {
+      await clearAuth();
+      return false;
+    }
     if (refreshInFlight.current) return refreshInFlight.current;
     const attempt = (async () => {
       try {
@@ -106,51 +144,63 @@ export function AuthProvider({ children }: PropsWithChildren) {
     })();
     refreshInFlight.current = attempt;
     return attempt;
-  }, [api, applyAuth, clearAuth]);
+  }, [enabled, api, applyAuth, clearAuth]);
 
   useEffect(() => {
-    if (!baseReady) return;
+    if (!baseReady || !deploymentReady) return;
+    if (!enabled) {
+      setReady(true);
+      return;
+    }
     let active = true;
     void refreshSession().finally(() => {
       if (active) setReady(true);
     });
     return () => { active = false; };
-  }, [baseReady, refreshSession]);
+  }, [baseReady, deploymentReady, enabled, refreshSession]);
 
   useEffect(() => {
-    if (!accessToken || !accessExpiresAt) return;
+    if (!enabled || !accessToken || !accessExpiresAt) return;
     const delay = Math.max(1_000, accessExpiresAt - Date.now() - 60_000);
     const handle = setTimeout(() => { void refreshSession(); }, delay);
     return () => clearTimeout(handle);
-  }, [accessToken, accessExpiresAt, refreshSession]);
+  }, [enabled, accessToken, accessExpiresAt, refreshSession]);
+
+  const requireEnabled = useCallback(() => {
+    if (!enabled) throw new Error('Accounts are disabled for this deployment.');
+  }, [enabled]);
 
   const requireAccessToken = useCallback((): string => {
+    requireEnabled();
     if (!accessToken) throw new Error('Sign in to use this account feature.');
     return accessToken;
-  }, [accessToken]);
+  }, [accessToken, requireEnabled]);
 
   const value = useMemo<AuthContextValue>(() => ({
     ready,
+    enabled,
+    localOnly,
     user,
     accessToken,
     accountBaseUrl,
     error,
     async setAccountBaseUrl(next) {
+      requireEnabled();
       const normalized = normalizeBaseUrl(next);
       setAccountBaseUrlState(normalized);
       await setSetting('account.apiBaseUrl', normalized);
       await clearAuth();
-      setReady(false);
-      setBaseReady(false);
-      setBaseReady(true);
     },
     async signup(email, password, displayName) {
+      requireEnabled();
       await applyAuth(await api.signup(email.trim(), password, displayName));
     },
     async login(email, password) {
+      requireEnabled();
       await applyAuth(await api.login(email.trim(), password));
     },
     async logout() {
+      if (!enabled) return;
       const nativeRefresh = Platform.OS === 'web' ? null : await loadNativeRefreshToken();
       try {
         await api.logout(nativeRefresh);
@@ -185,10 +235,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
     api,
     applyAuth,
     clearAuth,
+    enabled,
     error,
+    localOnly,
     ready,
     refreshSession,
     requireAccessToken,
+    requireEnabled,
     user,
   ]);
 

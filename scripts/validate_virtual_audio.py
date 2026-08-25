@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Validate the installed VoxPassport Windows virtual-audio cable.
+"""Validate and register the installed VoxPassport Windows virtual-audio cable.
 
 The test proves more than endpoint enumeration: it renders deterministic PCM to
 "VoxPassport Translation Sink", captures "VoxPassport Virtual Microphone", and
-fails unless non-silent PCM crosses the driver bridge.
+fails unless non-silent PCM crosses the driver bridge. A successful crossover is
+persisted into the runtime's stable-ID routing store and marks that exact pair as
+validated.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from runtime.inference.native_audio_bridge import NativeAudioBridge, NativeAudioCaptureConfig
 from runtime.inference.native_audio_output import NativeAudioRender, NativeAudioRenderConfig
+from runtime.inference.native_audio_routing import NativeAudioRoutingStore
 from runtime.inference.protocol import AudioFrame, SampleFormat
 
 
@@ -105,7 +108,22 @@ def _pcm_stats(data: bytes) -> tuple[float, int, int]:
     return rms, peak, nonzero
 
 
-async def validate(min_rms: float) -> int:
+async def _persist_validated_pair(
+    bridge: NativeAudioBridge,
+    *,
+    render_endpoint_id: str,
+    capture_endpoint_id: str,
+    routing_path: Path,
+) -> dict:
+    store = NativeAudioRoutingStore(routing_path, bridge)
+    await store.update({
+        "virtual_microphone_render_endpoint_id": render_endpoint_id,
+        "virtual_microphone_capture_endpoint_id": capture_endpoint_id,
+    })
+    return await store.confirm_virtual_microphone(True)
+
+
+async def validate(min_rms: float, routing_path: Path) -> int:
     bridge = NativeAudioBridge(project_root=PROJECT_ROOT)
     probe = await bridge.probe(force=True)
     if probe is None:
@@ -139,7 +157,7 @@ async def validate(min_rms: float) -> int:
         await asyncio.sleep(0.15)
         sequence = 0
         start_sample = 0
-        chunks = 50  # 1 second at 20 ms/chunk.
+        chunks = 50
         for _ in range(chunks):
             frame = _tone_chunk(sequence, start_sample)
             await render.write_frame(frame)
@@ -168,16 +186,33 @@ async def validate(min_rms: float) -> int:
         )
         return 4
 
+    routing = await _persist_validated_pair(
+        bridge,
+        render_endpoint_id=str(render_endpoint["id"]),
+        capture_endpoint_id=str(capture_endpoint["id"]),
+        routing_path=routing_path,
+    )
+    if not routing.get("virtual_microphone_ready"):
+        print("FAIL: crossover passed but runtime routing did not accept the validated pair", file=sys.stderr)
+        return 5
+
     print("PASS: PCM rendered to VoxPassport Translation Sink was captured from VoxPassport Virtual Microphone")
+    print(f"Saved validated virtual-microphone routing to {routing_path}")
     return 0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate the installed VoxPassport virtual audio cable")
     parser.add_argument("--min-rms", type=float, default=500.0, help="minimum captured int16 RMS required for PASS")
+    parser.add_argument(
+        "--routing-path",
+        type=Path,
+        default=PROJECT_ROOT / "data" / "native_audio_routing.json",
+        help="routing store to update after a successful crossover",
+    )
     args = parser.parse_args()
     try:
-        return asyncio.run(validate(args.min_rms))
+        return asyncio.run(validate(args.min_rms, args.routing_path))
     except Exception as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 1

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Awaitable, Callable, Any
 
+from runtime.inference.provider_credentials import ProviderCredentialResolver
 from runtime.inference.protocol import LanguageCode
 from runtime.inference.translation_provider_catalog import (
     TranslationProviderCatalog,
@@ -49,6 +50,7 @@ class TranslationStrategyValidation:
     kind: TranslationStrategyKind
     reason: str = ""
     auth_configured: bool | None = None
+    auth_source: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -57,6 +59,7 @@ class TranslationStrategyValidation:
             "kind": self.kind.value,
             "reason": self.reason,
             "auth_configured": self.auth_configured,
+            "auth_source": self.auth_source,
         }
 
 
@@ -78,6 +81,7 @@ class TranslationStrategyManager:
         cascade_is_active: Callable[[], bool],
         catalog: TranslationProviderCatalog | None = None,
         adapter_loader: Callable[..., SpeechTranslationStrategyAdapter] = load_translation_strategy_adapter,
+        credential_resolver: ProviderCredentialResolver | None = None,
     ) -> None:
         self.state_path = Path(state_path)
         self.stop_cascade = stop_cascade
@@ -85,6 +89,7 @@ class TranslationStrategyManager:
         self.cascade_is_active = cascade_is_active
         self.catalog = catalog or TranslationProviderCatalog().load()
         self.adapter_loader = adapter_loader
+        self.credential_resolver = credential_resolver
         self._state = self._load_state()
         self._direct_adapter: SpeechTranslationStrategyAdapter | None = None
         self._transition_lock = asyncio.Lock()
@@ -145,17 +150,26 @@ class TranslationStrategyManager:
                 reason=f"language pair {source_language.value}->{target_language.value} is not confirmed",
                 auth_configured=None,
             )
-        auth_configured = None
-        if descriptor.auth_env:
+
+        auth_configured: bool | None = None
+        auth_source: str | None = None
+        if self.credential_resolver is not None:
+            resolved = await self.credential_resolver.resolve(descriptor)
+            auth_configured = resolved is not None
+            auth_source = resolved.source if resolved else None
+        elif descriptor.auth_env:
             import os
             auth_configured = bool(os.getenv(descriptor.auth_env, "").strip())
+            auth_source = f"environment:{descriptor.auth_env}" if auth_configured else None
+
         return TranslationStrategyValidation(
             valid=True,
             strategy_id=strategy_id,
             kind=descriptor.kind,
             auth_configured=auth_configured,
+            auth_source=auth_source,
             reason=(
-                f"credential environment variable {descriptor.auth_env} is not configured"
+                "provider credential is not configured"
                 if auth_configured is False
                 else ""
             ),
@@ -177,6 +191,8 @@ class TranslationStrategyManager:
             )
             if not validation.valid:
                 raise TranslationStrategyTransitionError(validation.reason or "strategy is invalid")
+            if validation.auth_configured is False:
+                raise TranslationStrategyTransitionError(validation.reason or "provider credential is not configured")
             if strategy_id == self._state.strategy_id:
                 if strategy_id == CASCADE_STRATEGY_ID and start_cascade_when_selected and not self.cascade_is_active():
                     await self.start_cascade()
@@ -202,7 +218,10 @@ class TranslationStrategyManager:
         candidate: SpeechTranslationStrategyAdapter | None = None
         cascade_stopped = False
         try:
-            candidate = self.adapter_loader(strategy_id, catalog=self.catalog)
+            loader_kwargs: dict[str, Any] = {"catalog": self.catalog}
+            if self.credential_resolver is not None:
+                loader_kwargs["credential_resolver"] = self.credential_resolver
+            candidate = self.adapter_loader(strategy_id, **loader_kwargs)
             await candidate.load()
             if not await candidate.health_check():
                 raise TranslationStrategyTransitionError(
@@ -280,8 +299,6 @@ class TranslationStrategyManager:
                 await self.start_cascade()
             return self._state
         persisted = self._state.strategy_id
-        # Treat the persisted state as desired state, then reset in-memory state
-        # so activate() actually performs validation/load.
         self._state = TranslationStrategyState()
         try:
             return await self.activate(

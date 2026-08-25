@@ -22,6 +22,7 @@ type AuthContextValue = {
   ready: boolean;
   enabled: boolean;
   localOnly: boolean;
+  emailVerificationRequired: boolean;
   user: AccountUser | null;
   accessToken: string | null;
   accountBaseUrl: string;
@@ -55,6 +56,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [deploymentReady, setDeploymentReady] = useState(false);
   const [enabled, setEnabled] = useState(true);
   const [localOnly, setLocalOnly] = useState(false);
+  const [emailVerificationRequired, setEmailVerificationRequired] = useState(false);
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<AccountUser | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
@@ -108,6 +110,23 @@ export function AuthProvider({ children }: PropsWithChildren) {
       });
     return () => { active = false; };
   }, [target.ready, target.activeBaseUrl, clearAuth]);
+
+  useEffect(() => {
+    if (!baseReady || !deploymentReady || !enabled) {
+      if (!enabled) setEmailVerificationRequired(false);
+      return;
+    }
+    let active = true;
+    api.config()
+      .then((config) => {
+        if (!active) return;
+        setEmailVerificationRequired(Boolean(config.require_email_verification));
+      })
+      .catch(() => {
+        if (active) setEmailVerificationRequired(false);
+      });
+    return () => { active = false; };
+  }, [api, baseReady, deploymentReady, enabled]);
 
   const applyAuth = useCallback(async (result: AuthResponse) => {
     setAccessToken(result.access_token);
@@ -186,6 +205,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     ready,
     enabled,
     localOnly,
+    emailVerificationRequired,
     user,
     accessToken,
     accountBaseUrl,
@@ -261,6 +281,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     api,
     applyAuth,
     clearAuth,
+    emailVerificationRequired,
     enabled,
     error,
     localOnly,

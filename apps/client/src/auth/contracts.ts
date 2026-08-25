@@ -1,3 +1,10 @@
+export type AccountPublicConfig = {
+  accounts_enabled: boolean;
+  local_only: boolean;
+  abuse_controls_enabled: boolean;
+  require_email_verification: boolean;
+};
+
 export type AccountUser = {
   id: string;
   email: string;

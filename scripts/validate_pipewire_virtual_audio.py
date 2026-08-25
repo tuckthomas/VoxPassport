@@ -17,6 +17,7 @@ CHANNELS = 2
 DURATION_SECONDS = 1.5
 FREQUENCY_HZ = 440.0
 AMPLITUDE = 0.35
+CHUNK_SECONDS = 0.020
 FRAME_MAGIC = b"VPF1"
 HEADER = struct.Struct("<4sQQIHBI")
 SINK = "voxpassport_translation_sink"
@@ -169,9 +170,23 @@ def main() -> None:
             stderr=subprocess.PIPE,
         )
         assert render.stdin is not None
-        chunks = int(DURATION_SECONDS / 0.02)
+        chunks = int(DURATION_SECONDS / CHUNK_SECONDS)
+        next_deadline = time.monotonic()
         for sequence in range(chunks):
             render.stdin.write(tone_frame(sequence))
+            render.stdin.flush()
+            # Exercise the bounded render transport as a live session uses it:
+            # provider/native PCM arrives in 20 ms chunks rather than as a
+            # 1.5-second stdin burst that intentionally overflows the queue.
+            next_deadline += CHUNK_SECONDS
+            remaining = next_deadline - time.monotonic()
+            if remaining > 0:
+                time.sleep(remaining)
+
+        # Keep stdin open briefly after the final realtime chunk so the helper
+        # worker and PipeWire-Pulse playback buffer can drain before EOF causes
+        # the helper to stop its render stream.
+        time.sleep(0.30)
         render.stdin.close()
         if render.wait(timeout=8.0) != 0:
             raise SystemExit(process_error("render helper", render))

@@ -26,7 +26,7 @@ export default function SignupScreen() {
     setError('');
     try {
       await auth.signup(email, password, displayName || undefined);
-      router.replace('/account');
+      router.replace({ pathname: '/verify-email', params: { email: email.trim() } });
     } catch (next) {
       setError(next instanceof Error ? next.message : String(next));
     } finally {
@@ -79,6 +79,9 @@ export default function SignupScreen() {
           style={inputStyle}
           onSubmitEditing={() => void submit()}
         />
+        <Text style={{ color: colors.muted }}>
+          A verification link is issued at signup. Deployments can choose whether verification is mandatory before account-backed features are available.
+        </Text>
         {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
         <Pressable disabled={busy} onPress={() => void submit()} style={buttonStyle}>
           <Text style={{ color: colors.text, fontWeight: '700' }}>{busy ? 'Creating…' : 'Create account'}</Text>

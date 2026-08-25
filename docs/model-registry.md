@@ -2,19 +2,34 @@
 
 ## Overview
 
-`ModelRegistry` is the persistent source of installation state, active capability slots, benchmark metadata, pinning, and known-good configurations. It is deliberately separate from model weight files and model-specific runtime implementation code.
+`ModelRegistry` is the persistent source of model lifecycle state: installation status, active capability slots, benchmark metadata, pinning, cleanup eligibility, trust/recommendation state, and known-good configurations. It is deliberately separate from model weight files, UI state, and ephemeral runtime processes.
 
-For local TTS there are three distinct sources of truth:
+The canonical Expo Models & Engines screen consumes typed runtime/model-manager APIs. It does not maintain a second catalog, infer installability from model names, or mutate legacy global arrays.
 
-- `runtime/tts_manifests/*.json` — stable **model** declaration;
+## Sources of truth
+
+For general model lifecycle:
+
+```text
+ModelRegistry
+  -> install state
+  -> active model IDs
+  -> pinning / cleanup eligibility
+  -> known-good sets
+  -> benchmark/recommendation metadata
+```
+
+For local TTS there are additional declarative owners:
+
+- `runtime/tts_manifests/*.json` — stable **model** declarations;
 - `runtime/tts_backend_runtimes/*.json` — reusable **backend server family** lifecycle declarations;
 - `runtime/profiles/runtime_profiles.json` — dependency-compatible **environment families**.
 
-The registry stores stable model lifecycle state. The TTS supervisor owns ephemeral worker/backend process and endpoint state.
+The TTS supervisor owns ephemeral worker/backend process state. None of that ephemeral topology becomes model identity.
 
 ## Registry entry schema
 
-A registry entry tracks cross-model lifecycle metadata such as:
+A registry entry tracks lifecycle/capability metadata such as:
 
 ```json
 {
@@ -28,18 +43,51 @@ A registry entry tracks cross-model lifecycle metadata such as:
   "supports_english": true,
   "supports_romanian": true,
   "streaming_support": true,
-  "required_runtime": "transformers",
   "installation_status": "not_installed",
   "is_active": false,
   "is_pinned": false
 }
 ```
 
-The registry stores model identity/lifecycle information. It does **not** persist ephemeral TTS ports, PIDs, backend processes, or deployment commands.
+The API enriches registry entries with installation-action metadata:
 
-## Capability-based model selection
+```json
+{
+  "installable": true,
+  "installation_reason": null
+}
+```
 
-Application business logic requests active models by capability rather than branching on model names:
+or, when an action is unavailable:
+
+```json
+{
+  "installable": false,
+  "installation_reason": "No verified official downloadable repository is configured for this catalog entry."
+}
+```
+
+This ownership is intentional. The Expo client renders the backend decision instead of creating model-name exceptions.
+
+## Installation state versus adapter support
+
+A model being downloaded does not automatically mean VoxPassport has a production runtime adapter for that model family.
+
+These are separate questions:
+
+```text
+Can the model package be installed?
+    -> registry/model-manager installer metadata
+
+Can the selected capability activate this model?
+    -> runtime adapter/manifest implementation
+```
+
+Activation must fail explicitly when an installed model lacks an implemented production adapter rather than silently routing through a different model.
+
+## Capability-based selection
+
+Application business logic requests active models by capability instead of branching on model names:
 
 ```python
 registry.get_active_model(capability="ASR", language="en")
@@ -51,7 +99,27 @@ registry.get_active_model(capability="TTS", language="en")
 registry.get_active_model(capability="VAD")
 ```
 
-Logical slots do not imply duplicate physical weights. Both TTS slots may point to one active supervised TTS model.
+Logical slots do not imply duplicate model weights. Multiple directions/slots can point to one physical active model instance.
+
+## Expo model workflows
+
+The canonical client uses typed APIs for:
+
+- available/installed model listing;
+- install requests;
+- progress polling;
+- activation;
+- uninstall;
+- pipeline enable/disable where supported;
+- model-storage settings;
+- remote endpoint configuration.
+
+The client must not:
+
+- infer installability from `upstream_id` itself;
+- rewrite canonical model IDs with UI-only patches;
+- assume an install implies runtime adapter support;
+- start Python/CUDA workers directly.
 
 ## Local TTS ownership
 
@@ -73,11 +141,11 @@ TTS model manifest
              └── health / residency / recovery
 ```
 
-`ModelManagerController` must not maintain a second local-TTS alias catalog. Native Higgs, XTTS, MOSS, full Higgs, and VoxCPM are all ordinary model manifests.
+Local TTS aliases originate from manifests/catalog integration. The model manager must not grow a parallel hard-coded TTS catalog merely to satisfy UI naming.
 
 ## Backend runtimes are not models
 
-A reusable backend runtime is deployment infrastructure, not a selectable model. It therefore does not receive its own model-registry entry.
+A reusable backend runtime is deployment infrastructure, not a selectable model and therefore does not get its own model-registry entry.
 
 Example:
 
@@ -86,12 +154,11 @@ Registry model:    moss-tts-1.5
 Model manifest:    runtime_profile = core
                    backend_runtime = moss-openai-server
                    backend_args.checkpoint = OpenMOSS-Team/...
-Backend runtime:   runtime_profile = core
-                   launch/health/remote family contract
-Supervisor:        transient worker/backend PIDs + endpoints
+Backend runtime:   reusable launch/health/runtime-family contract
+Supervisor:        transient worker/backend PID + endpoint
 ```
 
-A future `moss-tts-1.6` can point to the same `moss-openai-server` backend runtime with another checkpoint argument. No additional registry architecture, launcher environment variable, or supervisor branch is required.
+A future checkpoint on the same backend family should normally require another model manifest, not new application routing.
 
 ## TTS runtime topology is not registry identity
 
@@ -108,15 +175,15 @@ For a proxy-backed model:
 ```text
 Registry:    active TTS model = moss-tts-1.5
 Manifest:    backend_runtime = moss-openai-server
-Supervisor:  transient generic worker + managed MOSS server
+Supervisor:  transient generic worker + managed MOSS backend
 ```
 
 Therefore:
 
 - active slots persist model IDs, never worker/backend ports;
 - known-good sets persist model IDs, never process topology;
-- one backend runtime can serve many model manifests over time;
-- Model Settings obtains live worker/backend state from diagnostics;
+- a backend runtime can serve multiple model manifests over time;
+- runtime diagnostics expose live process/backend health;
 - changing an ephemeral endpoint does not change model identity.
 
 ## Hot-swap lifecycle
@@ -130,61 +197,50 @@ resolve model manifest
       ↓
 resolve worker runtime profile
       ↓
-resolve optional reusable backend runtime
+resolve optional backend runtime
       ↓
 validate backend_args
       ↓
 unload prior driver
       ↓
-terminate prior managed backend if any
+terminate prior managed backend if needed
       ↓
-terminate incompatible prior worker if needed
+terminate incompatible worker if needed
       ↓
-launch/health-check target backend from reusable runtime definition
+launch/health-check target backend
       ↓
 start/reuse target worker
       ↓
 inject ephemeral backend endpoint
       ↓
-load + health-check target driver/model
+load + health-check target model/driver
       ↓
-commit active model
+commit active registry state
 ```
 
-Activation failure attempts rollback to the previous manifest/backend.
+Activation is transactional: failure attempts to preserve/restore the previous active configuration.
 
-Important policies:
-
-- same-profile models can reuse one generic worker process;
-- a local proxy backend is part of supervised TTS residency;
-- an alive-but-unhealthy backend is recycled before reuse;
-- explicit non-loopback remote backend services are outside local GPU/process residency;
-- unmanaged localhost backend services are rejected;
-- a model on an existing backend family requires only another model manifest.
-
-## Installation state versus runtime state
-
-These remain separate:
+## Installation/runtime-state separation
 
 ```text
 Model installed?
-  -> model registry / checkpoint state
+  -> ModelRegistry / model store
 
 Worker runtime profile installed?
-  -> runtime-profile catalog and diagnostics
+  -> runtime-profile catalog/diagnostics
 
-Backend runtime family configured?
-  -> BackendRuntimeCatalog definition + optional deployment override
+Backend runtime configured?
+  -> BackendRuntimeCatalog + deployment configuration
 
 Worker/backend process running?
   -> ephemeral TTS supervisor state
 ```
 
-A model can be downloaded while a required dependency profile or backend-family deployment command is unavailable. Activation must fail clearly rather than creating model-specific fallback paths.
+A downloaded model can legitimately remain inactive if its dependency profile, backend family, or runtime adapter is unavailable.
 
-## Known-good model sets
+## Known-good sets
 
-Known-good sets capture model IDs, not backend/runtime process details:
+Known-good sets store stable model IDs, not ephemeral runtime topology:
 
 ```json
 {
@@ -202,10 +258,11 @@ Known-good sets capture model IDs, not backend/runtime process details:
 
 The supervisor may recreate transient TTS processes/endpoints without invalidating a known-good set.
 
-## Session stability policy
+## Session-stability policy
 
-- Do not auto-replace models during an active call solely because a new model exists.
-- Stage newly discovered candidates for later evaluation.
-- Automatic recovery/failover is appropriate when the active runtime fails and a validated fallback exists.
+- Do not auto-replace models during an active call merely because a new candidate exists.
+- Stage discovered candidates for explicit evaluation.
+- Recovery/failover is appropriate when the active runtime fails and a validated fallback exists.
 - Voice profiles remain independent from the active TTS model.
-- Reference-transcript requirements come from TTS capabilities, not permanent voice-profile schema.
+- Transcript requirements come from the selected TTS capability/manifest, not from a universal voice-profile schema.
+- Strategy/routing mutation is blocked while an active native live-translation session owns the media path.

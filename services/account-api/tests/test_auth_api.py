@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import re
+
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, select
 
+import account_api.main as account_main
 from account_api.database import SessionLocal
 from account_api.main import app
-from account_api.models import ProviderCredential, RefreshSession, User
+from account_api.models import AccountActionToken, ProviderCredential, RefreshSession, User
 
 
 client = TestClient(app)
@@ -17,6 +20,7 @@ NATIVE_HEADERS = {
 
 def setup_function() -> None:
     with SessionLocal() as db:
+        db.execute(delete(AccountActionToken))
         db.execute(delete(ProviderCredential))
         db.execute(delete(RefreshSession))
         db.execute(delete(User))
@@ -35,6 +39,18 @@ def signup(email: str = "test@example.com", password: str = "correct horse batte
 
 def auth_header(access_token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {access_token}"}
+
+
+def capture_mail_tokens(monkeypatch) -> list[str]:
+    messages: list[str] = []
+    monkeypatch.setattr(account_main.mailer, "send", lambda message: messages.append(message.text))
+    return messages
+
+
+def token_from_mail(text: str, route: str) -> str:
+    match = re.search(rf"/{re.escape(route)}\?token=([^\s]+)", text)
+    assert match, text
+    return match.group(1)
 
 
 def test_signup_login_me_and_duplicate_email() -> None:
@@ -163,3 +179,92 @@ def test_provider_credentials_are_encrypted_and_never_returned() -> None:
     )
     assert deleted.status_code == 204
     assert client.get("/v1/provider-credentials", headers=headers).json() == []
+
+
+def test_email_verification_is_one_time_and_token_is_hashed(monkeypatch) -> None:
+    messages = capture_mail_tokens(monkeypatch)
+    created = signup("verify@example.com")
+    assert created["user"]["email_verified"] is False
+    assert messages
+    raw = token_from_mail(messages[-1], "verify-email")
+
+    with SessionLocal() as db:
+        row = db.scalar(select(AccountActionToken).where(AccountActionToken.purpose == "email_verification"))
+        assert row is not None
+        assert raw != row.token_hash
+        assert raw.encode("utf-8") not in row.token_hash.encode("utf-8")
+
+    confirmed = client.post("/v1/auth/email-verification/confirm", json={"token": raw})
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["email_verified"] is True
+
+    replay = client.post("/v1/auth/email-verification/confirm", json={"token": raw})
+    assert replay.status_code == 400
+
+
+def test_verification_request_is_non_enumerating_and_replaces_old_token(monkeypatch) -> None:
+    messages = capture_mail_tokens(monkeypatch)
+    signup("verify-again@example.com")
+    first = token_from_mail(messages[-1], "verify-email")
+
+    unknown = client.post(
+        "/v1/auth/email-verification/request",
+        json={"email": "nobody@example.com"},
+    )
+    existing = client.post(
+        "/v1/auth/email-verification/request",
+        json={"email": "verify-again@example.com"},
+    )
+    assert unknown.status_code == existing.status_code == 202
+    assert unknown.json() == existing.json() == {"accepted": True}
+    second = token_from_mail(messages[-1], "verify-email")
+    assert second != first
+
+    old = client.post("/v1/auth/email-verification/confirm", json={"token": first})
+    assert old.status_code == 400
+    current = client.post("/v1/auth/email-verification/confirm", json={"token": second})
+    assert current.status_code == 200
+
+
+def test_password_reset_is_non_enumerating_one_time_and_revokes_sessions(monkeypatch) -> None:
+    messages = capture_mail_tokens(monkeypatch)
+    created = signup("reset@example.com")
+    old_refresh = created["refresh_token"]
+
+    unknown = client.post("/v1/auth/password-reset/request", json={"email": "nobody@example.com"})
+    existing = client.post("/v1/auth/password-reset/request", json={"email": "reset@example.com"})
+    assert unknown.status_code == existing.status_code == 202
+    assert unknown.json() == existing.json() == {"accepted": True}
+    raw = token_from_mail(messages[-1], "reset-password")
+
+    reset = client.post(
+        "/v1/auth/password-reset/confirm",
+        json={"token": raw, "new_password": "replacement password is long enough"},
+    )
+    assert reset.status_code == 204, reset.text
+
+    replay = client.post(
+        "/v1/auth/password-reset/confirm",
+        json={"token": raw, "new_password": "another replacement password"},
+    )
+    assert replay.status_code == 400
+
+    old_session = client.post(
+        "/v1/auth/refresh",
+        headers=NATIVE_HEADERS,
+        json={"refresh_token": old_refresh},
+    )
+    assert old_session.status_code == 401
+
+    old_password = client.post(
+        "/v1/auth/login",
+        headers=NATIVE_HEADERS,
+        json={"email": "reset@example.com", "password": "correct horse battery staple"},
+    )
+    assert old_password.status_code == 401
+    new_password = client.post(
+        "/v1/auth/login",
+        headers=NATIVE_HEADERS,
+        json={"email": "reset@example.com", "password": "replacement password is long enough"},
+    )
+    assert new_password.status_code == 200

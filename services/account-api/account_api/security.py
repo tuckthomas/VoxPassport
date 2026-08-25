@@ -51,6 +51,14 @@ def hash_refresh_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def new_action_token() -> str:
+    return secrets.token_urlsafe(48)
+
+
+def hash_action_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 def utcnow() -> datetime:
     return datetime.now(UTC)
 
@@ -58,6 +66,16 @@ def utcnow() -> datetime:
 def refresh_expiry(settings: Settings | None = None) -> datetime:
     config = settings or get_settings()
     return utcnow() + timedelta(days=config.refresh_token_days)
+
+
+def email_verification_expiry(settings: Settings | None = None) -> datetime:
+    config = settings or get_settings()
+    return utcnow() + timedelta(hours=config.email_verification_token_hours)
+
+
+def password_reset_expiry(settings: Settings | None = None) -> datetime:
+    config = settings or get_settings()
+    return utcnow() + timedelta(minutes=config.password_reset_token_minutes)
 
 
 def create_access_token(*, user_id: uuid.UUID, session_id: uuid.UUID, settings: Settings | None = None) -> str:

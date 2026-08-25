@@ -9,7 +9,7 @@ VoxPassport/
 ├── apps/
 │   ├── client/              Canonical Expo + React Native + React Native Web UI
 │   ├── browser-extension/   Browser-specific integration only
-│   └── desktop-companion/   LEGACY migration source; not architectural target
+│   └── desktop-companion/   Temporary compatibility launcher/assets only; no product UI
 ├── runtime/                 Python inference/runtime and local service
 ├── crates/                  Native/shared Rust audio and protocol components
 ├── configs/                 User/operator configuration examples
@@ -56,25 +56,19 @@ Desktop-native capabilities such as:
 
 belong behind stable local-runtime/native contracts. The Expo client consumes status/configuration/session APIs and does not carry raw realtime PCM through a UI-specific bridge.
 
+During local Windows development, `run.bat` starts the integrated runtime on port 8766 and the canonical Expo web client on port 8081. The old runtime `/manager` redirect lands on a tiny compatibility launcher that immediately opens the Expo client; it is not a second product UI.
+
 An installable web/PWA experience can be produced from the Expo web target. Any future alternative desktop packaging mechanism must be an explicit architecture decision; do not introduce Tauri or another shell implicitly.
 
 ## `apps/browser-extension` — optional browser integration
 
 The browser extension is for browser-specific overlays and integration. It is not the core desktop audio transport. Core desktop translation should be communication-platform independent wherever native/system audio routing permits it.
 
-## `apps/desktop-companion` — legacy only
+## `apps/desktop-companion` — compatibility boundary only
 
-This directory contains the current prototype HTML UI and remains temporarily as migration source material. New features must not target it unless required to keep the existing product usable during migration.
+The prototype HTML Studio/model-manager and its `runtime-fixes.js`, `engine-catalog-fixes.js`, `stack-upgrade-fixes.js`, duplicate overlay, and hidden compatibility DOM state have been removed. This directory may contain only the temporary `/manager` → Expo launcher and reusable static brand assets until the runtime root route itself is simplified.
 
-Files such as `runtime-fixes.js`, `engine-catalog-fixes.js`, and `stack-upgrade-fixes.js` are technical debt, not a reusable extension mechanism.
-
-For each legacy patch behavior:
-
-1. identify the actual owner and original defect/obsolete assumption;
-2. fix or replace the owning implementation;
-3. preserve only enduring domain behavior in a proper abstraction;
-4. delete the patch when its required behavior is covered;
-5. do not copy the patch into the Expo client under a cleaner filename.
+Do not add product behavior, screens, API interception, hard-coded catalog logic, or compatibility state here. Any enduring behavior belongs in `apps/client`, the runtime API, manifests/catalogs, or native platform code according to ownership.
 
 ## `runtime` — Python inference and local service
 
@@ -94,12 +88,13 @@ Current direction:
 crates/
 ├── protocol/        Shared Rust wire/audio types
 ├── audio-core/      Portable audio buses, buffers, endpoint/platform contracts
-└── audio-windows/   Windows Core Audio/WASAPI implementation
+├── audio-windows/   Windows Core Audio/WASAPI implementation
+└── audio-linux/     Linux PipeWire/PulseAudio-compatible implementation
 ```
 
-Future macOS/Linux implementations should satisfy the same portable contracts rather than require product-screen changes.
+macOS native audio uses the same media/service boundary through `native/macos/audio-helper` and the HAL virtual-audio driver under `drivers/macos/virtual-audio`.
 
-These crates may be used by a local native audio service/helper or other explicitly approved integration boundary. Their existence does not imply a Tauri desktop application.
+These components may be used by a local native audio service/helper or other explicitly approved integration boundary. Their existence does not imply a Tauri desktop application.
 
 ## Where a change belongs
 
@@ -116,11 +111,14 @@ Change local runtime/session API
 Change Windows audio device/capture/loopback behavior
     -> crates/audio-windows
 
+Change Linux audio device/capture/render behavior
+    -> crates/audio-linux
+
 Change portable audio abstractions
     -> crates/audio-core
 
 Change system virtual-microphone driver/helper
-    -> native and/or native audio service code
+    -> drivers and/or native audio helper code
 
 Change inference/model/provider behavior
     -> runtime/inference
@@ -142,7 +140,7 @@ Add developer one-off migration/admin command
 
 - Name modules after their enduring responsibility, not why they were added.
 - Do not create `*-fixes.*`, `*-patch.*`, `new-*`, `old-*`, or numbered replacement files in canonical application code.
-- A temporary compatibility module must live under an explicitly named `legacy`/`compat` boundary, explain its removal condition, and have a tracked migration plan.
+- Do not add application logic under `apps/desktop-companion`; its compatibility launcher is temporary and deliberately trivial.
 - Do not create `apps/desktop` or add Tauri dependencies unless the architecture is explicitly changed in the plan first.
 - Do not use `model-manager` for an application surface that owns unrelated product workflows.
 
@@ -155,5 +153,5 @@ Add developer one-off migration/admin command
 5. Providers/models are selected by capabilities/contracts rather than UI model-name branches.
 6. Local/self-hosted operation does not depend on VoxPassport Cloud.
 7. Mobile implementation can be deferred without compromising the universal Expo client architecture.
-8. Legacy patch files are removed by correcting their causes, not consolidated wholesale.
+8. Legacy patch files and the prototype Studio UI stay removed; enduring behavior lives with its owner.
 9. Tauri is not part of the current architecture.

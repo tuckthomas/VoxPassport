@@ -93,13 +93,14 @@ def test_model_activation_does_not_swallow_errors():
     assert "Registry set_active_model note" not in main
 
 
-def test_ui_repair_defines_missing_handlers_and_real_caption_stream():
-    js = source("apps/desktop-companion/model-manager/runtime-fixes.js")
-    assert "w.selectActiveAsrEngine" in js
-    assert "w.selectActiveNmtEngine" in js
-    assert "w.installHfModel" in js
-    assert "ws://127.0.0.1:8765/ws/captions" in js
-    assert "w.processLivePhrasePipeline = async () => {}" in js
+def test_canonical_expo_client_owns_model_and_caption_controls():
+    models = source("apps/client/src/features/models/ModelsScreen.tsx")
+    translator = source("apps/client/src/features/translator/TranslatorScreen.tsx")
+    assert "api.activateModel" in models
+    assert "api.installModel" in models
+    assert "api.uninstallModel" in models
+    assert "liveTranslation" in translator or "LiveTranslation" in translator
+    assert not (ROOT / "apps" / "desktop-companion" / "model-manager" / "runtime-fixes.js").exists()
 
 
 def test_playback_retains_consumer_task_and_polyphase_resamples():
@@ -167,12 +168,22 @@ def test_caption_websocket_preserves_speaker_metadata():
     assert "metadata.update(self._speaker_by_utterance.get" in inbound
 
 
-def test_watchlist_models_cannot_masquerade_as_hf_downloads():
-    ui = source("apps/desktop-companion/model-manager/stack-upgrade-fixes.js")
-    assert "meta-omniasr-ctc-1b-v2" in ui
-    assert "meta-omnilingual-mt" in ui
-    assert "silero-vad-v6.2.1" in ui
-    assert "no Hugging Face download is required" in ui
+def test_watchlist_models_expose_backend_owned_non_installable_state(tmp_path):
+    registry = ModelRegistry(tmp_path / "registry.json")
+    registry.load()
+    for entry in get_builtin_catalog():
+        registry.register(entry)
+    manager = ModelManagerController(registry, model_store_dir=tmp_path / "models")
+    catalog = {item["model_id"]: item for item in manager.list_available()}
+
+    for model_id in ("meta-omniasr-ctc-1b-v2", "meta-omnilingual-mt"):
+        assert catalog[model_id]["installable"] is False
+        assert "No verified official downloadable repository" in catalog[model_id]["installation_reason"]
+
+    models_screen = source("apps/client/src/features/models/ModelsScreen.tsx")
+    assert "model.installable === true" in models_screen
+    assert "model.installation_reason" in models_screen
+    assert not (ROOT / "apps" / "desktop-companion" / "model-manager" / "stack-upgrade-fixes.js").exists()
 
 
 def test_download_manager_promotes_completed_downloads_to_installed_state():

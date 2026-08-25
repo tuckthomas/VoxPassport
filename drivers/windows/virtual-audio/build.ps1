@@ -23,6 +23,25 @@ if ($Platform -eq 'x64') {
         Write-Host "Restoring WDK/SDK NuGet packages into $packagesDir..."
         & $nuget.Source restore $packagesConfig -PackagesDirectory $packagesDir -NonInteractive
         if ($LASTEXITCODE -ne 0) { throw "NuGet WDK restore failed with exit code $LASTEXITCODE" }
+
+        # The WDK NuGet props provide headers/libraries, but some WDK MSBuild
+        # tracker tasks still resolve companion executables such as stampinf.exe
+        # through PATH. Make the restored architecture-specific tool directory
+        # visible to those tasks instead of relying on machine-global WDK state.
+        $stampInf = Get-ChildItem -Path $packagesDir -Recurse -File -Filter 'stampinf.exe' |
+            Where-Object { $_.FullName -match '\\x64\\' } |
+            Select-Object -First 1
+        if (-not $stampInf) {
+            $stampInf = Get-ChildItem -Path $packagesDir -Recurse -File -Filter 'stampinf.exe' | Select-Object -First 1
+        }
+        if ($stampInf) {
+            $wdkToolDir = $stampInf.Directory.FullName
+            Write-Host "Adding restored WDK tools to PATH: $wdkToolDir"
+            $env:PATH = "$wdkToolDir;$env:PATH"
+        }
+        else {
+            Write-Warning 'Restored WDK package did not expose stampinf.exe; MSBuild may fall back to machine-installed WDK tools.'
+        }
     }
     else {
         Write-Host 'NuGet was not found; falling back to machine-installed WDK integration.'

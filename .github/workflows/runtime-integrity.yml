@@ -78,6 +78,8 @@ jobs:
       VOXPASSPORT_ACCOUNTS_JWT_SECRET: ci-jwt-secret-not-for-production-use
       VOXPASSPORT_ACCOUNTS_CREDENTIAL_MASTER_SECRET: ci-credential-secret-not-for-production-use
       VOXPASSPORT_ACCOUNTS_COOKIE_SECURE: "false"
+      VOXPASSPORT_ACCOUNTS_ABUSE_CONTROLS_ENABLED: "false"
+      VOXPASSPORT_ACCOUNTS_MAIL_BACKEND: console
     defaults:
       run:
         working-directory: services/account-api

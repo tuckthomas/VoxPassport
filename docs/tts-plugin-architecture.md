@@ -307,7 +307,7 @@ Transcript requirements come from the selected manifest. Driver-specific conditi
 - **backend runtime ID and backend runtime profile**;
 - backend PID, dynamic endpoint, health path/state, and unexpected exit.
 
-Model Settings marks the active runtime broken if either supervised layer fails.
+The canonical Expo Runtime/Diagnostics surface marks the active TTS runtime broken when either supervised layer fails.
 
 ## Validation
 

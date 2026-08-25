@@ -1232,7 +1232,7 @@ class LiveTranslatorApp:
         site = web.TCPSite(runner, "127.0.0.1", 8766)
         await site.start()
         self._http_runner = runner
-        logger.info("VoxPassport UI/API ready at http://127.0.0.1:8766")
+        logger.info("VoxPassport API ready at http://127.0.0.1:8766; canonical Expo client at http://127.0.0.1:8081")
 
     async def start(self) -> None:
         logger.info("Initializing VoxPassport daemon")

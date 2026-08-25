@@ -57,7 +57,7 @@ The Romanian checkpoint is downloaded into `models/xtts-v2-romanian-v2` on first
 
 ## Startup behavior
 
-`run.bat` starts only the main VoxPassport daemon. It does not start a primary TTS host or an XTTS host.
+`run.bat` starts the integrated VoxPassport runtime plus the canonical Expo web client. It does not prestart a primary TTS host or an XTTS host.
 
 `ManifestTtsAdapter.load()` is a cheap logical activation. The `coqui-xtts` worker is spawned only when XTTS is explicitly health-validated or synthesis begins.
 

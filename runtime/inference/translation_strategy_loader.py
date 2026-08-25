@@ -6,6 +6,7 @@ import importlib
 import inspect
 from typing import Type
 
+from runtime.inference.provider_credentials import ProviderCredentialResolver
 from runtime.inference.translation_provider_catalog import (
     TranslationProviderCatalog,
     TranslationProviderDescriptor,
@@ -21,6 +22,7 @@ def load_translation_strategy_adapter(
     strategy_id: str,
     *,
     catalog: TranslationProviderCatalog | None = None,
+    credential_resolver: ProviderCredentialResolver | None = None,
 ) -> SpeechTranslationStrategyAdapter:
     """Instantiate one direct-speech adapter without provider-name branching."""
 
@@ -28,10 +30,12 @@ def load_translation_strategy_adapter(
     descriptor = provider_catalog.resolve(strategy_id)
     adapter_class = _resolve_adapter_class(descriptor)
     signature = inspect.signature(adapter_class)
+    kwargs = {}
     if "descriptor" in signature.parameters:
-        adapter = adapter_class(descriptor=descriptor)
-    else:
-        adapter = adapter_class()
+        kwargs["descriptor"] = descriptor
+    if "credential_resolver" in signature.parameters:
+        kwargs["credential_resolver"] = credential_resolver
+    adapter = adapter_class(**kwargs)
     if not isinstance(adapter, SpeechTranslationStrategyAdapter):
         raise TranslationStrategyLoadError(
             f"Translation adapter {descriptor.adapter_entrypoint!r} does not implement "

@@ -55,10 +55,41 @@ export default function AccountScreen() {
     }
   }
 
+  async function resendVerification() {
+    if (busy || !auth.user) return;
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      await auth.requestEmailVerification(auth.user.email);
+      setMessage('A new verification link has been requested.');
+    } catch (next) {
+      setError(next instanceof Error ? next.message : String(next));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <Screen title="Account" subtitle="Account identity is separate from the local inference runtime.">
       <Card title={auth.user.display_name || auth.user.email} subtitle={auth.user.email}>
         <Text style={{ color: colors.muted }}>Account ID: {auth.user.id}</Text>
+        <Text style={{ color: auth.user.email_verified ? colors.success : colors.warning }}>
+          Email: {auth.user.email_verified ? 'verified' : 'not verified'}
+        </Text>
+        {!auth.user.email_verified ? (
+          <View style={{ gap: 8 }}>
+            <Pressable disabled={busy} onPress={() => void resendVerification()} style={buttonStyle}>
+              <Text style={{ color: colors.text }}>Resend verification</Text>
+            </Pressable>
+            <Link
+              href={{ pathname: '/verify-email', params: { email: auth.user.email } }}
+              style={{ color: colors.accent }}
+            >
+              Open verification screen
+            </Link>
+          </View>
+        ) : null}
         <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
           <Pressable onPress={() => void auth.logout()} style={buttonStyle}>
             <Text style={{ color: colors.text }}>Sign out here</Text>

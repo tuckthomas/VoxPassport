@@ -10,6 +10,8 @@ $DriverRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $PreparedRoot = (& (Join-Path $DriverRoot 'prepare.ps1') -Force:$ForcePrepare | Select-Object -Last 1)
 if (-not (Test-Path $PreparedRoot)) { throw "Prepared driver source missing: $PreparedRoot" }
 
+$packagesDir = Join-Path $PreparedRoot 'packages'
+
 # Microsoft's current Windows-driver-samples CI uses WDK/SDK NuGet packages on
 # hosted Visual Studio runners. Restore the same x64 packages when NuGet is
 # available; Directory.Build.props in the prepared tree imports them before the
@@ -19,7 +21,6 @@ if ($Platform -eq 'x64') {
     if (-not $nuget) { $nuget = Get-Command nuget -ErrorAction SilentlyContinue }
     if ($nuget) {
         $packagesConfig = Join-Path $DriverRoot 'packages.config'
-        $packagesDir = Join-Path $PreparedRoot 'packages'
         Write-Host "Restoring WDK/SDK NuGet packages into $packagesDir..."
         & $nuget.Source restore $packagesConfig -PackagesDirectory $packagesDir -NonInteractive
         if ($LASTEXITCODE -ne 0) { throw "NuGet WDK restore failed with exit code $LASTEXITCODE" }
@@ -73,7 +74,23 @@ if (-not (Test-Path (Join-Path $kitsRoot 'Include')) -and -not (Test-Path $nuget
 
 $solution = Join-Path $PreparedRoot 'SimpleAudioSample.sln'
 Write-Host "Building $solution ($Configuration|$Platform)..."
-& $msbuild $solution /m /t:Build "/p:Configuration=$Configuration" "/p:Platform=$Platform" /verbosity:minimal
+
+# WDK 10.0.28000's NuGet MSBuild wrapper currently dispatches INF/API
+# verification through x86 helper components even for x64 builds. On hosted
+# VS2026 runners that wrapper cannot load x86\InfVerif.dll, despite the driver
+# itself compiling and signing successfully. Skip only those wrapper targets
+# here, then run the architecture-correct WDK validators explicitly below.
+$buildArgs = @(
+    $solution,
+    '/m',
+    '/t:Build',
+    "/p:Configuration=$Configuration",
+    "/p:Platform=$Platform",
+    '/p:SkipPackageVerification=true',
+    '/p:ApiValidator_Enable=false',
+    '/verbosity:minimal'
+)
+& $msbuild @buildArgs
 if ($LASTEXITCODE -ne 0) { throw "MSBuild failed with exit code $LASTEXITCODE" }
 
 $outRoot = Join-Path $DriverRoot "out\$Platform\$Configuration"
@@ -97,6 +114,76 @@ $builtInf = Join-Path $outRoot 'SimpleAudioSample.inf'
 $builtSys = Get-ChildItem -Recurse -File $outRoot -Filter 'SimpleAudioSample.sys' | Select-Object -First 1
 if (-not (Test-Path $builtInf) -or -not $builtSys) {
     throw 'Driver package staging is incomplete (INF/SYS missing).'
+}
+
+if ($Platform -eq 'x64') {
+    # Re-run the two WDK validation stages explicitly with x64 tools. Prefer
+    # the version-matched restored NuGet bundle, then fall back to a complete
+    # machine WDK installation.
+    $infVerif = $null
+    if (Test-Path $packagesDir) {
+        $infVerif = Get-ChildItem -Path $packagesDir -Recurse -File -Filter 'InfVerif.exe' -ErrorAction SilentlyContinue |
+            Where-Object { $_.DirectoryName -match '\\x64$' } |
+            Select-Object -First 1
+    }
+    if (-not $infVerif -and (Test-Path (Join-Path $kitsRoot 'Tools'))) {
+        $infVerif = Get-ChildItem -Path (Join-Path $kitsRoot 'Tools') -Recurse -File -Filter 'InfVerif.exe' -ErrorAction SilentlyContinue |
+            Where-Object { $_.DirectoryName -match '\\x64$' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+    }
+    if (-not $infVerif) {
+        throw 'x64 InfVerif.exe was not found in the restored WDK package or machine WDK.'
+    }
+    Write-Host "Validating INF with $($infVerif.FullName)..."
+    & $infVerif.FullName /w $builtInf
+    if ($LASTEXITCODE -ne 0) { throw "InfVerif failed with exit code $LASTEXITCODE" }
+
+    $apiValidator = $null
+    $universalDdis = $null
+    $moduleWhitelist = $null
+    if (Test-Path $packagesDir) {
+        $apiValidator = Get-ChildItem -Path $packagesDir -Recurse -File -Filter 'ApiValidator.exe' -ErrorAction SilentlyContinue |
+            Where-Object { $_.DirectoryName -match '\\x64$' } |
+            Select-Object -First 1
+        $universalDdis = Get-ChildItem -Path $packagesDir -Recurse -File -Filter 'UniversalDDIs.xml' -ErrorAction SilentlyContinue |
+            Where-Object { $_.DirectoryName -match '\\x64$' } |
+            Select-Object -First 1
+        $moduleWhitelist = Get-ChildItem -Path $packagesDir -Recurse -File -Filter 'ModuleWhiteList.xml' -ErrorAction SilentlyContinue |
+            Where-Object { $_.DirectoryName -match '\\x64$' } |
+            Select-Object -First 1
+    }
+    if (-not $apiValidator -and (Test-Path (Join-Path $kitsRoot 'bin'))) {
+        $apiValidator = Get-ChildItem -Path (Join-Path $kitsRoot 'bin') -Recurse -File -Filter 'ApiValidator.exe' -ErrorAction SilentlyContinue |
+            Where-Object { $_.DirectoryName -match '\\x64$' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+    }
+    if (-not $universalDdis -and (Test-Path (Join-Path $kitsRoot 'build'))) {
+        $universalDdis = Get-ChildItem -Path (Join-Path $kitsRoot 'build') -Recurse -File -Filter 'UniversalDDIs.xml' -ErrorAction SilentlyContinue |
+            Where-Object { $_.DirectoryName -match '\\x64$' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+        $moduleWhitelist = Get-ChildItem -Path (Join-Path $kitsRoot 'build') -Recurse -File -Filter 'ModuleWhiteList.xml' -ErrorAction SilentlyContinue |
+            Where-Object { $_.DirectoryName -match '\\x64$' } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+    }
+    if (-not $apiValidator -or -not $universalDdis) {
+        throw 'x64 ApiValidator.exe or UniversalDDIs.xml was not found in the WDK.'
+    }
+
+    $apiArgs = @(
+        "-DriverPackagePath:$($builtSys.FullName)",
+        "-SupportedApiXmlFiles:$($universalDdis.FullName)",
+        "-ApiExtractorExePath:$($apiValidator.Directory.FullName)"
+    )
+    if ($moduleWhitelist) {
+        $apiArgs += "-ModuleWhiteListXmlFiles:$($moduleWhitelist.FullName)"
+    }
+    Write-Host "Validating driver APIs with $($apiValidator.FullName)..."
+    & $apiValidator.FullName @apiArgs
+    if ($LASTEXITCODE -ne 0) { throw "ApiValidator failed with exit code $LASTEXITCODE" }
 }
 
 Write-Host "VoxPassport virtual audio package staged at: $outRoot"

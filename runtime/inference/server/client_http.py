@@ -17,6 +17,11 @@ from runtime.inference.live_translation_controller import (
 )
 from runtime.inference.native_audio_bridge import NativeAudioBridge
 from runtime.inference.native_audio_routing import NativeAudioRoutingStore
+from runtime.inference.provider_credentials import (
+    DEFAULT_LABEL,
+    KeyringProviderCredentialStore,
+    LocalProviderCredentialResolver,
+)
 from runtime.inference.protocol import LanguageCode
 from runtime.inference.server.client_contract import ClientOriginPolicy, build_client_bootstrap
 from runtime.inference.translation_provider_catalog import (
@@ -42,18 +47,14 @@ class RuntimeClientServices:
     audio_routing_store: NativeAudioRoutingStore
     language_pair_provider: Callable[[], tuple[LanguageCode, LanguageCode]]
     cascade_should_start_provider: Callable[[], bool]
+    provider_credential_store: KeyringProviderCredentialStore | None = None
+    provider_credential_resolver: LocalProviderCredentialResolver | None = None
 
 
 _RUNTIME_CLIENT_SERVICES: RuntimeClientServices | None = None
 
 
 def configure_runtime_client_services(services: RuntimeClientServices | None) -> None:
-    """Install or clear the runtime-owned services used by Expo API routes.
-
-    This is explicit process composition, not hidden discovery: the integrated
-    daemon configures it during construction and clears it during shutdown.
-    """
-
     global _RUNTIME_CLIENT_SERVICES
     _RUNTIME_CLIENT_SERVICES = services
 
@@ -70,9 +71,6 @@ def create_client_cors_middleware(policy: ClientOriginPolicy | None = None) -> w
             return web.json_response({"error": "origin_not_allowed"}, status=403)
         response = web.Response(status=204) if request.method == "OPTIONS" else await handler(request)
 
-        # The legacy /api/status route remains owned by the daemon. Merge the
-        # new strategy/media state here so we do not duplicate or rewrite its
-        # large HTTP route table during migration.
         if request.path == "/api/status" and response.content_type == "application/json":
             services = _RUNTIME_CLIENT_SERVICES
             if services is not None:
@@ -107,6 +105,34 @@ def default_translation_strategies() -> dict[str, Any]:
     return {"schema_version": 1, "strategies": serialize_provider_catalog(entries)}
 
 
+def _provider_descriptors(provider: str):
+    provider_id = provider.strip().casefold()
+    return [
+        descriptor
+        for descriptor in TranslationProviderCatalog().load().entries()
+        if descriptor.provider.casefold() == provider_id
+    ]
+
+
+async def _local_provider_status(
+    provider: str,
+    *,
+    resolver: LocalProviderCredentialResolver,
+    label: str = DEFAULT_LABEL,
+) -> dict[str, Any]:
+    descriptors = _provider_descriptors(provider)
+    if not descriptors:
+        raise ValueError(f"unknown direct-speech provider {provider!r}")
+    resolved = await resolver.resolve(descriptors[0], label=label)
+    return {
+        "provider": descriptors[0].provider,
+        "label": label,
+        "configured": resolved is not None,
+        "source": resolved.source if resolved else None,
+        "strategy_ids": [descriptor.strategy_id for descriptor in descriptors],
+    }
+
+
 def register_client_contract_routes(
     app: web.Application,
     *,
@@ -120,6 +146,8 @@ def register_client_contract_routes(
     live_translation_controller: LiveTranslationController | None = None,
     language_pair_provider: Callable[[], tuple[LanguageCode, LanguageCode]] | None = None,
     cascade_should_start_provider: Callable[[], bool] | None = None,
+    provider_credential_store: KeyringProviderCredentialStore | None = None,
+    provider_credential_resolver: LocalProviderCredentialResolver | None = None,
 ) -> None:
     """Register stable Expo-facing runtime discovery/control routes."""
 
@@ -129,6 +157,8 @@ def register_client_contract_routes(
     live_controller = live_translation_controller or (services.live_translation_controller if services else None)
     pair_provider = language_pair_provider or (services.language_pair_provider if services else None)
     cascade_provider = cascade_should_start_provider or (services.cascade_should_start_provider if services else None)
+    credential_store = provider_credential_store or (services.provider_credential_store if services else None)
+    credential_resolver = provider_credential_resolver or (services.provider_credential_resolver if services else None)
 
     async def client_bootstrap(_request: web.Request) -> web.Response:
         capabilities = await _resolve_provider(capabilities_provider)
@@ -177,6 +207,56 @@ def register_client_contract_routes(
     app.router.add_route("PUT", "/api/audio/routing", audio_routing)
     app.router.add_post("/api/audio/routing/confirm-virtual-microphone", confirm_virtual_microphone)
     app.router.add_get("/api/translation/strategies", translation_strategies)
+
+    if credential_store is not None and credential_resolver is not None:
+        async def local_provider_credentials(_request: web.Request) -> web.Response:
+            catalog = TranslationProviderCatalog().load()
+            providers = sorted({descriptor.provider for descriptor in catalog.entries()})
+            statuses = [
+                await _local_provider_status(provider, resolver=credential_resolver)
+                for provider in providers
+            ]
+            return web.json_response({
+                "schema_version": 1,
+                "keyring_available": await credential_store.available(),
+                "credentials": statuses,
+            })
+
+        async def put_local_provider_credential(request: web.Request) -> web.Response:
+            try:
+                provider = request.match_info["provider"].strip().casefold()
+                descriptors = _provider_descriptors(provider)
+                if not descriptors:
+                    raise ValueError(f"unknown direct-speech provider {provider!r}")
+                data = await request.json()
+                if not isinstance(data, dict):
+                    raise ValueError("credential payload must be an object")
+                secret = str(data.get("secret") or "").strip()
+                label = str(data.get("label") or DEFAULT_LABEL).strip().casefold() or DEFAULT_LABEL
+                await credential_store.set_secret(provider, secret, label=label)
+                return web.json_response(
+                    await _local_provider_status(provider, resolver=credential_resolver, label=label)
+                )
+            except Exception as exc:
+                return web.json_response({"error": str(exc)}, status=400)
+
+        async def delete_local_provider_credential(request: web.Request) -> web.Response:
+            try:
+                provider = request.match_info["provider"].strip().casefold()
+                descriptors = _provider_descriptors(provider)
+                if not descriptors:
+                    raise ValueError(f"unknown direct-speech provider {provider!r}")
+                label = str(request.query.get("label") or DEFAULT_LABEL).strip().casefold() or DEFAULT_LABEL
+                await credential_store.delete_secret(provider, label=label)
+                return web.json_response(
+                    await _local_provider_status(provider, resolver=credential_resolver, label=label)
+                )
+            except Exception as exc:
+                return web.json_response({"error": str(exc)}, status=400)
+
+        app.router.add_get("/api/provider-credentials/local", local_provider_credentials)
+        app.router.add_put("/api/provider-credentials/local/{provider}", put_local_provider_credential)
+        app.router.add_delete("/api/provider-credentials/local/{provider}", delete_local_provider_credential)
 
     if strategy_manager is not None:
         if pair_provider is None:

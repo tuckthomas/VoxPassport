@@ -8,7 +8,7 @@
   "capability": "DIRECT_SPEECH_TRANSLATION",
   "execution_mode": "byo_api",
   "transport": "websocket",
-  "adapter": "runtime.inference.adapters.direct.gemini_live_translate:GeminiLiveTranslateStrategy",
+  "adapter": "runtime.inference.adapters.direct.gemini_live_translate_credentials:CredentialAwareGeminiLiveTranslateStrategy",
   "auth": {
     "kind": "api_key",
     "environment_variable": "GEMINI_API_KEY"

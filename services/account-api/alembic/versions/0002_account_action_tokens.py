@@ -1,7 +1,7 @@
 """account action tokens
 
 Revision ID: 0002_account_action_tokens
-Revises: 0001_accounts_and_credentials
+Revises: 0001_accounts
 Create Date: 2026-08-25
 """
 
@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 
 
 revision = "0002_account_action_tokens"
-down_revision = "0001_accounts_and_credentials"
+down_revision = "0001_accounts"
 branch_labels = None
 depends_on = None
 

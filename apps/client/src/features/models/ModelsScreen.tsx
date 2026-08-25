@@ -115,7 +115,7 @@ export default function ModelsScreen() {
         const state = model.installation_status ?? 'unknown';
         const itemProgress = progress[model.model_id];
         const isBusy = busyModel === model.model_id;
-        const canInstall = state !== 'installed' && state !== 'downloading' && state !== 'installing' && Boolean(model.upstream_id);
+        const canInstall = model.installable === true;
         const canActivate = state === 'installed' && ACTIVE_CAPABILITIES.has(model.capability) && !model.is_active;
         const canUninstall = state === 'installed' && !model.is_active && !model.is_pinned;
         return (
@@ -133,8 +133,8 @@ export default function ModelsScreen() {
             ) : null}
             {itemProgress?.error ? <Text style={{ color: colors.danger }}>{itemProgress.error}</Text> : null}
             {model.required_runtime ? <Text style={{ color: colors.muted }}>Runtime: {model.required_runtime}</Text> : null}
-            {!model.upstream_id && state !== 'installed' ? (
-              <Text style={{ color: colors.muted }}>No installable upstream repository is declared for this catalog entry.</Text>
+            {!canInstall && state !== 'installed' && model.installation_reason ? (
+              <Text style={{ color: colors.muted }}>{model.installation_reason}</Text>
             ) : null}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
               {canInstall ? <ActionButton label={isBusy ? 'Starting…' : 'Install'} disabled={isBusy} onPress={() => void install(model)} /> : null}

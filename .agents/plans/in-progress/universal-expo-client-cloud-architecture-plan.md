@@ -1,6 +1,6 @@
 # Universal Expo Client + VoxPassport Platform Architecture Plan
 
-Status: In progress — source-level desktop/live-audio/auth implementation is substantially complete; Windows driver/hardware validation and legacy Studio parity remain. Tauri is not part of the architecture.
+Status: In progress — canonical Expo migration, hosted macOS HAL validation, account/auth, and source-level desktop/live-audio implementation are substantially complete. Remaining work is primarily Windows WDK build completion plus physical Windows/macOS/conferencing validation and explicitly deferred hosted/mobile features. Tauri is not part of the architecture.
 
 Purpose: Replace the prototype browser-only frontend with one maintainable Expo + React Native + React Native Web client, preserve free local/self-hosted inference, support optional PostgreSQL-backed accounts/cloud features, add provider-agnostic direct speech translation, and provide desktop system-audio integration through the local runtime/native audio layer rather than a second desktop UI framework. Android/iOS remain future targets of the same Expo client.
 
@@ -13,7 +13,7 @@ Purpose: Replace the prototype browser-only frontend with one maintainable Expo 
 - [x] Keep `apps/client` as the one product UI for Android, iOS, web/PWA, and desktop-oriented workflows.
 - [x] Do **not** use Tauri or create a second desktop UI shell.
 - [x] Keep desktop as the immediate workflow priority without changing the canonical Expo architecture.
-- [x] Put Windows system audio, virtual microphone, loopback, and driver work behind runtime/native contracts rather than UI-framework IPC.
+- [x] Put native system audio, virtual microphone, loopback, and driver work behind runtime/native contracts rather than UI-framework IPC.
 - [x] Keep local/self-hosted use available without VoxPassport-hosted infrastructure or an account.
 - [x] Defer mobile call-transport implementation while preserving mobile-compatible client contracts.
 - [x] Prefer a future VoxPassport-native calling/WebRTC path on mobile instead of assuming arbitrary cross-app microphone injection.
@@ -46,7 +46,7 @@ Purpose: Replace the prototype browser-only frontend with one maintainable Expo 
 - [x] Treat the Expo web/PWA target as the desktop-facing product UI during this phase.
 - [x] Keep communication-platform integration independent from inference-provider selection.
 - [x] Keep Zoom/Meet/Teams/etc. plugins/extensions optional for richer UX rather than required core transport.
-- [x] Preserve reusable Rust audio crates independently of any desktop shell framework.
+- [x] Preserve reusable native audio components independently of any desktop shell framework.
 - [x] Expose native desktop audio capabilities to the Expo client through stable local-runtime APIs/services.
 - [x] Implement Windows microphone capture in the native audio layer.
 - [x] Implement Windows WASAPI loopback capture in the native audio layer.
@@ -56,11 +56,16 @@ Purpose: Replace the prototype browser-only frontend with one maintainable Expo 
 - [x] Keep the driver source substrate pinned instead of tracking Microsoft `main` dynamically.
 - [x] Add a real driver-side bounded render-to-capture PCM ring: `VoxPassport Translation Sink` -> kernel ring -> `VoxPassport Virtual Microphone`.
 - [x] Add deterministic end-to-end cable validation that renders known PCM and requires non-silent PCM from the capture endpoint.
-- [ ] Build/sign/install the virtual driver on the development Windows machine.
-- [ ] Run `scripts/validate_virtual_audio.py` successfully against the installed endpoint pair.
-- [ ] Validate desktop PWA/client plus native helper/runtime startup together on Windows.
+- [x] Implement a macOS CoreAudio helper and libASPL HAL virtual-device pair behind the same native-media boundary.
+- [x] Build/install/enumerate the macOS HAL plug-in on a hosted macOS runner and validate deterministic `Translation Sink -> Virtual Microphone` PCM crossover.
+- [x] Add macOS native PCM normalization so provider-shape PCM can be converted at the native boundary before the fixed HAL format.
+- [x] Implement Linux PipeWire/PipeWire-Pulse endpoint enumeration, capture/render helper support, and persistent VoxPassport virtual sink/source configuration.
+- [ ] Build/sign/install the Windows virtual driver on the development Windows machine.
+- [ ] Run `scripts/validate_virtual_audio.py` successfully against the installed Windows endpoint pair.
+- [ ] Validate desktop PWA/client plus native helper/runtime startup together on the target Windows machine.
 - [ ] Select `VoxPassport Virtual Microphone` in at least one real conferencing application and confirm translated audio is received.
 - [ ] Complete explicit echo/feedback ownership validation under real conference routing.
+- [ ] Validate real macOS microphone/output/TCC and conferencing behavior on a physical Mac.
 
 ## Provider/model architecture
 
@@ -84,16 +89,17 @@ Purpose: Replace the prototype browser-only frontend with one maintainable Expo 
 
 - [x] Make `apps/client/` the canonical universal product frontend.
 - [x] Keep `apps/browser-extension/` for browser-specific integration only.
-- [x] Keep `apps/desktop-companion/` explicitly legacy during migration.
+- [x] Retire the prototype `apps/desktop-companion/model-manager` product UI after Expo parity; only a temporary `/manager` -> Expo compatibility launcher and reusable brand assets remain.
 - [x] Remove the unintended `apps/desktop/` Tauri shell.
 - [x] Remove Tauri dependencies and IPC bridge code from `apps/client`.
 - [x] Add architecture tests that fail if Tauri dependencies/references or a Tauri desktop shell are reintroduced without an explicit architecture change.
+- [x] Add architecture tests that fail if the retired desktop Studio/fix-layer product UI is reintroduced.
 - [x] Add `docs/development/repository-layout.md` with ownership/routing rules.
-- [x] Keep native audio code in `crates/audio-core` / `crates/audio-windows`, independent of Expo UI choices.
+- [x] Keep native audio code in platform-owned runtime/native components, independent of Expo UI choices.
 - [x] Keep Windows driver development under `drivers/windows/virtual-audio` and generated Microsoft/build trees out of source control.
 - [x] Preserve Microsoft MS-PL notices/license when materializing the pinned driver substrate.
 - [x] Remove the stale nonexistent Rust `ipc-client` workspace member instead of preserving dead topology.
-- [ ] Move/rename the legacy HTML frontend only after the Expo client reaches sufficient parity.
+- [ ] Remove the final temporary `apps/desktop-companion` compatibility launcher/assets after the runtime root route no longer references `/manager`.
 
 ## Expo client foundation
 
@@ -109,8 +115,8 @@ Purpose: Replace the prototype browser-only frontend with one maintainable Expo 
 - [x] Add typed model and voice-profile rendering from backend APIs rather than legacy global-array mutation.
 - [x] Add live translation engine selection, validation/activation, Full Duplex / Outbound / Inbound modes, Start/Stop, status, counters, and inbound/outbound caption display.
 - [x] Keep raw PCM out of Expo/React state; the UI controls only low-frequency runtime/session state.
-- [ ] Add voice enrollment/preview/activation workflows using typed API services.
-- [ ] Add model activation/install/uninstall workflows using typed services and backend-owned metadata.
+- [x] Add voice enrollment/preview/save/activation/delete workflows using typed API services.
+- [x] Add model install/progress/activation/uninstall workflows using typed services and backend-owned installability/reason metadata.
 
 ## Client runtime abstraction
 
@@ -133,10 +139,11 @@ Purpose: Replace the prototype browser-only frontend with one maintainable Expo 
 - [x] Protect the runtime resource WebSocket with the same origin policy.
 - [x] Add native-audio capability/status/device endpoints.
 - [x] Add stable-ID audio routing configuration endpoints.
-- [x] Add a native helper subprocess boundary for realtime capture/render and binary `VPF1` PCM frames.
+- [x] Add native helper subprocess boundary for realtime capture/render and binary `VPF1` PCM frames.
 - [x] Keep raw high-frequency PCM on subprocess/native media paths rather than REST/JSON/base64/UI IPC.
-- [x] Add `runtime/inference/server/integrated_main.py` to compose the legacy daemon with strategy/native-media services without another UI framework.
-- [x] Make `run.bat` launch the integrated runtime entrypoint.
+- [x] Add `runtime/inference/server/integrated_main.py` to compose runtime inference with strategy/native-media services without another UI framework.
+- [x] Make `run.bat` launch the integrated runtime and canonical Expo web client together for local development.
+- [x] Make `install.bat` install the canonical Expo client dependencies in addition to the Python runtime environment.
 - [x] Restore/unload direct strategy state through integrated daemon startup/shutdown.
 - [x] Run the degraded-mode scheduler only while the modular cascade owns inference.
 
@@ -158,10 +165,14 @@ Purpose: Replace the prototype browser-only frontend with one maintainable Expo 
 - [x] Add pinned Windows virtual-driver preparation script with guarded upstream patches.
 - [x] Add WDK build, test-install, and uninstall scripts without silently changing Secure Boot.
 - [x] Add end-to-end virtual cable PCM validator.
-- [ ] Compile the kernel driver with WDK on the Windows development machine or a WDK-capable CI runner.
-- [ ] Test-sign/install the driver under the development machine's allowed Windows driver policy.
-- [ ] Validate real WASAPI endpoint formats and capture/render behavior on hardware.
-- [ ] Validate the virtual cable with the deterministic PCM test and a conferencing application.
+- [x] Add a macOS CoreAudio helper using the same VPF1 subprocess contract and stable CoreAudio endpoint UIDs.
+- [x] Add a macOS HAL virtual-audio plug-in and hosted-runner install/enumeration/crossover validation.
+- [x] Add a Linux PipeWire/PipeWire-Pulse helper implementation and virtual sink/source scripts.
+- [ ] Compile the Windows kernel driver fully with WDK on the Windows development machine or WDK-capable CI runner.
+- [ ] Test-sign/install the Windows driver under the development machine's allowed Windows driver policy.
+- [ ] Validate real Windows WASAPI endpoint formats and capture/render behavior on hardware.
+- [ ] Validate the Windows virtual cable with the deterministic PCM test and a conferencing application.
+- [ ] Validate real macOS physical endpoints, TCC permissions, signing/notarization, and conferencing behavior.
 
 ## Mobile deferred phase
 
@@ -175,11 +186,11 @@ Purpose: Replace the prototype browser-only frontend with one maintainable Expo 
 
 For every legacy `*-fixes.js` behavior:
 
-- [ ] If it compensates for broken/obsolete original behavior: correct the owner implementation and delete the patch.
-- [ ] If it exists only for compatibility with a removed design: delete it entirely.
-- [ ] If it implements enduring domain behavior: reimplement it in the proper Expo/client/backend abstraction, not by copying the patch.
-- [ ] If it hard-codes metadata now available from APIs/manifests: make the Expo UI data-driven and delete the hard-coded logic.
-- [ ] If it is temporary migration logic: finish the migration and delete it.
+- [x] If it compensated for broken/obsolete original behavior: correct the owner implementation and delete the patch.
+- [x] If it existed only for compatibility with a removed design: delete it entirely.
+- [x] If it implemented enduring domain behavior: reimplement it in the proper Expo/client/backend abstraction instead of copying the patch.
+- [x] If it hard-coded metadata now available from APIs/manifests: make the Expo UI data-driven and delete the hard-coded logic.
+- [x] If it was temporary migration logic: finish the migration and delete it.
 - [x] Do not create new `*-fixes.js`, iframe `eval()` bridges, hidden compatibility elements, fetch monkey-patches, Tauri bridges, or duplicate desktop screens.
 
 ## Legacy patch-specific migration
@@ -187,11 +198,11 @@ For every legacy `*-fixes.js` behavior:
 - [x] New model catalog rendering uses typed backend data rather than legacy global arrays.
 - [x] New voice-profile rendering uses backend state rather than legacy DOM/global state.
 - [x] New text translation constructs the correct request at its typed API source instead of relying on fetch interception.
-- [ ] Replace remaining voice enrollment/synthesis request interception as those workflows migrate.
-- [ ] Eliminate the hidden `studioCloneModelSelect` compatibility sentinel rather than recreating it.
-- [ ] Retire Silero v4-to-v6 UI repair once canonical backend metadata fully covers it.
-- [ ] Replace `stack-upgrade-fixes.js` hard-coded install exceptions with generic backend installation-state/reason metadata.
-- [ ] Delete each legacy fix file only after its required behavior is covered by the new owner implementation or explicitly retired.
+- [x] Replace voice enrollment/synthesis request interception with typed Expo/backend workflows.
+- [x] Eliminate the hidden `studioCloneModelSelect` compatibility sentinel by retiring the prototype Studio.
+- [x] Retire Silero v4-to-v6 UI repair; aliases/catalog/runtime metadata own canonical model identity.
+- [x] Replace `stack-upgrade-fixes.js` hard-coded install exceptions with generic backend `installable` / `installation_reason` metadata.
+- [x] Delete `runtime-fixes.js`, `engine-catalog-fixes.js`, and `stack-upgrade-fixes.js` after moving required behavior to its owning implementation.
 
 ## VoxPassport Cloud — optional/later
 
@@ -206,6 +217,7 @@ For every legacy `*-fixes.js` behavior:
 
 - [x] Add static architecture tests preventing new patch-history files in `apps/client`.
 - [x] Add architecture tests preventing Tauri dependencies/references and `apps/desktop` reintroduction.
+- [x] Add architecture tests preventing the retired legacy Studio/fix-layer UI from returning.
 - [x] Add direct translation provider-catalog, loader, session, Gemini wire-protocol, and transactional strategy-manager tests.
 - [x] Add runtime bootstrap/CORS/deployment tests.
 - [x] Add native audio bridge and full-duplex controller tests.
@@ -213,56 +225,62 @@ For every legacy `*-fixes.js` behavior:
 - [x] Add local-only/account-disabled/rate-control tests.
 - [x] Add Expo TypeScript typecheck and web export CI.
 - [x] Add Windows Rust audio/helper tests.
+- [x] Add Linux Rust audio/helper tests and a headless PipeWire live-validation workflow.
+- [x] Add macOS Swift helper + HAL build CI.
+- [x] Add hosted macOS HAL install/enumeration/deterministic crossover validation.
 - [x] Add virtual-driver overlay static tests.
-- [x] Add Windows CI preparation of the pinned Microsoft driver substrate and verify the guarded patches/license/endpoint names without requiring WDK installation.
-- [ ] Observe and fix the current pull-request CI validation run (`Runtime Integrity` run `32773745017`).
-- [ ] Compile the WDK kernel driver.
+- [x] Add Windows CI preparation of the pinned Microsoft driver substrate and verify guarded patches/license/endpoint names.
+- [x] Resolve the obsolete `Runtime Integrity` failure tracked as run `32773745017`; later integrity/account/Expo/macOS/Linux compile jobs have passed after the migration fixes.
+- [ ] Complete the hosted Windows WDK kernel-driver compile and staged INF/SYS verification.
+- [ ] Make the headless Linux helper crossover validation green after the PipeWire-Pulse media-boundary change.
 - [ ] Validate Expo web/PWA in a browser on the target Windows machine.
 - [ ] Validate Windows endpoint enumeration/capture/loopback on real hardware.
-- [ ] Validate `VoxPassport Translation Sink` -> driver bridge -> `VoxPassport Virtual Microphone` with `scripts/validate_virtual_audio.py`.
-- [ ] Validate the actual virtual microphone with a conferencing application.
-- [x] Keep this plan in `in-progress` while platform/hardware validation and legacy parity remain outstanding.
+- [ ] Validate `VoxPassport Translation Sink` -> driver bridge -> `VoxPassport Virtual Microphone` with `scripts/validate_virtual_audio.py` on Windows.
+- [ ] Validate the actual Windows virtual microphone with a conferencing application.
+- [ ] Validate physical Mac microphone/output permission and conferencing behavior.
+- [x] Keep this plan in `in-progress` while platform/hardware validation remains outstanding.
 
 ## Current desktop acceptance path
 
 ```text
-Expo / React Native Web client
-        |
-        | low-frequency typed control/session APIs
-        v
-VoxPassport Integrated Local Runtime
-        |
-        +--> Local modular VAD -> ASR -> NMT -> TTS
-        |
-        +--> Direct speech provider adapters (Gemini first)
-        |
-        +--> Native Windows audio helper (binary PCM subprocess transport)
-                    |
-                    +--> physical microphone WASAPI capture
-                    +--> conference/system WASAPI loopback capture
-                    +--> translated local-monitor WASAPI render
-                    +--> VoxPassport Translation Sink
-                              |
-                              v
-                         bounded WDM PCM ring
-                              |
-                              v
-                         VoxPassport Virtual Microphone
-                              |
-                              v
-                    Meet / Zoom / Teams / Discord / softphone
+                         Expo / React Native Web client
+                                  |
+                                  | low-frequency typed control/session APIs
+                                  v
+                      VoxPassport Integrated Local Runtime
+                                  |
+                 +----------------+----------------+
+                 |                                 |
+                 v                                 v
+      Modular VAD -> ASR -> NMT -> TTS    Direct speech providers
+                 |                                 |
+                 +----------------+----------------+
+                                  |
+                                  v
+                       Native audio service boundary
+                                  |
+            +---------------------+----------------------+
+            |                     |                      |
+            v                     v                      v
+      Windows WASAPI         macOS CoreAudio       Linux PipeWire/
+      + WDM virtual mic      + HAL virtual mic     PipeWire-Pulse pair
+            |                     |                      |
+            +---------------------+----------------------+
+                                  |
+                                  v
+                   conferencing / softphone endpoint
 ```
 
-The UI remains Expo. Native Windows audio and the virtual driver are implementation services behind the runtime boundary, not a second application shell.
+The UI remains Expo. Native platform audio and virtual-device implementations are services behind the runtime boundary, not separate application shells.
 
 ## Migration completion criteria
 
-- [ ] The Expo client covers the production workflows currently expected from the legacy Studio.
-- [ ] Desktop live translation works through runtime/native audio contracts without Tauri.
-- [ ] The VoxPassport virtual driver builds, installs, and passes deterministic PCM crossover validation on Windows.
-- [ ] `VoxPassport Virtual Microphone` is validated with at least one conferencing application.
-- [ ] The local runtime no longer needs to serve `apps/desktop-companion/model-manager` as the primary UI.
-- [ ] `runtime-fixes.js`, `engine-catalog-fixes.js`, and `stack-upgrade-fixes.js` are deleted because their causes were corrected/replaced.
-- [ ] The misleading `desktop-companion` directory is removed or archived under an explicitly legacy path.
-- [ ] Documentation and commands consistently describe the Expo architecture.
-- [ ] Move this plan to `.agents/plans/completed/` only after functional parity and required platform validation are complete.
+- [x] The Expo client covers the production workflows expected from the retired prototype Studio, including translation, strategy/session controls, audio routing, models, voice profiles, settings, and optional account flows.
+- [ ] Desktop live translation is physically validated through runtime/native audio contracts without Tauri.
+- [ ] The VoxPassport Windows virtual driver builds, installs, and passes deterministic PCM crossover validation on a physical Windows system.
+- [ ] `VoxPassport Virtual Microphone` is validated with at least one conferencing application on Windows.
+- [x] The normal local development command launches Expo as the primary UI; the runtime no longer depends on the old Studio application.
+- [x] `runtime-fixes.js`, `engine-catalog-fixes.js`, and `stack-upgrade-fixes.js` are deleted because their causes were corrected/replaced.
+- [ ] Remove the remaining temporary `apps/desktop-companion` URL-compatibility launcher/assets after the runtime `/manager` redirect is eliminated.
+- [x] Documentation and local development commands consistently describe the Expo architecture.
+- [ ] Move this plan to `.agents/plans/completed/` only after required physical platform validation is complete; explicitly deferred hosted/mobile features may remain follow-on work.

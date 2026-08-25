@@ -3,6 +3,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CANONICAL_CLIENT_ROOT = PROJECT_ROOT / "apps" / "client"
+DESKTOP_COMPANION_ROOT = PROJECT_ROOT / "apps" / "desktop-companion"
 
 
 def _source_files(root: Path):
@@ -32,6 +33,35 @@ def test_canonical_client_does_not_use_legacy_iframe_eval_bridge():
         if "contentWindow" in text and ".eval(" in text:
             offenders.append(path.relative_to(PROJECT_ROOT).as_posix())
     assert offenders == [], f"Legacy iframe/eval bridge reintroduced in canonical Expo client: {offenders}"
+
+
+def test_legacy_desktop_product_ui_is_removed():
+    manager = DESKTOP_COMPANION_ROOT / "model-manager"
+    manager_files = {
+        path.relative_to(manager).as_posix()
+        for path in _source_files(manager)
+    }
+    assert manager_files <= {"index.html"}, (
+        "apps/desktop-companion/model-manager may contain only the temporary Expo launcher; "
+        f"legacy product UI files returned: {sorted(manager_files - {'index.html'})}"
+    )
+    launcher = manager / "index.html"
+    if launcher.exists():
+        text = launcher.read_text(encoding="utf-8")
+        assert "127.0.0.1:8081" in text
+        assert "studio" not in text.lower()
+    assert not (DESKTOP_COMPANION_ROOT / "overlay").exists(), (
+        "The duplicate desktop overlay was retired; browser-specific overlays belong in apps/browser-extension"
+    )
+
+
+def test_no_legacy_fix_layers_remain_in_desktop_companion():
+    offenders = []
+    for path in _source_files(DESKTOP_COMPANION_ROOT):
+        lowered = path.name.lower()
+        if "-fixes." in lowered or "-patch." in lowered:
+            offenders.append(path.relative_to(PROJECT_ROOT).as_posix())
+    assert offenders == [], f"Legacy desktop patch layers returned: {offenders}"
 
 
 def test_no_dedicated_tauri_desktop_shell_is_present():

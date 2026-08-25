@@ -1,6 +1,6 @@
 """Integrated VoxPassport runtime entrypoint.
 
-This composes the legacy inference/control daemon with the new provider-neutral
+This composes the core inference/control runtime with the provider-neutral
 strategy manager and native desktop audio media plane without duplicating the
 large legacy HTTP route table. New deployments should launch this module.
 """

@@ -1,6 +1,6 @@
 # Universal Expo Client + VoxPassport Platform Architecture Plan
 
-Status: In progress — canonical Expo migration, hosted macOS HAL validation, account/auth, and source-level desktop/live-audio implementation are substantially complete. Remaining work is primarily Windows WDK build completion plus physical Windows/macOS/conferencing validation and explicitly deferred hosted/mobile features. Tauri is not part of the architecture.
+Status: In progress — canonical Expo migration, account/auth foundations, cross-platform native desktop audio, hosted Windows WDK build/staging, hosted macOS HAL crossover, and headless Linux PipeWire crossover are complete. Remaining current-phase work is physical Windows/macOS/conferencing acceptance plus explicitly deferred hosted/mobile features. Tauri is not part of the architecture.
 
 Purpose: Replace the prototype browser-only frontend with one maintainable Expo + React Native + React Native Web client, preserve free local/self-hosted inference, support optional PostgreSQL-backed accounts/cloud features, add provider-agnostic direct speech translation, and provide desktop system-audio integration through the local runtime/native audio layer rather than a second desktop UI framework. Android/iOS remain future targets of the same Expo client.
 
@@ -60,7 +60,8 @@ Purpose: Replace the prototype browser-only frontend with one maintainable Expo 
 - [x] Build/install/enumerate the macOS HAL plug-in on a hosted macOS runner and validate deterministic `Translation Sink -> Virtual Microphone` PCM crossover.
 - [x] Add macOS native PCM normalization so provider-shape PCM can be converted at the native boundary before the fixed HAL format.
 - [x] Implement Linux PipeWire/PipeWire-Pulse endpoint enumeration, capture/render helper support, and persistent VoxPassport virtual sink/source configuration.
-- [ ] Build/sign/install the Windows virtual driver on the development Windows machine.
+- [x] Build/sign/stage the Windows virtual driver in hosted WDK-capable CI.
+- [ ] Test-sign/install the staged Windows virtual driver on the development Windows machine under its allowed driver policy.
 - [ ] Run `scripts/validate_virtual_audio.py` successfully against the installed Windows endpoint pair.
 - [ ] Validate desktop PWA/client plus native helper/runtime startup together on the target Windows machine.
 - [ ] Select `VoxPassport Virtual Microphone` in at least one real conferencing application and confirm translated audio is received.
@@ -89,7 +90,7 @@ Purpose: Replace the prototype browser-only frontend with one maintainable Expo 
 
 - [x] Make `apps/client/` the canonical universal product frontend.
 - [x] Keep `apps/browser-extension/` for browser-specific integration only.
-- [x] Retire the prototype `apps/desktop-companion/model-manager` product UI after Expo parity; only a temporary `/manager` -> Expo compatibility launcher and reusable brand assets remain.
+- [x] Retire the prototype `apps/desktop-companion/model-manager` product UI after Expo parity.
 - [x] Remove the unintended `apps/desktop/` Tauri shell.
 - [x] Remove Tauri dependencies and IPC bridge code from `apps/client`.
 - [x] Add architecture tests that fail if Tauri dependencies/references or a Tauri desktop shell are reintroduced without an explicit architecture change.
@@ -99,7 +100,7 @@ Purpose: Replace the prototype browser-only frontend with one maintainable Expo 
 - [x] Keep Windows driver development under `drivers/windows/virtual-audio` and generated Microsoft/build trees out of source control.
 - [x] Preserve Microsoft MS-PL notices/license when materializing the pinned driver substrate.
 - [x] Remove the stale nonexistent Rust `ipc-client` workspace member instead of preserving dead topology.
-- [ ] Remove the final temporary `apps/desktop-companion` compatibility launcher/assets after the runtime root route no longer references `/manager`.
+- [x] Remove `apps/desktop-companion` entirely after moving reusable brand assets to `apps/client/assets` and changing the runtime root route to the canonical Expo client.
 
 ## Expo client foundation
 
@@ -168,7 +169,7 @@ Purpose: Replace the prototype browser-only frontend with one maintainable Expo 
 - [x] Add a macOS CoreAudio helper using the same VPF1 subprocess contract and stable CoreAudio endpoint UIDs.
 - [x] Add a macOS HAL virtual-audio plug-in and hosted-runner install/enumeration/crossover validation.
 - [x] Add a Linux PipeWire/PipeWire-Pulse helper implementation and virtual sink/source scripts.
-- [ ] Compile the Windows kernel driver fully with WDK on the Windows development machine or WDK-capable CI runner.
+- [x] Compile the Windows kernel driver fully with WDK on the hosted Windows CI runner and verify the staged INF/SYS package.
 - [ ] Test-sign/install the Windows driver under the development machine's allowed Windows driver policy.
 - [ ] Validate real Windows WASAPI endpoint formats and capture/render behavior on hardware.
 - [ ] Validate the Windows virtual cable with the deterministic PCM test and a conferencing application.
@@ -231,8 +232,8 @@ For every legacy `*-fixes.js` behavior:
 - [x] Add virtual-driver overlay static tests.
 - [x] Add Windows CI preparation of the pinned Microsoft driver substrate and verify guarded patches/license/endpoint names.
 - [x] Resolve the obsolete `Runtime Integrity` failure tracked as run `32773745017`; later integrity/account/Expo/macOS/Linux compile jobs have passed after the migration fixes.
-- [ ] Complete the hosted Windows WDK kernel-driver compile and staged INF/SYS verification.
-- [ ] Make the headless Linux helper crossover validation green after the PipeWire-Pulse media-boundary change.
+- [x] Complete the hosted Windows WDK kernel-driver compile and staged INF/SYS verification.
+- [x] Make the headless Linux helper crossover validation green after the PipeWire-Pulse media-boundary change.
 - [ ] Validate Expo web/PWA in a browser on the target Windows machine.
 - [ ] Validate Windows endpoint enumeration/capture/loopback on real hardware.
 - [ ] Validate `VoxPassport Translation Sink` -> driver bridge -> `VoxPassport Virtual Microphone` with `scripts/validate_virtual_audio.py` on Windows.

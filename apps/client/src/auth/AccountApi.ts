@@ -79,6 +79,34 @@ export class AccountApi {
     return this.request('/v1/auth/me', undefined, accessToken);
   }
 
+  requestEmailVerification(email: string): Promise<{ accepted: boolean }> {
+    return this.request('/v1/auth/email-verification/request', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  confirmEmailVerification(token: string): Promise<AccountUser> {
+    return this.request('/v1/auth/email-verification/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    });
+  }
+
+  requestPasswordReset(email: string): Promise<{ accepted: boolean }> {
+    return this.request('/v1/auth/password-reset/request', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  confirmPasswordReset(token: string, newPassword: string): Promise<void> {
+    return this.request('/v1/auth/password-reset/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ token, new_password: newPassword }),
+    });
+  }
+
   changePassword(currentPassword: string, newPassword: string, accessToken: string): Promise<AuthResponse> {
     return this.request('/v1/auth/change-password', {
       method: 'POST',

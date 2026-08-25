@@ -6,7 +6,7 @@ SOURCE_ID="voxpassport_virtual_microphone"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/pipewire/pipewire-pulse.conf.d"
 CONFIG_PATH="$CONFIG_DIR/90-voxpassport-virtual-audio.conf"
 
-for command in pactl pw-record pw-play; do
+for command in pactl parec paplay; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "Required command '$command' was not found on PATH." >&2
     exit 1

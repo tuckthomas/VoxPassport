@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import jwt
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select, text, update
@@ -15,13 +16,18 @@ from sqlalchemy.orm import Session
 
 from account_api.config import Settings, get_settings
 from account_api.database import get_db
-from account_api.models import ProviderCredential, RefreshSession, User
+from account_api.mailer import Mailer, password_reset_message, verification_message
+from account_api.models import AccountActionToken, ProviderCredential, RefreshSession, User
 from account_api.rate_limit import install_account_guard_middleware
 from account_api.schemas import (
+    AcceptedResponse,
     AuthResponse,
     ChangePasswordRequest,
+    EmailVerificationConfirmRequest,
     LoginRequest,
     LogoutRequest,
+    PasswordResetConfirmRequest,
+    PasswordResetRequest,
     ProviderCredentialSummary,
     ProviderCredentialUpsert,
     RefreshRequest,
@@ -32,23 +38,29 @@ from account_api.security import (
     burn_password_check,
     create_access_token,
     decode_access_token,
+    email_verification_expiry,
     encrypt_provider_secret,
+    hash_action_token,
     hash_password,
     hash_refresh_token,
+    new_action_token,
     new_refresh_token,
     normalize_email,
+    password_reset_expiry,
     refresh_expiry,
     utcnow,
     verify_password,
 )
 
 
+logger = logging.getLogger("voxpassport.accounts")
 REFRESH_COOKIE = "vp_refresh"
 _PROVIDER_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,78}[a-z0-9]$|^[a-z0-9]$")
 bearer = HTTPBearer(auto_error=False)
 settings = get_settings()
+mailer = Mailer(settings)
 
-app = FastAPI(title="VoxPassport Accounts", version="1.0.0")
+app = FastAPI(title="VoxPassport Accounts", version="1.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origin_list,
@@ -109,6 +121,65 @@ def _create_session(db: Session, user: User, request: Request) -> tuple[RefreshS
     return session, raw
 
 
+def _issue_action_token(db: Session, user: User, *, purpose: str) -> str:
+    now = utcnow()
+    db.execute(
+        update(AccountActionToken)
+        .where(
+            AccountActionToken.user_id == user.id,
+            AccountActionToken.purpose == purpose,
+            AccountActionToken.consumed_at.is_(None),
+        )
+        .values(consumed_at=now)
+    )
+    raw = new_action_token()
+    expires_at = (
+        email_verification_expiry(settings)
+        if purpose == "email_verification"
+        else password_reset_expiry(settings)
+    )
+    db.add(AccountActionToken(
+        user_id=user.id,
+        purpose=purpose,
+        token_hash=hash_action_token(raw),
+        expires_at=expires_at,
+    ))
+    db.flush()
+    return raw
+
+
+def _consume_action_token(db: Session, *, raw_token: str, purpose: str) -> AccountActionToken:
+    now = utcnow()
+    token = db.scalar(
+        select(AccountActionToken)
+        .where(
+            AccountActionToken.token_hash == hash_action_token(raw_token),
+            AccountActionToken.purpose == purpose,
+            AccountActionToken.consumed_at.is_(None),
+            AccountActionToken.expires_at > now,
+        )
+        .with_for_update()
+    )
+    if token is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid or expired token")
+    token.consumed_at = now
+    return token
+
+
+def _deliver_verification(email: str, raw_token: str) -> None:
+    try:
+        mailer.send(verification_message(email=email, raw_token=raw_token, settings=settings))
+    except Exception:
+        logger.exception("email verification delivery failed")
+
+
+def _deliver_password_reset(email: str, raw_token: str) -> None:
+    try:
+        mailer.send(password_reset_message(email=email, raw_token=raw_token, settings=settings))
+    except Exception:
+        logger.exception("password reset delivery failed")
+
+
 def _auth_payload(user: User, session: RefreshSession, raw_refresh: str, request: Request) -> AuthResponse:
     return AuthResponse(
         access_token=create_access_token(user_id=user.id, session_id=session.id, settings=settings),
@@ -155,6 +226,8 @@ def require_auth(
     user = db.get(User, user_id)
     if user is None or not user.is_active:
         raise _unauthorized()
+    if settings.require_email_verification and not user.email_verified:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="email verification required")
     return AuthContext(user=user, session=session)
 
 
@@ -175,11 +248,18 @@ def public_config() -> dict[str, bool]:
         "accounts_enabled": settings.auth_enabled,
         "local_only": settings.local_only,
         "abuse_controls_enabled": settings.abuse_controls_enabled,
+        "require_email_verification": settings.require_email_verification,
     }
 
 
 @app.post("/v1/auth/signup", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
-def signup(payload: SignupRequest, request: Request, response: Response, db: Session = Depends(get_db)) -> AuthResponse:
+def signup(
+    payload: SignupRequest,
+    request: Request,
+    response: Response,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+) -> AuthResponse:
     email = normalize_email(str(payload.email))
     user = User(
         email=email,
@@ -193,10 +273,12 @@ def signup(payload: SignupRequest, request: Request, response: Response, db: Ses
         db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="an account already exists for this email")
 
+    verification_token = _issue_action_token(db, user, purpose="email_verification")
     session, raw_refresh = _create_session(db, user, request)
     user.last_login_at = utcnow()
     db.commit()
     db.refresh(user)
+    background_tasks.add_task(_deliver_verification, user.email, verification_token)
     return _finish_auth_response(response, user, session, raw_refresh, request)
 
 
@@ -210,6 +292,8 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
     valid, replacement = verify_password(payload.password, user.password_hash)
     if not valid or not user.is_active:
         raise _unauthorized()
+    if settings.require_email_verification and not user.email_verified:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="email verification required")
     if replacement:
         user.password_hash = replacement
 
@@ -218,6 +302,84 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
     db.commit()
     db.refresh(user)
     return _finish_auth_response(response, user, session, raw_refresh, request)
+
+
+@app.post("/v1/auth/email-verification/request", response_model=AcceptedResponse, status_code=status.HTTP_202_ACCEPTED)
+def request_email_verification(
+    payload: PasswordResetRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+) -> AcceptedResponse:
+    email = normalize_email(str(payload.email))
+    user = db.scalar(select(User).where(User.email == email))
+    if user is not None and user.is_active and not user.email_verified:
+        raw = _issue_action_token(db, user, purpose="email_verification")
+        db.commit()
+        background_tasks.add_task(_deliver_verification, user.email, raw)
+    return AcceptedResponse()
+
+
+@app.post("/v1/auth/email-verification/confirm", response_model=UserResponse)
+def confirm_email_verification(
+    payload: EmailVerificationConfirmRequest,
+    db: Session = Depends(get_db),
+) -> UserResponse:
+    token = _consume_action_token(db, raw_token=payload.token, purpose="email_verification")
+    user = db.get(User, token.user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid or expired token")
+    user.email_verified = True
+    db.commit()
+    db.refresh(user)
+    return UserResponse.model_validate(user)
+
+
+@app.post("/v1/auth/password-reset/request", response_model=AcceptedResponse, status_code=status.HTTP_202_ACCEPTED)
+def request_password_reset(
+    payload: PasswordResetRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+) -> AcceptedResponse:
+    # Deliberately return the same response for existing and unknown addresses.
+    email = normalize_email(str(payload.email))
+    user = db.scalar(select(User).where(User.email == email))
+    if user is not None and user.is_active:
+        raw = _issue_action_token(db, user, purpose="password_reset")
+        db.commit()
+        background_tasks.add_task(_deliver_password_reset, user.email, raw)
+    return AcceptedResponse()
+
+
+@app.post("/v1/auth/password-reset/confirm", status_code=status.HTTP_204_NO_CONTENT)
+def confirm_password_reset(
+    payload: PasswordResetConfirmRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> Response:
+    token = _consume_action_token(db, raw_token=payload.token, purpose="password_reset")
+    user = db.get(User, token.user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid or expired token")
+    user.password_hash = hash_password(payload.new_password)
+    now = utcnow()
+    db.execute(
+        update(RefreshSession)
+        .where(RefreshSession.user_id == user.id, RefreshSession.revoked_at.is_(None))
+        .values(revoked_at=now)
+    )
+    db.execute(
+        update(AccountActionToken)
+        .where(
+            AccountActionToken.user_id == user.id,
+            AccountActionToken.purpose == "password_reset",
+            AccountActionToken.consumed_at.is_(None),
+        )
+        .values(consumed_at=now)
+    )
+    db.commit()
+    _clear_refresh_cookie(response)
+    response.status_code = status.HTTP_204_NO_CONTENT
+    return response
 
 
 def _refresh_token_from_request(payload: RefreshRequest | LogoutRequest | None, request: Request) -> str | None:
@@ -251,6 +413,8 @@ def refresh(
     user = db.get(User, existing.user_id)
     if user is None or not user.is_active:
         raise _unauthorized()
+    if settings.require_email_verification and not user.email_verified:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="email verification required")
 
     replacement, raw_replacement = _create_session(db, user, request)
     existing.revoked_at = now

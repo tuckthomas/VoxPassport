@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import type { AccountUser, AuthResponse, ProviderCredentialSummary } from './contracts';
+import type { AccountPublicConfig, AccountUser, AuthResponse, ProviderCredentialSummary } from './contracts';
 
 export class AccountApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -41,6 +41,10 @@ export class AccountApi {
       throw new AccountApiError(response.status, message);
     }
     return raw ? JSON.parse(raw) as T : undefined as T;
+  }
+
+  config(): Promise<AccountPublicConfig> {
+    return this.request('/v1/config');
   }
 
   signup(email: string, password: string, displayName?: string): Promise<AuthResponse> {

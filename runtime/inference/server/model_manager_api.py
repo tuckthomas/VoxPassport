@@ -1,8 +1,8 @@
 """Model-manager business logic for VoxPassport.
 
 The controller owns canonical model IDs, installation state, and the active
-runtime slots used by both the REST API and desktop Model Hub. Local TTS aliases
-and runtime metadata are supplied by TTS manifests at application startup.
+runtime slots used by both the REST API and canonical Expo client. Local TTS
+aliases and runtime metadata are supplied by TTS manifests at application startup.
 """
 
 from __future__ import annotations
@@ -102,11 +102,31 @@ class ModelManagerController:
         cap = str(capability or "ASR").strip().upper()
         return "TRANSLATION" if cap in {"NMT", "MT", "TRANSLATE"} else cap
 
+    @staticmethod
+    def _installation_metadata(entry: ModelRegistryEntry) -> tuple[bool, Optional[str]]:
+        """Return whether a manual install can be started and the owner-supplied reason when it cannot."""
+        status = entry.installation_status
+        if status == InstallationStatus.INSTALLED:
+            return False, "Already installed."
+        if status == InstallationStatus.DOWNLOADING:
+            return False, "Installation is already in progress."
+        if not str(entry.upstream_id or "").strip():
+            return False, "No verified official downloadable repository is configured for this catalog entry."
+        return True, None
+
+    @classmethod
+    def _entry_payload(cls, entry: ModelRegistryEntry) -> Dict[str, Any]:
+        payload = entry.to_dict()
+        installable, reason = cls._installation_metadata(entry)
+        payload["installable"] = installable
+        payload["installation_reason"] = reason
+        return payload
+
     def list_installed(self) -> List[Dict[str, Any]]:
-        return [entry.to_dict() for entry in self.registry.list_entries(installed_only=True)]
+        return [self._entry_payload(entry) for entry in self.registry.list_entries(installed_only=True)]
 
     def list_available(self) -> List[Dict[str, Any]]:
-        return [entry.to_dict() for entry in self.registry.list_entries()]
+        return [self._entry_payload(entry) for entry in self.registry.list_entries()]
 
     def get_active_slots(self) -> Dict[str, Optional[str]]:
         raw = {slot: getattr(self.registry._active, slot) for slot in KnownGoodModelSet.SLOT_NAMES}

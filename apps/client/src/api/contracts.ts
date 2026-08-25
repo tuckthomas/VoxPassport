@@ -201,6 +201,8 @@ export type ModelEntry = {
   upstream_id?: string;
   revision?: string;
   installation_status?: 'not_installed' | 'downloading' | 'installing' | 'installed' | 'failed' | string;
+  installable?: boolean;
+  installation_reason?: string | null;
   is_active?: boolean;
   is_pinned?: boolean;
   is_pipeline_enabled?: boolean;

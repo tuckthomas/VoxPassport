@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Redirect, router, Link } from 'expo-router';
-import { Pressable, Text, TextInput } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
 import { Card } from '@/components/Card';
 import { Screen } from '@/components/Screen';
 import { useAuth } from '@/auth/AuthContext';
@@ -23,7 +23,11 @@ export default function LoginScreen() {
       await auth.login(email, password);
       router.replace('/account');
     } catch (next) {
-      setError(next instanceof Error ? next.message : String(next));
+      const message = next instanceof Error ? next.message : String(next);
+      setError(message);
+      if (/email verification required/i.test(message)) {
+        router.push({ pathname: '/verify-email', params: { email: email.trim() } });
+      }
     } finally {
       setBusy(false);
     }
@@ -59,7 +63,10 @@ export default function LoginScreen() {
         <Pressable disabled={busy} onPress={() => void submit()} style={buttonStyle}>
           <Text style={{ color: colors.text, fontWeight: '700' }}>{busy ? 'Signing in…' : 'Sign in'}</Text>
         </Pressable>
-        <Link href="/signup" style={{ color: colors.accent }}>Create an account</Link>
+        <View style={{ gap: 8 }}>
+          <Link href="/forgot-password" style={{ color: colors.accent }}>Forgot password?</Link>
+          <Link href="/signup" style={{ color: colors.accent }}>Create an account</Link>
+        </View>
       </Card>
     </Screen>
   );

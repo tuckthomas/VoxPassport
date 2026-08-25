@@ -1,44 +1,275 @@
 # VoxPassport Troubleshooting
 
-## Audio routing issues
+## Start with the correct local topology
 
-### No sound through virtual microphone
+For normal Windows development, use:
 
-1. Verify the virtual audio cable/device is installed and selected.
-2. Check the virtual-mic output meter in diagnostics.
-3. Confirm the outbound TTS pipeline is active.
-4. Confirm the conferencing application is using the virtual device as its microphone.
+```bat
+install.bat
+run.bat
+```
 
-### Feedback / recursive translation
+Expected services:
 
-- Prefer headphones during full-duplex sessions.
-- Verify inbound translated TTS is not routed into the captured conference stream.
-- Verify virtual-mic output is not recaptured by the physical microphone path.
-- Re-check `docs/audio-routing.md`.
+| Service | Address |
+| --- | --- |
+| Canonical Expo web client | `http://127.0.0.1:8081` |
+| Integrated runtime/API | `http://127.0.0.1:8766` |
+| Caption WebSocket | `ws://127.0.0.1:8765/ws/captions` |
 
-## Model errors
+The retired HTML Studio/model-manager and `apps/desktop-companion` are no longer part of the runtime.
 
-### GPU out of memory
+For personal/local use, the root `.env` should normally contain:
 
-- Switch to a lower-memory model/quantization where available.
-- On 8 GB-class GPUs, keep MiLMMT and optional diarization on CPU when appropriate.
-- Do not keep multiple heavyweight TTS models resident merely because runtime profiles are separate processes.
-- Check the **TTS Runtime Profiles** row in Model Settings and verify only the intended supervised TTS model/backend is active.
-- Native Higgs Q4 file size is not runtime VRAM usage; CUDA workspaces, activations, caches, and scratch allocations also matter.
+```env
+VOXPASSPORT_LOCAL_ONLY=true
+```
 
-### ASR producing nonsense / wrong language
+That disables account/login/signup requirements and hosted abuse controls.
 
-- Verify the intended ASR model is active for the source direction.
-- Confirm the capture source is the expected microphone/conference stream.
-- Test ASR independently before debugging translation/TTS.
+---
 
-### Translation quality poor
+# Native audio troubleshooting
 
-- Verify the active translation model and direction.
-- Verify the source ASR transcript first.
-- Compare MiLMMT 1B with a heavier model only when hardware permits.
+## First diagnostic: probe the native helper
 
-## Local TTS architecture diagnostics
+The platform helper must be discoverable and able to enumerate endpoints before debugging inference.
+
+### Windows
+
+```powershell
+cargo build --manifest-path crates\audio-windows\Cargo.toml --bin voxpassport-audio-helper --release
+crates\target\release\voxpassport-audio-helper.exe probe
+crates\target\release\voxpassport-audio-helper.exe devices
+```
+
+### Linux
+
+```bash
+cargo build --manifest-path crates/audio-linux/Cargo.toml --release
+./crates/target/release/voxpassport-audio-helper probe
+./crates/target/release/voxpassport-audio-helper devices
+```
+
+### macOS
+
+```bash
+swift build --package-path native/macos/audio-helper -c release
+native/macos/audio-helper/.build/release/voxpassport-audio-helper probe
+native/macos/audio-helper/.build/release/voxpassport-audio-helper devices
+```
+
+If the Python runtime cannot discover a helper built in a nonstandard location, set `VOXPASSPORT_AUDIO_HELPER` explicitly.
+
+## Virtual microphone exists but has no signal
+
+Separate virtual-cable validation from inference.
+
+### Windows
+
+After the driver is installed:
+
+```powershell
+.venv\Scripts\python.exe scripts\validate_virtual_audio.py
+```
+
+### macOS
+
+After the HAL plug-in is installed:
+
+```bash
+python3 scripts/validate_macos_virtual_audio.py
+```
+
+### Linux
+
+After the virtual pair is installed:
+
+```bash
+python scripts/validate_pipewire_virtual_audio.py
+```
+
+Each validator injects deterministic PCM into `VoxPassport Translation Sink`, records from `VoxPassport Virtual Microphone`, and requires measurable expected signal. If this fails, fix the platform audio path before debugging ASR/translation/TTS.
+
+## Windows driver will not install
+
+Hosted CI proves WDK preparation/compile/staging but does not override the target machine's driver policy.
+
+Build:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File drivers\windows\virtual-audio\build.ps1 -Configuration Release -Platform x64
+```
+
+Install from elevated PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File drivers\windows\virtual-audio\install-test.ps1
+```
+
+For an intentionally configured driver-development machine, `-EnableTestSigning` may request Windows TESTSIGNING. The script does not modify Secure Boot.
+
+If installation fails, check:
+
+- PowerShell is elevated;
+- `devcon.exe` is available from WDK Tools;
+- the staged INF/SYS/CAT package exists;
+- the machine's Secure Boot/test-signing policy permits the development package;
+- a reboot was performed if Windows required it after changing TESTSIGNING state.
+
+## Windows endpoints enumerate but real capture/render fails
+
+Hosted CI cannot validate your physical audio hardware/driver format negotiation. On the target machine:
+
+1. run the native helper `devices` command;
+2. confirm the stable MMDevice ID corresponds to the intended physical device;
+3. test physical microphone capture independently;
+4. test conference render-endpoint loopback independently;
+5. test local render independently;
+6. only then start full-duplex inference.
+
+## Linux helper cannot connect to audio
+
+The Linux helper requires an active PipeWire/PipeWire-Pulse session.
+
+Check:
+
+```bash
+pactl info
+pw-dump >/dev/null
+systemctl --user status pipewire pipewire-pulse wireplumber
+```
+
+WSL by itself does not guarantee an audio server. WSLg or a separately configured PipeWire/PipeWire-Pulse environment is required for live audio tests.
+
+Install the VoxPassport virtual pair with:
+
+```bash
+./drivers/linux/virtual-audio/install.sh
+```
+
+Then confirm both exact names appear:
+
+- `VoxPassport Translation Sink`
+- `VoxPassport Virtual Microphone`
+
+## macOS helper builds but physical system capture fails
+
+Hosted CI validates the HAL virtual pair but not your physical Mac permissions.
+
+For real system-audio capture:
+
+- macOS 14.2+ is required for the Core Audio process-tap path;
+- the application/helper must receive the applicable TCC privacy permission;
+- real physical microphone/output UIDs must enumerate correctly;
+- production distribution requires appropriate signing/notarization.
+
+Do not interpret hosted HAL crossover success as proof that a specific user's TCC/hardware topology is accepted.
+
+## Conference application hears original speech instead of translation
+
+The conference application is probably still using the physical microphone.
+
+Select:
+
+```text
+VoxPassport Virtual Microphone
+```
+
+as the meeting microphone. Keep the normal headphones/speakers as the meeting output device.
+
+## Feedback / recursive translation
+
+Start with headphones.
+
+Verify:
+
+- outbound translated TTS routes only to `VoxPassport Translation Sink`;
+- inbound translated TTS routes only to the local monitor;
+- the virtual microphone is not selected as inbound/system capture;
+- the local monitor is not being captured as the conference source;
+- speaker acoustics are not feeding translated playback back into the physical mic.
+
+Physical conference routing is an acceptance test; CI cannot prove acoustic feedback behavior.
+
+See [`audio-routing.md`](audio-routing.md) and [`google-meet-integration.md`](google-meet-integration.md).
+
+---
+
+# Expo/client troubleshooting
+
+## Expo client will not start
+
+Run:
+
+```bat
+install.bat
+```
+
+or install client dependencies directly:
+
+```bash
+npm install --prefix apps/client
+```
+
+Then:
+
+```bash
+npm run --prefix apps/client typecheck
+npm run --prefix apps/client export:web
+```
+
+CI runs both typecheck and static web export.
+
+## UI says the runtime is offline
+
+Confirm the integrated runtime is listening on `127.0.0.1:8766` and the selected runtime target URL is correct.
+
+The Expo client must use the typed runtime-target/API abstraction; do not reintroduce hard-coded fetch interception or legacy manager URLs.
+
+## Login/signup pages appear in local-only mode
+
+Confirm:
+
+```env
+VOXPASSPORT_LOCAL_ONLY=true
+```
+
+and restart the runtime/client. The runtime bootstrap capability response controls whether account surfaces are available.
+
+---
+
+# Model installation and activation
+
+## Model cannot be installed
+
+The backend catalog/API owns installability.
+
+Inspect `installable` and `installation_reason` in the model response. Typical reasons include:
+
+- already installed;
+- installation already in progress;
+- no verified official downloadable repository configured for the catalog entry.
+
+Do not work around this by adding model-name exceptions in the Expo UI.
+
+## Model downloads but cannot become active
+
+Installation and runtime-adapter support are separate concerns. A downloaded model may not yet have an implemented production adapter for the requested capability.
+
+Check the runtime activation error and verify the model family is supported by the relevant ASR/translation/TTS/VAD adapter.
+
+## GPU out of memory
+
+- select a lower-memory model/quantization where available;
+- keep CPU-suitable translation/diarization components off GPU on constrained systems;
+- do not keep multiple heavyweight TTS backends resident unnecessarily;
+- verify a released managed backend actually terminated;
+- distinguish model file size from runtime CUDA memory consumption.
+
+---
+
+# TTS runtime architecture diagnostics
 
 Every local TTS model reaches the application through:
 
@@ -49,27 +280,24 @@ TTS model manifest
   ▼
 TtsRuntimeSupervisor
   ├─ ephemeral generic worker
-  └─ BackendRuntimeCatalog -> ephemeral managed backend, when required
+  └─ optional managed backend runtime
        ↓
 ManifestTtsAdapter ↔ voxpassport.tts.v1
        ↓
 TtsDriver
-       ↓
-model library / DLL / explicit remote backend
 ```
 
-The main daemon should not import model-specific local TTS adapters.
+The main daemon should not import model-specific local TTS application adapters.
 
-### TTS model appears in Model Settings but will not load
+## TTS model appears but will not load
 
-1. Confirm its schema-v3 manifest exists under `runtime/tts_manifests/`.
+1. Confirm its manifest exists under `runtime/tts_manifests/`.
 2. Check the manifest's worker `runtime_profile`.
-3. If it declares `backend_runtime`, confirm that ID exists under `runtime/tts_backend_runtimes/` and its required `backend_args` are present.
-4. Inspect **TTS Runtime Profiles** in Model Settings.
-5. If the worker/backend dependency profile is **missing**, provision it with `scripts/manage_runtime_profile.py`.
-6. If the worker is **broken**, inspect `data/logs/tts-worker-<profile>.log`.
-7. If a managed backend is **broken**, inspect `data/logs/tts-backend-<backend-runtime>-<model-id>.log`.
-8. Verify model weights/checkpoint files are complete.
+3. If it declares `backend_runtime`, confirm that runtime exists under `runtime/tts_backend_runtimes/` and required `backend_args` are present.
+4. Verify the required runtime profile is installed.
+5. Inspect `data/logs/tts-worker-<profile>.log`.
+6. For managed backends, inspect `data/logs/tts-backend-<backend-runtime>-<model-id>.log`.
+7. Verify model/checkpoint assets are complete.
 
 ## Runtime profile is missing
 
@@ -79,29 +307,29 @@ The main daemon should not import model-specific local TTS adapters.
 .venv\Scripts\python.exe scripts\manage_runtime_profile.py repair coqui-xtts
 ```
 
-For `coqui-xtts`, the environment lives under:
+For `coqui-xtts`, the isolated environment lives under:
 
 ```text
 runtime/profiles/coqui-xtts/.venv
 ```
 
-Do not recreate the deleted root-level `.venv-xtts` topology.
+Do not recreate the retired root-level `.venv-xtts` topology.
 
-## Backend runtime issues
+## Backend runtime is unknown
 
-Full Higgs, MOSS, and VoxCPM currently use reusable OpenAI-style backend runtime families:
+The model manifest references a `backend_runtime` ID that is not registered under `runtime/tts_backend_runtimes/`.
 
-```text
-higgs-openai-server
-moss-openai-server
-voxcpm-openai-server
-```
+Fix the runtime ID or add one reusable backend-family definition. Do not add a model-name branch to the supervisor.
 
-Their definitions are under `runtime/tts_backend_runtimes/`. A backend runtime—not each model manifest—owns launch/health/remote lifecycle metadata.
+## Required backend argument is missing
 
-### Family command configuration
+The backend runtime contract requires an argument such as `checkpoint`, but the model manifest did not supply it under `backend_args`.
 
-Current deployment-level local command overrides are:
+Validation should fail before synthesis begins.
+
+## No backend-family launch command is configured
+
+Configure the backend server family once rather than creating a per-model command variable. Existing deployment-level family overrides include:
 
 ```text
 VOXPASSPORT_TTS_BACKEND_HIGGS_COMMAND
@@ -109,229 +337,51 @@ VOXPASSPORT_TTS_BACKEND_MOSS_COMMAND
 VOXPASSPORT_TTS_BACKEND_VOXCPM_COMMAND
 ```
 
-These are **backend-family** settings. Configure a server implementation once. A second model/checkpoint using that backend family should require only another model manifest with different `backend_args`.
+Explicit non-loopback remote backend URLs may replace local launch. Unmanaged loopback GPU backends are intentionally rejected because they would sit outside supervisor residency ownership.
 
-A command override may be a JSON string array (preferred) or shell-style string. Available placeholders are:
+## Managed backend remains in VRAM after switching
 
-```text
-{host}
-{port}
-{project_root}
-{model_id}
-{backend_runtime_id}
-{python}
-```
+That is a bug for supervisor-owned local backends. Switching/releasing the model must terminate the complete managed backend process tree when it is no longer the active residency owner.
 
-Every argument declared by the backend runtime is also available as a placeholder. Current proxy families declare `{checkpoint}`.
+Check the runtime diagnostics and `nvidia-smi`.
 
-Example shape:
+## Worker dies during synthesis
 
-```text
-["C:\\path\\to\\python.exe", "-m", "some_backend", "--host", "{host}", "--port", "{port}", "--model", "{checkpoint}"]
-```
+If failure occurs before any PCM is emitted, the adapter may recreate the supervised runtime and retry once. If speech was already partially emitted, VoxPassport does not automatically replay the utterance.
 
-The exact command is backend-package dependent. If a backend family acquires a canonical portable launch command, it should be stored directly in its backend runtime definition instead of requiring a command environment override.
+## Voice profile works in one TTS model but not another
 
-### Error: backend runtime is unknown
-
-The model manifest references a `backend_runtime` ID that is not registered in `runtime/tts_backend_runtimes/`.
-
-Fix the backend runtime ID or add one reusable backend runtime definition for that server implementation. Do not add a model-name branch to the supervisor.
-
-### Error: required backend argument is missing
-
-The backend runtime declares a required argument such as `checkpoint`, but the model manifest did not provide it under `backend_args`.
-
-Example:
-
-```json
-{
-  "backend_runtime": "moss-openai-server",
-  "backend_args": {
-    "checkpoint": "OpenMOSS-Team/MOSS-TTS-Local-Transformer-v1.5"
-  }
-}
-```
-
-Argument validation occurs before synthesis.
-
-### Error: no backend-family launch command is configured
-
-The selected backend runtime has no static reusable launch command and its family command override is unset.
-
-Configure the backend **family** once. Do not add a new environment variable to the model manifest, and do not work around the error by starting an unmanaged localhost GPU server.
-
-### Error: unmanaged local backend
-
-A backend runtime's remote URL override resolves to localhost/loopback. That is intentionally rejected because the local GPU process would sit outside supervisor ownership.
-
-Use either:
-
-- the backend runtime's local launch command/command override; or
-- its explicit **non-loopback remote** URL override.
-
-### Remote backend family overrides
-
-Current family-level remote overrides are:
-
-```text
-VOXPASSPORT_TTS_BACKEND_HIGGS_URL
-VOXPASSPORT_TTS_BACKEND_MOSS_URL
-VOXPASSPORT_TTS_BACKEND_VOXCPM_URL
-```
-
-A non-loopback service executes elsewhere, so its process lifecycle is outside local GPU residency.
-
-### Managed backend unexpectedly exits or becomes unhealthy
-
-The resource monitor marks the active TTS runtime **broken** when either the generic worker or managed backend exits/becomes unreachable.
+Voice profiles are model-independent; model capabilities are not.
 
 Check:
 
-```text
-data/logs/tts-backend-<backend-runtime>-<model-id>.log
-```
+- whether the selected manifest requires an exact reference transcript;
+- target-language support;
+- cross-lingual cloning support;
+- reference audio quality;
+- backend/worker health.
 
-An apparently live backend whose health endpoint fails is recycled before reuse. A replacement receives a new ephemeral port and is reinjected into the proxy driver.
+---
 
-### Backend remains in VRAM after switching models
+# Runtime integrity and CI
 
-That is a bug for a supervisor-owned local backend. Switching/releasing the model terminates the complete managed backend process tree before replacement residency is established.
+GitHub CI currently validates:
 
-Verify with the TTS Runtime Profiles monitor and `nvidia-smi`.
+- Python compile/runtime routing tests;
+- account-service/PostgreSQL migrations and integration tests;
+- Expo TypeScript typecheck/export;
+- Windows WDK driver compile and staged INF/SYS verification;
+- Windows Rust audio/helper tests;
+- Linux Rust helper tests;
+- headless live Linux PipeWire virtual-cable crossover;
+- macOS Swift helper and HAL build;
+- hosted macOS HAL install/enumeration/crossover/uninstall.
 
-### Worker/backend port collision
-
-Both generic worker ports and local backend ports are dynamically assigned. There is no supported fixed `8095`-`8099` TTS topology.
-
-## Worker issues
-
-### Worker unexpectedly exits
-
-The resource monitor reports an unexpectedly exited worker as **broken**. The next safe activation/use recreates the required worker profile.
-
-Check:
-
-```text
-data/logs/tts-worker-<profile>.log
-```
-
-### Worker dies during synthesis
-
-If the disconnect occurs before any PCM has been delivered, the generic adapter restarts the supervised runtime and retries once. If some speech was already emitted, VoxPassport does not replay the sentence automatically.
-
-### TTS audio artifacts at chunk boundaries
-
-- Confirm the driver returns real PCM chunks, not concatenated WAV fragments.
-- Verify worker sample-rate headers match generated audio.
-- Verify playback resampling happens once.
-- Reproduce through standalone preview to separate generation defects from playback/routing defects.
-
-### Voice profile works in one TTS model but not another
-
-Voice profiles are model-independent, but capabilities differ:
-
-- check whether the selected manifest requires a reference transcript;
-- XTTS can use a recording without `reference.txt` when its manifest says the transcript is optional;
-- other engines may require the exact reference transcript;
-- verify target-language and cross-lingual cloning support.
-
-## XTTS / Coqui runtime profile
-
-### Install/repair XTTS dependencies
-
-XTTS uses `runtime_profile: coqui-xtts`:
-
-```bat
-.venv\Scripts\python.exe scripts\manage_runtime_profile.py install coqui-xtts
-```
-
-The old `install_xtts_worker.bat` script is intentionally gone.
-
-### Why not install XTTS into the primary `.venv`?
-
-The separation is deliberate dependency isolation. The primary runtime and Coqui/XTTS have different package constraints. Do not fix an XTTS dependency problem by blindly installing Coqui packages into the main `.venv`.
-
-### uv sync fails
-
-- Confirm network/package-index access.
-- Verify the PyTorch cu130 index is reachable.
-- Verify Python 3.12 is available.
-- If uv is unavailable, the profile manager uses its declared venv/pip fallback.
-- After a successful connected sync, commit/update `runtime/profiles/coqui-xtts/uv.lock`.
-
-### XTTS model load fails
-
-- Verify the `coqui-xtts` profile is installed.
-- Verify `models/xtts-v2-romanian-v2/` is complete or check `VOXPASSPORT_XTTS_MODEL_DIR`.
-- Check CUDA/PyTorch from the profile interpreter, not the primary environment.
-- Inspect `data/logs/tts-worker-coqui-xtts.log`.
-
-### XTTS remains in VRAM after switching TTS models
-
-That is a bug. A cross-profile replacement should unload XTTS and terminate the incompatible `coqui-xtts` worker before loading the replacement.
-
-## Native Higgs issues
-
-### Native Higgs DLL cannot load
-
-- Verify `native/audiocpp_engine.dll` or set `VOXPASSPORT_HIGGS_NATIVE_DLL`.
-- Verify required CUDA runtime DLLs are discoverable through `CUDA_PATH`/`PATH`.
-- Verify the DLL supports the installed GPU architecture.
-- Verify the Q4 model package exists under `models/higgs-tts-3-q4_k_m/`.
-
-Native Higgs remains an ordinary worker-side `TtsDriver`; do not add an application adapter to work around DLL errors.
-
-## Hot-swap issues
-
-### Adding a new checkpoint/model still appears to require a new launch command
-
-Check whether the model really uses a **new backend server implementation**.
-
-- If it uses an existing backend family, add only another schema-v3 model manifest referencing the existing `backend_runtime` and supply new `backend_args`.
-- If it needs a genuinely new dependency family, add/reuse a runtime profile.
-- If it needs a genuinely new server implementation, add one reusable backend runtime definition.
-- If its inference HTTP/library semantics differ, add/reuse a `TtsDriver`.
-
-Do not add `VOXPASSPORT_<MODEL>_TTS_COMMAND`, another fixed port, or a supervisor model-name branch.
-
-### TTS switch stalls
-
-- Check the TTS Runtime Profiles row.
-- Allow committed speech to finish before assuming the switch is hung.
-- Check the previous worker/backend was unloaded/terminated as required.
-- Inspect target worker/backend logs for startup/load errors.
-- Check VRAM release when moving between heavyweight models.
-
-### Target model fails health validation
-
-The supervisor attempts rollback after activation failure. Check whether failure occurred in:
-
-1. model manifest/backend-argument validation;
-2. worker runtime-profile resolution;
-3. backend runtime-profile resolution;
-4. managed backend command/startup/health;
-5. generic worker startup;
-6. driver/model `/load`;
-7. explicit non-loopback remote backend availability.
-
-## Session stability
-
-### Memory grows over a long session
-
-- Check queue depth for accumulation.
-- For XTTS, run `benchmarks/xtts_romanian_soak.py` for 50+ alternating turns.
-- Distinguish CUDA allocated memory from allocator-reserved memory before labeling growth a leak.
-
-## Runtime Integrity
-
-Useful local checks:
+Useful local Python checks include:
 
 ```bat
 .venv\Scripts\python.exe -m compileall -q runtime agents tests benchmarks scripts
-.venv\Scripts\python.exe -m pytest -q tests/integration tests/test_tts_backend_runtime_catalog.py tests/test_tts_plugin_architecture.py tests/test_tts_runtime_supervisor.py tests/test_tts_residency_contract.py tests/test_xtts_romanian.py
+.venv\Scripts\python.exe -m pytest -q tests
 ```
 
-Runtime Integrity covers model-manifest/backend-runtime validation, synthetic two-model one-backend-family hot swapping, dynamic worker/backend startup, managed process termination/recycling, cross-profile termination, rollback, and pre-audio recovery without downloading production TTS weights.
-
-Hardware acceptance still requires the target RTX 2070 for real VRAM/latency measurements.
+A green hosted run proves source/build and hosted virtual-media behavior. Real Windows hardware/driver-policy/conferencing acceptance and real Mac TCC/hardware behavior remain separate validation stages.

@@ -32,6 +32,10 @@ type AuthContextValue = {
   logout: () => Promise<void>;
   logoutAll: () => Promise<void>;
   refreshSession: () => Promise<boolean>;
+  requestEmailVerification: (email: string) => Promise<void>;
+  confirmEmailVerification: (token: string) => Promise<AccountUser>;
+  requestPasswordReset: (email: string) => Promise<void>;
+  confirmPasswordReset: (token: string, newPassword: string) => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   providerCredentials: () => Promise<ProviderCredentialSummary[]>;
   saveProviderCredential: (provider: string, secret: string, label?: string) => Promise<ProviderCredentialSummary>;
@@ -98,8 +102,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
       })
       .catch(() => {
         if (!active) return;
-        // Preserve account availability for older/self-hosted runtimes that do
-        // not yet expose deployment metadata.
         setEnabled(true);
         setLocalOnly(false);
         setDeploymentReady(true);
@@ -134,6 +136,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
       } catch (next) {
         if (next instanceof AccountApiError && next.status === 401) {
           await clearAuth();
+          return false;
+        }
+        if (next instanceof AccountApiError && next.status === 403 && /verification/i.test(next.message)) {
+          setError(next.message);
           return false;
         }
         setError(next instanceof Error ? next.message : String(next));
@@ -217,6 +223,26 @@ export function AuthProvider({ children }: PropsWithChildren) {
       }
     },
     refreshSession,
+    async requestEmailVerification(email) {
+      requireEnabled();
+      await api.requestEmailVerification(email.trim());
+    },
+    async confirmEmailVerification(token) {
+      requireEnabled();
+      const verified = await api.confirmEmailVerification(token.trim());
+      setUser((current) => current && current.id === verified.id ? verified : current);
+      setError('');
+      return verified;
+    },
+    async requestPasswordReset(email) {
+      requireEnabled();
+      await api.requestPasswordReset(email.trim());
+    },
+    async confirmPasswordReset(token, newPassword) {
+      requireEnabled();
+      await api.confirmPasswordReset(token.trim(), newPassword);
+      await clearAuth();
+    },
     async changePassword(currentPassword, newPassword) {
       await applyAuth(await api.changePassword(currentPassword, newPassword, requireAccessToken()));
     },

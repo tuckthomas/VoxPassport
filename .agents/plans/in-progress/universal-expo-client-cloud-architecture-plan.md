@@ -20,9 +20,9 @@ Purpose: Replace the prototype browser-only frontend with one maintainable Expo 
 
 ## Deployment and account boundary
 
-- [x] Add deployment configuration through `config/deployment.json` plus real `.env` loading.
+- [x] Add deployment configuration through `configs/deployment.json` plus real `.env` loading.
 - [x] Environment variables override deployment JSON.
-- [x] Add `VOXPASSPORT_LOCAL_ONLY`, `VOXPASSPORT_ACCOUNTS_ENABLED`, and `VOXPASSPORT_ABUSE_CONTROLS_ENABLED` semantics.
+- [x] Add `VOXPASSPORT_LOCAL_ONLY`, `VOXPASSPORT_AUTH_ENABLED`, and `VOXPASSPORT_ABUSE_CONTROLS_ENABLED` semantics.
 - [x] Make `local_only=true` force accounts and hosted abuse/rate controls off.
 - [x] Expose deployment/account capability state through the versioned runtime bootstrap so one Expo build adapts to local or multi-user deployments.
 - [x] Hide Account/Login/Signup navigation and provider-account controls when accounts are disabled.
@@ -282,6 +282,6 @@ The UI remains Expo. Native platform audio and virtual-device implementations ar
 - [ ] `VoxPassport Virtual Microphone` is validated with at least one conferencing application on Windows.
 - [x] The normal local development command launches Expo as the primary UI; the runtime no longer depends on the old Studio application.
 - [x] `runtime-fixes.js`, `engine-catalog-fixes.js`, and `stack-upgrade-fixes.js` are deleted because their causes were corrected/replaced.
-- [ ] Remove the remaining temporary `apps/desktop-companion` URL-compatibility launcher/assets after the runtime `/manager` redirect is eliminated.
+- [x] Remove the remaining `apps/desktop-companion` compatibility launcher/assets after eliminating the runtime `/manager` redirect and moving reusable branding to `apps/client/assets`.
 - [x] Documentation and local development commands consistently describe the Expo architecture.
 - [ ] Move this plan to `.agents/plans/completed/` only after required physical platform validation is complete; explicitly deferred hosted/mobile features may remain follow-on work.

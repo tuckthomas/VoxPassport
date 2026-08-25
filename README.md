@@ -289,6 +289,7 @@ CI proves source/build and hosted virtual-media paths. It does not substitute fo
 
 - [Runtime Architecture](docs/architecture.md)
 - [Repository Layout and Ownership](docs/development/repository-layout.md)
+- [Configuration](configs/README.md)
 - [Audio Routing](docs/audio-routing.md)
 - [Google Meet / Conferencing Integration](docs/google-meet-integration.md)
 - [Troubleshooting](docs/troubleshooting.md)

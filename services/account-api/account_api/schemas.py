@@ -30,6 +30,23 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(min_length=12, max_length=128)
 
 
+class EmailVerificationConfirmRequest(BaseModel):
+    token: str = Field(min_length=20, max_length=512)
+
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    token: str = Field(min_length=20, max_length=512)
+    new_password: str = Field(min_length=12, max_length=128)
+
+
+class AcceptedResponse(BaseModel):
+    accepted: bool = True
+
+
 class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

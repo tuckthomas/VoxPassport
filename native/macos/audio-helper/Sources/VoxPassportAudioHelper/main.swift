@@ -63,10 +63,11 @@ func propertyAddress(_ selector: AudioObjectPropertySelector,
 
 func readString(_ object: AudioObjectID, selector: AudioObjectPropertySelector) throws -> String {
     var address = propertyAddress(selector)
-    var value: CFString = "" as CFString
-    var size = UInt32(MemoryLayout<CFString>.size)
+    var value: Unmanaged<CFString>?
+    var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
     try check(AudioObjectGetPropertyData(object, &address, 0, nil, &size, &value), "CoreAudio string property")
-    return value as String
+    guard let value else { throw HelperError.message("CoreAudio string property returned no value") }
+    return value.takeUnretainedValue() as String
 }
 
 func readDevice(_ selector: AudioObjectPropertySelector) throws -> AudioDeviceID {
@@ -142,9 +143,11 @@ func pcmFormat(rate: UInt32, channels: UInt32) -> AudioStreamBasicDescription {
 
 func setQueueDevice(_ queue: AudioQueueRef, uid: String?) throws {
     guard let uid else { return }
-    var value: CFString = uid as CFString
-    let size = UInt32(MemoryLayout<CFString>.size)
+    let retained = uid as CFString
+    var value: Unmanaged<CFString>? = Unmanaged.passUnretained(retained)
+    let size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
     try check(AudioQueueSetProperty(queue, kAudioQueueProperty_CurrentDevice, &value, size), "AudioQueue current device")
+    withExtendedLifetime(retained) {}
 }
 
 func appendLE<T: FixedWidthInteger>(_ value: T, to data: inout Data) {
@@ -406,7 +409,11 @@ func run() throws {
         ])
     case "capture-mic":
         let options = try parseCapture(args.dropFirst(2))
-        try runAudioQueueCapture(options: options, endpointUID: options.endpoint)
+        if options.endpoint == voxPassportVirtualMicrophoneUID {
+            try runDirectVirtualCapture(options: options)
+        } else {
+            try runAudioQueueCapture(options: options, endpointUID: options.endpoint)
+        }
     case "capture-loopback":
         guard #available(macOS 14.2, *) else { throw HelperError.message("Core Audio process taps require macOS 14.2 or newer") }
         let options = try parseCapture(args.dropFirst(2))
@@ -422,7 +429,12 @@ func run() throws {
             catch { fputs("voxpassport-audio-helper: \(error)\n", stderr); exit(1) }
         }
     case "render":
-        try runAudioQueueRender(options: parseRender(args.dropFirst(2)))
+        let options = try parseRender(args.dropFirst(2))
+        if options.endpoint == voxPassportVirtualSinkUID {
+            try runDirectVirtualRender(options: options)
+        } else {
+            try runAudioQueueRender(options: options)
+        }
     case "help", "--help", "-h":
         print("VoxPassport CoreAudio helper")
         print("  probe | devices | capture-mic | capture-loopback | render")

@@ -14,6 +14,10 @@ def _server_source() -> str:
     return (_repo_root() / "runtime" / "inference" / "server" / "main.py").read_text(encoding="utf-8")
 
 
+def _client_source(path: str) -> str:
+    return (_repo_root() / "apps" / "client" / "src" / path).read_text(encoding="utf-8")
+
+
 def _playback_source() -> str:
     return (_repo_root() / "runtime" / "inference" / "pipeline" / "audio_playback.py").read_text(encoding="utf-8")
 
@@ -106,85 +110,59 @@ def test_every_local_tts_manifest_uses_v3_supervised_topology():
         assert "backend_url_env" not in options
 
 
-def test_studio_preview_requests_are_cached_by_the_server():
+def test_voice_preview_requests_are_cached_by_server_and_owned_by_expo_flow():
     server = _server_source()
-    studio = (
-        _repo_root() / "apps" / "desktop-companion" / "model-manager" / "studio.html"
-    ).read_text(encoding="utf-8")
+    screen = _client_source("features/voice-profiles/VoiceProfilesScreen.tsx")
     assert '"X-VoxPassport-Preview-Cache": "HIT"' in server
-    assert "preview: true" in studio
+    assert "api.stageVoiceProfile" in screen
+    assert "api.synthesizeVoicePreview" in screen
+    assert "Stage & preview" in screen
 
 
-def test_active_and_hugging_face_model_cards_link_license_icons():
-    studio = (
-        _repo_root() / "apps" / "desktop-companion" / "model-manager" / "studio.html"
-    ).read_text(encoding="utf-8")
-    assert "modelMetadataById" in studio
-    assert "rememberModelMetadata(instData)" in studio
-    assert "renderTtsModelWidgets" in studio
-    assert "renderModelLicenseIcon(m)" in studio
-    assert "renderLicenseIcon(m.license, m.commercial_use, m.upstream_id, m.license_url)" in studio
-    assert 'class="model-license-link ${classification}"' in studio
-    assert 'target="_blank"' in studio
-    assert "licenseUrlFor" in studio
-    assert "profile-card-actions" in studio
-    assert 'aria-hidden="true" data-tooltip="${tooltip}"' in studio
-    assert "target.contains(e.relatedTarget)" in studio
-    assert "color: #ef4444" in studio
-    assert '<svg class="hw-warn-icon"' in studio
-    assert "targetCenterX" in studio
-    assert "targetCenterY" in studio
-    assert "--tooltip-arrow-x" in studio
-    assert "--tooltip-arrow-y" in studio
-    assert "const HOVER_DELAY_MS = 500" in studio
-    assert "scheduleTooltip(target, text, pos)" in studio
-    assert "target.matches(':hover')" in studio
-    assert "cursor: default" not in studio
-    assert "Live Caption Stream" not in studio
-    assert 'class="activity-dock"' not in studio
+def test_model_workflows_use_backend_owned_installability_metadata():
+    screen = _client_source("features/models/ModelsScreen.tsx")
+    contracts = _client_source("api/contracts.ts")
+    assert "model.installable === true" in screen
+    assert "model.installation_reason" in screen
+    assert "api.installModel" in screen
+    assert "api.activateModel" in screen
+    assert "api.uninstallModel" in screen
+    assert "installable?: boolean" in contracts
+    assert "installation_reason?: string | null" in contracts
 
 
 def test_voice_profiles_retain_and_expose_saved_translation_samples():
-    studio = (
-        _repo_root() / "apps" / "desktop-companion" / "model-manager" / "studio.html"
-    ).read_text(encoding="utf-8")
+    screen = _client_source("features/voice-profiles/VoiceProfilesScreen.tsx")
     server = _server_source()
     assert "translated_sample.wav" in server
     assert 'app.router.add_get("/api/voice/translation/{profile_id}", api_voice_translation)' in server
-    assert "playTranslatedProfile" in studio
-    assert "<span>Original</span>" in studio
-    assert "<span>Translation</span>" in studio
-    assert "btn-card-trash" in studio
+    assert "profile.has_translation_audio" in screen
+    assert "/api/voice/translation/" in screen
+    assert "Play reference" in screen
+    assert "Play preview" in screen
+    assert "Delete" in screen
 
 
-def test_live_studio_supports_fixed_clip_translation_and_download():
-    studio = (
-        _repo_root() / "apps" / "desktop-companion" / "model-manager" / "studio.html"
-    ).read_text(encoding="utf-8")
-    assert "Live Source Audio" in studio
-    assert "Source Language Text" in studio
-    assert 'id="btnFixedAudio"' in studio
-    assert "toggleFixedAudioRecording" in studio
-    assert "finishFixedRecording" in studio
-    assert 'id="btnDownloadLiveTranslation"' in studio
-    assert "downloadFixedTranslation" in studio
-    assert "fixedTranslatedAudioUrl" in studio
+def test_voice_enrollment_is_expo_native_and_typed():
+    screen = _client_source("features/voice-profiles/VoiceProfilesScreen.tsx")
+    assert "requestRecordingPermissionsAsync" in screen
+    assert "useAudioRecorder" in screen
+    assert "api.stageVoiceProfile" in screen
+    assert "api.commitVoiceStage" in screen
+    assert "Save & activate" in screen
+    assert "Discard" in screen
 
 
-def test_runtime_residency_switch_has_backend_and_header_controls():
+def test_runtime_residency_state_has_backend_and_expo_diagnostics():
     server = _server_source()
-    studio = (
-        _repo_root() / "apps" / "desktop-companion" / "model-manager" / "studio.html"
-    ).read_text(encoding="utf-8")
+    screen = _client_source("features/runtime/RuntimeScreen.tsx")
     assert "_runtime_residency" in server
     assert "_ensure_runtime_ready" in server
     assert "_release_runtime_when_idle" in server
     assert '"/api/runtime/residency"' in server
-    assert 'id="runtimeModeButton"' in studio
-    assert 'id="runtimeModeInput"' in studio
-    assert 'class="runtime-switch-face"' in studio
-    assert "toggleRuntimeResidency" in studio
-    assert "On Demand unloads idle models to reduce GPU memory usage." in studio
+    assert "runtime?.model_residency" in screen
+    assert "runtime.models_loaded" in screen
+    assert "Active model slots" in screen
 
 
 def test_playback_resamples_each_chunk_and_owns_consumer_lifecycle():

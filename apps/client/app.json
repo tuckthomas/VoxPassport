@@ -6,16 +6,20 @@
     "orientation": "portrait",
     "scheme": "voxpassport",
     "userInterfaceStyle": "automatic",
+    "icon": "./assets/VoxPassport_icon_1024.png",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.voxpassport.app"
+      "bundleIdentifier": "com.voxpassport.app",
+      "icon": "./assets/VoxPassport_icon_1024.png"
     },
     "android": {
-      "package": "com.voxpassport.app"
+      "package": "com.voxpassport.app",
+      "icon": "./assets/VoxPassport_icon_1024.png"
     },
     "web": {
       "bundler": "metro",
-      "output": "static"
+      "output": "static",
+      "favicon": "./assets/VoxPassport_icon_256.png"
     },
     "plugins": [
       "expo-router",

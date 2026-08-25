@@ -2,20 +2,63 @@
 
 ## System overview
 
-VoxPassport is a local-first multilingual speech runtime with thin UI and conferencing layers around a hot-swappable inference pipeline.
+VoxPassport is a local-first multilingual speech platform with one canonical Expo client, a Python inference/control runtime, provider-neutral translation strategies, supervised model runtimes, and native desktop audio components.
 
-The current system is organized into six concerns:
+The architecture is intentionally split by responsibility:
 
-1. **Desktop / browser UI** — Voice Profile Studio, Live Studio, Model Settings, caption overlay, and conferencing integration.
-2. **Main inference runtime** — audio capture/playback, VAD, ASR, translation, orchestration, registry, scheduling, and local APIs.
-3. **Local TTS application boundary** — one `ManifestTtsAdapter` for every local TTS model.
-4. **TTS model manifests + backend runtime catalog** — declarative model metadata plus reusable backend-server family definitions.
-5. **TTS runtime supervisor** — dependency/profile selection, dynamic processes/endpoints, residency, hot swap, rollback, and recovery.
-6. **Worker-side TTS drivers** — model/DLL/backend-specific implementations behind `voxpassport.tts.v1`.
+1. **Canonical product client** — Expo + React Native + React Native Web under `apps/client`.
+2. **Integrated local runtime** — Python APIs, inference orchestration, model registry, voice profiles, strategy selection, diagnostics, and native-audio control.
+3. **Translation strategies** — the modular `VAD → ASR → translation → TTS` cascade and direct speech-translation providers behind common session contracts.
+4. **TTS plugin/runtime system** — model manifests, runtime profiles, reusable backend runtime families, generic worker host, and `TtsDriver` implementations.
+5. **Native desktop audio** — Windows WASAPI/MMDevice, macOS CoreAudio/HAL, and Linux PipeWire/PipeWire-Pulse behind one native-media contract.
+6. **Optional account service** — PostgreSQL-backed identity/provider credentials for non-local deployments; never required for local-only use.
 
-English ↔ Romanian is the primary development and benchmark pair, but supported languages ultimately depend on the active ASR, translation, and TTS models.
+There is no Tauri shell and no legacy HTML desktop Studio/model-manager. Desktop uses the Expo web/PWA target plus the local runtime/native audio boundary.
 
-## Full-duplex audio pipeline
+## Process topology
+
+```text
+┌───────────────────────────────────────────────────────────────┐
+│                 Expo / React Native Web client                │
+│ Translator · Models · Voice Profiles · Runtime · Settings    │
+└─────────────────────────────┬─────────────────────────────────┘
+                              │ typed low-frequency APIs
+                              ▼
+┌───────────────────────────────────────────────────────────────┐
+│               VoxPassport Integrated Local Runtime            │
+│ bootstrap · model registry · voice profiles · session state  │
+│ strategy manager · captions · diagnostics · native routing   │
+└───────────────┬─────────────────────────────┬─────────────────┘
+                │                             │
+                ▼                             ▼
+     Modular inference cascade      Direct speech providers
+     VAD → ASR → MT → TTS           provider-neutral session API
+                │                             │
+                └──────────────┬──────────────┘
+                               ▼
+                 Native desktop audio boundary
+                               │
+                ┌──────────────┼──────────────┐
+                ▼              ▼              ▼
+             Windows         macOS          Linux
+          WASAPI/WDM      CoreAudio/HAL    PipeWire
+```
+
+Raw realtime PCM stays on native/subprocess paths. Expo receives state, captions, metrics, configuration, endpoint metadata, and session control—not high-frequency media frames.
+
+## Local development services
+
+`run.bat` starts the integrated runtime and canonical Expo web client together.
+
+| Service | Address | Ownership |
+| --- | --- | --- |
+| Expo web client | `http://127.0.0.1:8081` | `apps/client` |
+| Integrated runtime/API | `http://127.0.0.1:8766` | `runtime` |
+| Caption WebSocket | `ws://127.0.0.1:8765/ws/captions` | runtime caption service |
+
+TTS workers and managed TTS backends use supervisor-owned ephemeral localhost ports.
+
+## Full-duplex translation
 
 ### Outbound: local speaker → remote listener
 
@@ -23,344 +66,297 @@ English ↔ Romanian is the primary development and benchmark pair, but supporte
 Physical Microphone
         │
         ▼
-Audio Capture
+Native Capture
         │
         ▼
-VAD + Endpointing — Silero VAD v6.2.1
+VAD / Endpointing
         │
         ▼
-ASR — NVIDIA Parakeet TDT 0.6B v3
-        │
-        ├──────────────► Source Caption Event
+ASR
+        ├──────────────► source captions
         ▼
-Stable-Prefix / PhraseCommitter
-        │
+Translation
+        ├──────────────► translated captions
         ▼
-Translation — Xiaomi MiLMMT-46
-        │
-        ├──────────────► Translated Caption Event
-        ▼
-ManifestTtsAdapter
+TTS / Voice Clone
         │
         ▼
-TTS Runtime Supervisor
+Native Render
         │
         ▼
-voxpassport.tts.v1 → active TTS driver
+VoxPassport Translation Sink
         │
         ▼
-Streaming PCM / Resampler / Playback
+VoxPassport Virtual Microphone
         │
         ▼
-BUS_VIRTUAL_MIC → Conference Application
+Meet / Zoom / Teams / Discord / softphone
 ```
 
 ### Inbound: remote speaker → local listener
 
 ```text
-Conference Output / OS Loopback
+Conference Output / OS System Capture
         │
         ▼
-Remote Audio Capture
+Native Loopback/System Capture
         │
         ▼
-VAD + Endpointing
+VAD / Endpointing
         │
         ▼
-ASR — shared Parakeet model
-        │
-        ├──────────────► Source Caption Event
+ASR
+        ├──────────────► source captions
         ▼
-Stable-Prefix / PhraseCommitter
-        │
+Translation
+        ├──────────────► translated captions
         ▼
-Translation — shared MiLMMT model
-        │
-        ├──────────────► Translated Caption Event
-        ▼
-ManifestTtsAdapter
+TTS / Voice Clone
         │
         ▼
-TTS Runtime Supervisor
-        │
-        ▼
-voxpassport.tts.v1 → active TTS driver
-        │
-        ▼
-BUS_LOCAL_MONITOR → Local Headphones/Speakers ONLY
+Local Monitor Output
 ```
 
-Bidirectionality does **not** imply duplicate model weights. Both directions can share one physical ASR model, one translation model, and one active TTS model while maintaining separate queues, language state, voice conditioning, and output routing.
+Both directions may share one physical ASR instance, one translation instance, and one active TTS instance while preserving independent language, queue, caption, and routing state.
 
-## Audio bus isolation
+## Audio bus contract
 
-| Bus | Description |
+| Bus | Meaning |
 | --- | --- |
-| `BUS_PHYSICAL_MIC` | Raw capture from the local physical microphone |
-| `BUS_REMOTE_CONFERENCE` | Conference output / OS loopback |
-| `BUS_OUTBOUND_TRANSLATED_TTS` | Translated TTS output for the remote listener |
-| `BUS_INBOUND_TRANSLATED_TTS` | Translated TTS output for the local listener |
-| `BUS_VIRTUAL_MIC` | Output device consumed by conference applications |
-| `BUS_LOCAL_MONITOR` | Local headphone/speaker monitoring |
+| `BUS_PHYSICAL_MIC` | Local physical microphone capture |
+| `BUS_REMOTE_CONFERENCE` | Conference output/system capture |
+| `BUS_OUTBOUND_TRANSLATED_TTS` | Synthesized translated speech intended for remote participants |
+| `BUS_INBOUND_TRANSLATED_TTS` | Synthesized translated speech intended for the local user |
+| `BUS_VIRTUAL_MIC` | System microphone endpoint consumed by the conference application |
+| `BUS_LOCAL_MONITOR` | Local headphones/speakers |
 
-Rules:
+Routing invariants:
 
-- outbound translated TTS routes to the virtual microphone;
-- inbound translated TTS routes only to the local monitor;
-- generated TTS must not be recaptured as fresh ASR input;
-- capture/VAD can continue while heavyweight GPU inference is serialized.
+- outbound translated speech routes to the virtual microphone;
+- inbound translated speech routes to the local monitor;
+- generated TTS must not be reintroduced as fresh ASR input;
+- communication platform and inference provider remain independent axes;
+- capture can continue while heavyweight inference is serialized for constrained hardware.
 
-## Main process and local TTS boundary
+See [`audio-routing.md`](audio-routing.md).
 
-The main process does not import or construct model-specific local TTS implementations.
+## Native audio service contract
 
-```text
-┌──────────────────────────────────────────────────────────────┐
-│                    Main VoxPassport Runtime                  │
-│ VAD → ASR → Translation → ManifestTtsAdapter → Audio Output │
-└─────────────────────┬────────────────────────────────────────┘
-                      │ logical model request
-                      ▼
-┌──────────────────────────────────────────────────────────────┐
-│                   TTS Runtime Supervisor                     │
-│ manifest + runtime profile + optional backend runtime       │
-└──────────────┬──────────────────────────────┬────────────────┘
-               │ voxpassport.tts.v1           │ backend runtime
-               ▼                              ▼
-┌──────────────────────────────┐    ┌──────────────────────────┐
-│ Generic TTS Worker Host      │    │ BackendRuntimeCatalog    │
-│ model manifest → TtsDriver   │    │ reusable server family   │
-└──────────────────────────────┘    └────────────┬─────────────┘
-                                                ▼
-                                      Managed Proxy Backend
-                                      dynamic localhost port
-```
-
-`ManifestTtsAdapter` is the only local TTS application adapter. Model-specific inference behavior belongs behind `TtsDriver`.
-
-## TTS model manifests versus backend runtimes
-
-These are intentionally separate abstractions.
-
-A schema-v3 **TTS model manifest** contains:
-
-- model ID/display name/aliases;
-- capabilities and language support;
-- worker `runtime_profile`;
-- driver entrypoint and genuinely model-specific driver options;
-- optional reusable `backend_runtime` ID;
-- optional model-specific `backend_args`, such as a checkpoint.
-
-A schema-v1 **backend runtime definition** contains reusable server-family lifecycle metadata:
-
-- stable backend runtime ID;
-- backend dependency `runtime_profile`;
-- reusable launch command or one family-level command override;
-- accepted/required backend arguments;
-- health endpoint and startup timeout;
-- endpoint driver-option name;
-- optional family-level non-loopback remote URL override.
-
-Current proxy families are defined under `runtime/tts_backend_runtimes/`:
+Portable native audio roles are defined independently of the UI. Native helpers implement a versioned subprocess/media boundary:
 
 ```text
-higgs-openai-server
-moss-openai-server
-voxcpm-openai-server
+voxpassport.native-audio.v1
+VPF1 framed PCM
 ```
 
-Current direct worker models—OmniVoice, native Higgs Q4, and XTTS Romanian—do not require backend runtime definitions.
+The Python `NativeAudioBridge` discovers the platform helper, enumerates stable endpoint IDs, starts capture/render subprocesses, and exchanges bounded binary PCM frames. The live translation controller uses the same bridge/output abstractions on every desktop OS.
 
-The resulting hot-swap rule is:
+### Windows
+
+Windows uses:
+
+- MMDevice endpoint enumeration with stable IDs/friendly names/default detection;
+- WASAPI physical microphone capture;
+- WASAPI render-endpoint loopback capture;
+- bounded WASAPI render output;
+- a real WDM/WDK virtual audio device exposing:
+  - `VoxPassport Translation Sink`;
+  - `VoxPassport Virtual Microphone`.
+
+The driver is derived from a pinned Microsoft Simple Audio Sample substrate. `prepare.ps1` applies guarded VoxPassport patches, preserves the Microsoft license, and creates a bounded 64 KiB render→capture PCM ring. Current GitHub Windows CI installs the WDK, compiles the kernel driver, validates/stages the INF/SYS package, and tests the Windows Rust helper.
+
+Physical Windows installation and conferencing acceptance still require the target machine's driver policy.
+
+### macOS
+
+macOS uses:
+
+- CoreAudio stable device UIDs;
+- AudioQueue for ordinary physical microphone/output paths;
+- macOS 14.2+ Core Audio process taps for system-audio capture;
+- direct CoreAudio device I/O for the VoxPassport virtual devices;
+- a real HAL `AudioServerPlugIn` using libASPL.
+
+The HAL publishes:
+
+- `VoxPassport Translation Sink`;
+- `VoxPassport Virtual Microphone`.
+
+The sink writes into a bounded 64 KiB PCM ring; the virtual microphone reads from the same ring. Hosted macOS CI builds and installs the HAL plug-in, restarts Core Audio, enumerates both devices, transfers deterministic PCM through the cable, verifies the expected tone, and uninstalls the plug-in. The helper also normalizes provider-shape PCM, including 24 kHz mono, to the fixed 48 kHz S16 stereo HAL format.
+
+A physical Mac is still required for real hardware endpoints, TCC prompts, conferencing applications, and production signing/notarization.
+
+### Linux
+
+Linux uses:
+
+- PipeWire/PipeWire-Pulse endpoint discovery;
+- Pulse-compatible capture/render clients for exact endpoint targeting;
+- physical microphone capture;
+- sink-monitor system/loopback capture;
+- persistent virtual endpoints created with `module-null-sink` and `module-remap-source`.
+
+The user-facing pair is again:
+
+- `VoxPassport Translation Sink`;
+- `VoxPassport Virtual Microphone`.
+
+A headless Ubuntu CI job starts D-Bus, PipeWire, WirePlumber, and PipeWire-Pulse, installs the virtual pair, and verifies deterministic live PCM crossover through the native helper.
+
+## Native cable format and backpressure
+
+The system-facing virtual cable is fixed at:
+
+- 48 kHz;
+- signed 16-bit little endian PCM;
+- stereo.
+
+Platform helpers normalize source/provider audio at the native boundary. Capture and render paths use bounded queues; stale audio is dropped rather than permitting unbounded latency growth.
+
+## Translation strategy architecture
+
+The modular cascade and direct speech providers are peers behind a strategy/session layer.
 
 ```text
-new model using an existing backend family
-    -> model manifest only
-
-new dependency family
-    -> runtime profile
-
-new backend server family
-    -> one reusable backend runtime definition
-
-new protocol semantics
-    -> reusable TtsDriver if necessary
-
-new daemon/supervisor model branch
-    -> almost never
+TranslationStrategyManager
+        │
+        ├── modular cascade
+        │     VAD → ASR → MT → TTS
+        │
+        └── direct provider adapter
+              streaming audio/events
 ```
 
-## Runtime profiles and dependency isolation
+Strategy activation is transactional: a candidate is validated before becoming active, and the previous strategy is retained/restored if activation fails. Strategy/routing mutation is blocked while a live native session is active.
 
-A runtime profile represents a dependency-compatible family, not a model.
+Google/Gemini wire behavior lives behind its adapter rather than in Expo UI code. Additional direct providers can implement the same manifest/adapter/session contracts.
+
+## TTS application boundary
+
+The main application does not branch on local TTS model names.
 
 ```text
-core
-  interpreter -> primary .venv
-
-coqui-xtts
-  interpreter -> runtime/profiles/coqui-xtts/.venv
+Main runtime
+    │
+    ▼
+ManifestTtsAdapter
+    │
+    ▼
+TtsRuntimeSupervisor
+    ├── generic worker host → TtsDriver
+    └── optional reusable BackendRuntime
 ```
 
-The generic worker model manifest and its backend runtime may resolve **different runtime profiles**. This allows a future backend server to use an incompatible toolchain without forcing the proxy driver or other models into that environment.
+### TTS model manifest
 
-XTTS remains isolated because Coqui and the primary ASR/runtime stack have different dependency constraints. Isolation is a dependency boundary, not a separate TTS application architecture.
+A model manifest owns:
 
-## Supervisor-managed process topology
+- stable model identity and aliases;
+- capabilities/language support;
+- worker runtime profile;
+- driver entrypoint/options;
+- optional reusable backend runtime ID;
+- model-specific backend arguments such as a checkpoint.
 
-There are no fixed local TTS worker or proxy-backend ports in model manifests or `run.bat`.
+### Backend runtime definition
 
-For a direct/local-library driver:
+A backend runtime owns reusable server-family lifecycle metadata:
+
+- dependency runtime profile;
+- reusable launch command/family override;
+- allowed/required arguments;
+- health endpoint/startup timeout;
+- endpoint injection option;
+- optional non-loopback remote service override.
+
+### Runtime profile
+
+A runtime profile owns one dependency-compatible Python/runtime environment. It is a dependency boundary, not a model or UI concept.
+
+### Supervisor
+
+The supervisor owns:
+
+- dynamic localhost ports;
+- process trees;
+- model/backend residency;
+- health checks;
+- hot swap;
+- rollback;
+- crash recovery;
+- incompatible profile termination;
+- idle release.
+
+The integration rule is therefore:
 
 ```text
-manifest.runtime_profile
-        ↓
-resolve interpreter
-        ↓
-start generic TTS host if needed
-        ↓
-allocate ephemeral localhost port
-        ↓
-health check
-        ↓
-POST /load model
+new model on existing backend family  -> model manifest
+new dependency family                 -> runtime profile
+new backend server family             -> backend runtime definition
+new protocol/model semantics          -> reusable TtsDriver
+new application model branch          -> almost never
 ```
-
-For a model using a reusable backend runtime:
-
-```text
-manifest.backend_runtime + backend_args
-        ↓
-BackendRuntimeCatalog.resolve(...)
-        ↓
-validate argument contract
-        ↓
-resolve backend runtime profile
-        ↓
-build reusable command template + backend_args
-        ↓
-allocate ephemeral localhost backend port
-        ↓
-start + health-check backend
-        ↓
-inject endpoint into generic worker driver
-```
-
-Backend runtime deployment metadata is **not loaded by the worker**. The supervisor validates it and passes only ephemeral runtime driver overrides to the worker.
-
-An explicit non-loopback backend URL can replace local backend launch for a backend family. An unmanaged loopback endpoint is rejected because it could hold local GPU memory outside supervisor ownership.
-
-`run.bat` starts only the main inference daemon. TTS child processes exist only when needed.
-
-## True on-demand TTS
-
-`ManifestTtsAdapter.load()` is a cheap logical activation and does not spawn a worker.
-
-Physical TTS processes are created only when synthesis begins or an explicit activation performs health validation. `CAPTIONS_ONLY` therefore starts without TTS process overhead.
-
-Released managed backends are terminated immediately. Released generic workers shut down after their runtime profile's configured idle timeout.
-
-## Hot swap and GPU residency
-
-For a local TTS change:
-
-1. resolve the requested model manifest;
-2. validate the optional backend runtime and `backend_args`;
-3. unload the previous worker-side driver;
-4. terminate the previous model's managed backend process tree;
-5. terminate an incompatible previous worker profile when required;
-6. start/health-check the replacement backend if required;
-7. start/reuse the target generic worker and inject its ephemeral backend endpoint;
-8. load/health-check the target driver;
-9. commit active state only after successful load;
-10. on failure, restore the previous manifest/backend when possible.
-
-Two model manifests using the same backend runtime need no new launch wiring. Their `backend_args` are substituted into the same backend family command contract.
-
-On low-VRAM systems, actual TTS synthesis also remains coordinated with heavyweight ASR through the shared GPU inference coordinator.
-
-## Process crash recovery
-
-The supervisor verifies process and health state before reuse. A managed backend whose process is alive but health endpoint fails is killed and recreated.
-
-If a generic worker disconnects during synthesis before any audio is emitted, `ManifestTtsAdapter` requests recovery and retries once. After partial audio has been emitted, VoxPassport does not replay automatically.
-
-Process-exit cleanup terminates supervisor-owned workers and backend process trees if normal async cleanup cannot complete.
-
-## Diagnostics
-
-`tts_runtime` diagnostics report:
-
-- active worker runtime profile and model;
-- worker install/running state, PID, dynamic endpoint, loaded model, idle timeout, and health;
-- managed backend model ID;
-- backend runtime ID and backend dependency profile;
-- backend PID, dynamic endpoint, health path/result, unexpected-exit state, and exit code.
-
-Model Settings marks the active TTS runtime **broken** when either supervised layer fails.
 
 ## Voice-profile boundary
 
-Voice profiles are engine-independent assets:
+Voice profiles are model-independent persistent assets:
 
 ```text
 data/voice_profiles/<profile>/reference.wav
-                              reference.txt        # optional unless selected model requires it
-                              conditioning/ro.wav  # optional derived conditioning
+                              reference.txt
+                              profile.json
+                              translated_sample.wav   # optional preview/cache
 ```
 
-The active manifest declares whether a reference transcript is required. Model-specific conditioning must never overwrite `reference.wav`.
+The exact transcript is optional unless the selected TTS manifest declares it required. Model-specific derived state must not replace the canonical reference recording.
 
-## Model registry
+The Expo client owns record/stage/preview/save/activate/delete UX. The Python runtime owns normalization, persistence, synthesis, preview generation/cache, and active profile state.
 
-The general registry tracks install state, active slots, benchmarks, pinning, and known-good sets. Local TTS metadata is sourced from `runtime/tts_manifests` and bridged into the registry; backend runtime definitions are deployment metadata rather than separate models.
+## Model registry and Expo model workflows
 
-Active logical slots can point to one physical model instance.
+The registry owns canonical model identity, install state, active slots, pinning, cleanup eligibility, known-good sets, and model metadata. The model-management API also owns `installable` and `installation_reason`; the Expo client does not infer these from names or repository strings.
 
-## Runtime-profile provisioning
+The Expo Models & Engines screen uses typed APIs for install, progress, activation and uninstall.
 
-Use the generic manager rather than model-specific installers:
+## Deployment/account boundary
 
-```bat
-.venv\Scripts\python.exe scripts\manage_runtime_profile.py status coqui-xtts
-.venv\Scripts\python.exe scripts\manage_runtime_profile.py install coqui-xtts
-.venv\Scripts\python.exe scripts\manage_runtime_profile.py repair coqui-xtts
+Local-only mode is a first-class deployment:
+
+```env
+VOXPASSPORT_LOCAL_ONLY=true
 ```
 
-When uv is available, isolated profiles use their own project/lock/environment. Incompatible runtime families should not be forced into one shared workspace merely to reduce environment count.
+When local-only is enabled, accounts and hosted abuse controls are disabled. The same Expo build adapts from the runtime bootstrap capabilities.
 
-## Local control and event transport
+For account-enabled deployments, the separate account service owns PostgreSQL users, rotating refresh sessions, Argon2id password hashes, encrypted provider credentials and rate controls. Account identity remains separate from the local inference daemon.
 
-Studio/model APIs and caption/event transport use localhost services. Supervisor-managed TTS child processes communicate over ephemeral localhost HTTP. Explicit remote inference workers/backends are separate deployment options.
+Email verification, password reset, OAuth/social login and managed cloud allocation remain explicitly deferred.
 
-## Technology stack
+## Repository ownership
 
-| Layer | Technology |
-| --- | --- |
-| Main inference runtime | Python 3.12 |
-| ML framework | PyTorch |
-| Model ecosystem | Hugging Face Transformers / Hub plus model-specific worker libraries |
-| TTS process supervision | Python subprocess + psutil process-tree cleanup + aiohttp health/control |
-| TTS deployment metadata | TTS model manifests + reusable backend runtime definitions + runtime profiles |
-| Runtime-profile provisioning | uv when available; venv/pip fallback |
-| Local APIs / TTS transport | aiohttp / HTTP |
-| Caption events | WebSocket |
-| Audio DSP / I/O | NumPy, SciPy, SoundFile, SoundDevice |
-| Native components | Rust workspace and native CUDA/DLL integrations where required |
-| Desktop/model UI | HTML/CSS/JavaScript |
+- `apps/client` — canonical product UI and client-side typed API/session state.
+- `apps/browser-extension` — optional browser-specific integration only.
+- `runtime` — Python inference/control/runtime ownership.
+- `crates/audio-core` — portable audio contracts.
+- `crates/audio-windows` — Windows WASAPI/MMDevice helper.
+- `crates/audio-linux` — Linux PipeWire/Pulse-compatible helper.
+- `native/macos/audio-helper` — macOS CoreAudio helper.
+- `drivers/*/virtual-audio` — platform virtual-audio implementations/install tooling.
+- `account_api` — optional account service.
 
-## Architectural rules
+`apps/desktop-companion` and `apps/desktop` are retired and must not be reintroduced without an explicit architecture change.
 
-1. Application business logic must not branch on local TTS model names.
-2. `ManifestTtsAdapter` remains the only local TTS application adapter.
-3. Model-specific TTS behavior belongs in drivers, not the daemon or UI.
-4. TTS model manifests own model identity/capabilities/driver settings and reference reusable runtime IDs; they do not own process topology.
-5. Backend runtime definitions own reusable backend launch/health/remote lifecycle metadata.
-6. Runtime profiles own dependency-compatible environment definitions.
-7. The TTS supervisor owns local process topology, endpoints, and TTS residency.
-8. Model manifests never own fixed local worker/backend ports or per-model launch command environments.
-9. An unmanaged loopback proxy backend is invalid.
-10. Explicit non-loopback proxy endpoints are remote resources outside local GPU residency.
-11. Voice profiles remain model-independent.
-12. One physical model may serve multiple logical conversation directions.
-13. Adding another model on a supported backend family must be manifest-only.
+## Architectural invariants
+
+1. `apps/client` is the one canonical product UI.
+2. Desktop priority does not create a second UI framework.
+3. High-frequency PCM remains off UI/REST state paths.
+4. Native audio is platform-specific behind one stable media contract.
+5. Communication platform and inference provider remain independent.
+6. Local/self-hosted operation never requires VoxPassport-hosted infrastructure.
+7. Model-specific TTS behavior belongs in manifests/drivers/backend definitions, not application branches.
+8. Voice profiles remain engine-independent.
+9. One physical model instance may serve multiple logical conversation directions.
+10. Local TTS process topology and residency belong to the supervisor.
+11. Legacy fix layers, hidden compatibility DOM state, iframe/eval bridges and duplicate desktop screens are prohibited.
+12. Physical-device/conferencing validation must not be conflated with hosted CI/source validation.

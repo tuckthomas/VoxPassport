@@ -1,0 +1,67 @@
+name: Native Audio Live Validation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-pipewire-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install PipeWire runtime and Rust
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pipewire pipewire-bin pipewire-pulse wireplumber pulseaudio-utils dbus
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Linux native audio helper
+        run: cargo build --manifest-path crates/audio-linux/Cargo.toml --release
+
+      - name: Run headless PipeWire virtual-cable validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          export XDG_RUNTIME_DIR="$RUNNER_TEMP/voxpassport-pipewire"
+          mkdir -p "$XDG_RUNTIME_DIR"
+          chmod 700 "$XDG_RUNTIME_DIR"
+          export VOXPASSPORT_AUDIO_HELPER="$GITHUB_WORKSPACE/crates/target/release/voxpassport-audio-helper"
+
+          cleanup() {
+            ./drivers/linux/virtual-audio/uninstall.sh || true
+            jobs -p | xargs -r kill || true
+          }
+          trap cleanup EXIT
+
+          dbus-daemon --session --address="unix:path=$XDG_RUNTIME_DIR/dbus" --fork --nopidfile
+          export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/dbus"
+
+          pipewire >"$RUNNER_TEMP/pipewire.log" 2>&1 &
+          sleep 1
+          wireplumber >"$RUNNER_TEMP/wireplumber.log" 2>&1 &
+          sleep 1
+          pipewire-pulse >"$RUNNER_TEMP/pipewire-pulse.log" 2>&1 &
+          sleep 2
+
+          pactl info
+          ./drivers/linux/virtual-audio/install.sh
+          sleep 2
+          "$VOXPASSPORT_AUDIO_HELPER" probe
+          "$VOXPASSPORT_AUDIO_HELPER" devices
+          python scripts/validate_pipewire_virtual_audio.py
+
+      - name: Dump PipeWire logs on failure
+        if: failure()
+        run: |
+          cat "$RUNNER_TEMP/pipewire.log" || true
+          cat "$RUNNER_TEMP/wireplumber.log" || true
+          cat "$RUNNER_TEMP/pipewire-pulse.log" || true

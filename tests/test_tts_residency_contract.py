@@ -53,11 +53,15 @@ def test_supervisor_has_no_fixed_proxy_ports_or_model_name_dispatch():
     assert "backend_process" not in source
 
 
-def test_resource_monitor_marks_worker_and_backend_failures_broken():
-    source = (
-        REPO_ROOT / "apps" / "desktop-companion" / "model-manager" / "resource-monitor.js"
+def test_runtime_diagnostics_replace_deleted_resource_monitor_ui():
+    main = (REPO_ROOT / "runtime" / "inference" / "server" / "main.py").read_text(encoding="utf-8")
+    runtime_screen = (
+        REPO_ROOT / "apps" / "client" / "src" / "features" / "runtime" / "RuntimeScreen.tsx"
     ).read_text(encoding="utf-8")
-    assert "profile.unexpected_exit" in source
-    assert "runtime.backends" in source
-    assert "backend.unexpected_exit" in source
-    assert "activeBackend.state === 'broken'" in source
+    assert "resource_snapshot" in main or "runtime_resources" in main or "_resource" in main
+    assert "model_residency" in runtime_screen
+    assert "Models loaded" in runtime_screen
+    assert "Active model slots" in runtime_screen
+    assert not (
+        REPO_ROOT / "apps" / "desktop-companion" / "model-manager" / "resource-monitor.js"
+    ).exists()

@@ -1222,19 +1222,9 @@ class LiveTranslatorApp:
         app.router.add_post("/api/synthesize", api_synthesize)
         app.router.add_post("/api/verify", api_verify)
 
-        companion_dir = PROJECT_ROOT / "apps" / "desktop-companion"
-        assets_dir = companion_dir / "assets"
-        manager_dir = companion_dir / "model-manager"
-        overlay_dir = companion_dir / "overlay"
-        if assets_dir.exists():
-            app.router.add_static("/assets", path=str(assets_dir), show_index=False)
-        if manager_dir.exists():
-            app.router.add_static("/manager", path=str(manager_dir), show_index=True)
-        if overlay_dir.exists():
-            app.router.add_static("/overlay", path=str(overlay_dir), show_index=True)
-
         async def index_redirect(request):
-            raise web.HTTPFound("/manager/index.html")
+            # The runtime is API/media infrastructure; the canonical product UI is Expo.
+            raise web.HTTPFound("http://127.0.0.1:8081/")
         app.router.add_get("/", index_redirect)
 
         runner = web.AppRunner(app)
@@ -1242,7 +1232,7 @@ class LiveTranslatorApp:
         site = web.TCPSite(runner, "127.0.0.1", 8766)
         await site.start()
         self._http_runner = runner
-        logger.info("VoxPassport UI/API ready at http://127.0.0.1:8766")
+        logger.info("VoxPassport API ready at http://127.0.0.1:8766; canonical Expo client at http://127.0.0.1:8081")
 
     async def start(self) -> None:
         logger.info("Initializing VoxPassport daemon")

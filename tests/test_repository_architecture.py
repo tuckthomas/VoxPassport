@@ -3,6 +3,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CANONICAL_CLIENT_ROOT = PROJECT_ROOT / "apps" / "client"
+DESKTOP_COMPANION_ROOT = PROJECT_ROOT / "apps" / "desktop-companion"
 
 
 def _source_files(root: Path):
@@ -34,6 +35,13 @@ def test_canonical_client_does_not_use_legacy_iframe_eval_bridge():
     assert offenders == [], f"Legacy iframe/eval bridge reintroduced in canonical Expo client: {offenders}"
 
 
+def test_legacy_desktop_companion_is_fully_removed():
+    assert not DESKTOP_COMPANION_ROOT.exists(), (
+        "apps/desktop-companion is retired. Product UI and reusable branding belong under "
+        "apps/client; browser-specific integration belongs under apps/browser-extension."
+    )
+
+
 def test_no_dedicated_tauri_desktop_shell_is_present():
     desktop = PROJECT_ROOT / "apps" / "desktop"
     assert not desktop.exists(), (
@@ -53,6 +61,13 @@ def test_expo_client_has_no_tauri_dependency_or_bridge():
         if "__TAURI" in text or "@tauri-apps/" in text:
             tauri_references.append(path.relative_to(PROJECT_ROOT).as_posix())
     assert tauri_references == [], f"Tauri references found in Expo client: {tauri_references}"
+
+
+def test_canonical_brand_assets_exist():
+    assets = CANONICAL_CLIENT_ROOT / "assets"
+    assert (assets / "VoxPassport_icon_1024.png").is_file()
+    assert (assets / "VoxPassport_icon_256.png").is_file()
+    assert (assets / "VoxPassport_icon.svg").is_file()
 
 
 def test_repository_layout_document_exists():

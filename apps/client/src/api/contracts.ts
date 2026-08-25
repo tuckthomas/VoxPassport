@@ -199,14 +199,36 @@ export type ModelEntry = {
   capability: string;
   provider?: string;
   upstream_id?: string;
-  installation_status?: string;
+  revision?: string;
+  installation_status?: 'not_installed' | 'downloading' | 'installing' | 'installed' | 'failed' | string;
+  installable?: boolean;
+  installation_reason?: string | null;
   is_active?: boolean;
+  is_pinned?: boolean;
+  is_pipeline_enabled?: boolean;
   required_runtime?: string;
   runtime_requirements?: Record<string, unknown>;
   voice_cloning_support?: boolean;
   cross_lingual_voice_cloning?: boolean;
   supported_source_languages?: string[];
   supported_target_languages?: string[];
+};
+
+export type ModelInstallProgress = {
+  model_id: string;
+  phase: 'idle' | 'downloading' | 'installing' | 'done' | 'failed' | string;
+  percent: number;
+  bytes_downloaded?: number;
+  bytes_total?: number;
+  error?: string | null;
+};
+
+export type ModelMutationResponse = {
+  success: boolean;
+  model_id?: string;
+  ui_model_id?: string;
+  active_slots?: Record<string, string>;
+  error?: string;
 };
 
 export type VoiceProfile = {
@@ -217,12 +239,39 @@ export type VoiceProfile = {
   pitch_hz?: number;
   has_audio?: boolean;
   has_translation_audio?: boolean;
+  translation_url?: string;
+  preview_lang?: string;
+  preview_text?: string;
+  last_preview_model?: string;
   is_active?: boolean;
 };
 
 export type VoiceProfilesResponse = {
   profiles: VoiceProfile[];
   active_id: string;
+};
+
+export type VoiceStageResponse = {
+  success: boolean;
+  profile_id: string;
+  profile_name: string;
+  pitch_hz?: number;
+  preview_model?: string;
+  engine_name?: string;
+  has_preview?: boolean;
+  preview_url?: string;
+  reference_url?: string;
+  preview_error?: string;
+  error?: string;
+};
+
+export type VoiceMutationResponse = {
+  success: boolean;
+  profile_id?: string;
+  profile_name?: string;
+  active_id?: string;
+  deleted_id?: string;
+  error?: string;
 };
 
 export type TranslationResponse = {

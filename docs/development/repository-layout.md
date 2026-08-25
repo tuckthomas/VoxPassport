@@ -1,159 +1,265 @@
 # Repository Layout and Ownership
 
-This document is the routing map for human and AI developers. Put behavior in the directory that owns the behavior; do not encode implementation history in filenames or add patch layers around the owning module.
+This document is the routing map for human and AI developers. Put behavior in the directory that owns the behavior. Do not preserve obsolete implementation history as compatibility layers, duplicate screens, or patch files.
 
 ## Canonical top-level ownership
 
 ```text
 VoxPassport/
 ├── apps/
-│   ├── client/              Canonical Expo + React Native + React Native Web UI
-│   ├── browser-extension/   Browser-specific integration only
-│   └── desktop-companion/   LEGACY migration source; not architectural target
-├── runtime/                 Python inference/runtime and local service
-├── crates/                  Native/shared Rust audio and protocol components
-├── configs/                 User/operator configuration examples
-├── native/                  OS integration/driver artifacts when needed
-├── tests/                   Python/integration/architecture tests
-├── benchmarks/              Reproducible model/runtime benchmarks
-├── scripts/                 Developer/admin utilities; not production modules
-├── docs/                    Architecture, operations, and development documentation
-└── .agents/plans/           pending / in-progress / completed implementation plans
+│   ├── client/                    Canonical Expo + React Native + React Native Web product UI
+│   └── browser-extension/         Optional browser-specific integration only
+├── runtime/                       Python inference/runtime/control plane
+├── crates/
+│   ├── audio-core/                Portable native audio contracts
+│   ├── audio-windows/             Windows WASAPI/MMDevice implementation
+│   └── audio-linux/               Linux PipeWire/Pulse-compatible implementation
+├── native/
+│   └── macos/audio-helper/        macOS CoreAudio native helper
+├── drivers/
+│   ├── windows/virtual-audio/     WDM/WDK virtual sink + microphone
+│   ├── macos/virtual-audio/       HAL AudioServerPlugIn virtual pair
+│   └── linux/virtual-audio/       PipeWire-Pulse virtual pair configuration
+├── account_api/                   Optional PostgreSQL account service
+├── configs/                       User/operator configuration
+├── tests/                         Runtime/integration/architecture tests
+├── benchmarks/                    Reproducible model/runtime benchmarks
+├── scripts/                       Developer/admin/validation utilities
+├── docs/                          Architecture, operations and development documentation
+└── .agents/plans/                 Pending/in-progress/completed implementation plans
 ```
 
-There is deliberately **no canonical `apps/desktop` product shell**. The product UI remains `apps/client` under Expo. Desktop system integration is provided behind local-runtime/native service contracts rather than by embedding the Expo UI in a second application framework.
+There is deliberately no canonical `apps/desktop`, `apps/desktop-companion`, or other second product shell. `apps/client` is the product UI on Android, iOS, web/PWA, and desktop-oriented workflows.
 
-## `apps/client` — canonical universal product UI
+## `apps/client` — canonical product UI
 
-`apps/client` owns screens, presentation state, typed API clients, client-side settings, Expo audio/media integration where supported, and session/control UI for Android, iOS, and web/PWA.
+`apps/client` owns:
+
+- Expo Router routes;
+- React Native/React Native Web screens;
+- presentation state;
+- typed runtime/account API clients;
+- runtime target selection;
+- client-side settings;
+- microphone recording UX for voice enrollment where Expo supports it;
+- low-frequency live-session/model/voice/runtime control state;
+- canonical brand assets under `apps/client/assets`.
 
 It must not own:
 
-- Python/model process lifecycle implementation;
-- CUDA/model-library details;
-- Windows WASAPI/CoreAudio/PipeWire implementation;
-- system virtual-microphone drivers;
-- high-frequency PCM processing that belongs in native/runtime code;
+- Python model/runtime process lifecycle;
+- CUDA/model-library implementation details;
+- WASAPI/CoreAudio/PipeWire internals;
+- virtual-audio drivers;
+- high-frequency PCM processing;
 - model-name-specific process routing;
-- hard-coded provider topology;
-- iframe/eval/fetch monkey-patching;
-- Tauri-specific IPC or dependencies.
+- provider wire protocols;
+- iframe/eval bridges;
+- fetch monkey-patches;
+- Tauri IPC/dependencies;
+- legacy `*-fixes.*` or `*-patch.*` layers.
 
-Platform-specific Expo/React Native files (`*.native.ts`, `*.web.ts`, and narrowly scoped platform modules) are acceptable when the platform genuinely requires different behavior.
+Raw realtime PCM must stay out of React state and REST JSON/base64 paths.
 
-## Desktop use of the Expo client
+## Desktop use of Expo
 
-Desktop is an immediate use case, but it does not get a second UI architecture. `apps/client` remains the product frontend.
+Desktop is an immediate workflow priority without a separate UI architecture.
 
-Desktop-native capabilities such as:
+`run.bat` starts:
 
-- physical microphone capture;
-- Windows WASAPI loopback capture;
-- audio endpoint enumeration;
-- translated-audio routing;
-- a real system virtual-microphone endpoint;
-- process/driver lifecycle;
+```text
+Integrated runtime/API     http://127.0.0.1:8766
+Canonical Expo web client  http://127.0.0.1:8081
+```
 
-belong behind stable local-runtime/native contracts. The Expo client consumes status/configuration/session APIs and does not carry raw realtime PCM through a UI-specific bridge.
+Desktop-native capabilities—physical capture, system/loopback capture, endpoint enumeration, translated-audio render, and virtual microphone routing—live behind local runtime/native service contracts.
 
-An installable web/PWA experience can be produced from the Expo web target. Any future alternative desktop packaging mechanism must be an explicit architecture decision; do not introduce Tauri or another shell implicitly.
+The Expo client configures and observes those capabilities through typed APIs. It does not embed a native audio engine or a second desktop shell.
 
 ## `apps/browser-extension` — optional browser integration
 
-The browser extension is for browser-specific overlays and integration. It is not the core desktop audio transport. Core desktop translation should be communication-platform independent wherever native/system audio routing permits it.
+The browser extension owns only browser-specific overlays/integration. It is not the core audio transport and must not become a duplicate inference/client application.
 
-## `apps/desktop-companion` — legacy only
+Core conferencing audio remains OS-native and communication-platform independent.
 
-This directory contains the current prototype HTML UI and remains temporarily as migration source material. New features must not target it unless required to keep the existing product usable during migration.
+## Retired desktop surfaces
 
-Files such as `runtime-fixes.js`, `engine-catalog-fixes.js`, and `stack-upgrade-fixes.js` are technical debt, not a reusable extension mechanism.
+The following architectures are intentionally retired and must not return without an explicit architecture decision:
 
-For each legacy patch behavior:
+- `apps/desktop-companion`;
+- the prototype HTML Studio/model-manager;
+- duplicate desktop overlay code;
+- `runtime-fixes.js`;
+- `engine-catalog-fixes.js`;
+- `stack-upgrade-fixes.js`;
+- hidden compatibility DOM sentinels such as `studioCloneModelSelect`;
+- the abandoned Tauri `apps/desktop` shell;
+- Tauri IPC in `apps/client`.
 
-1. identify the actual owner and original defect/obsolete assumption;
-2. fix or replace the owning implementation;
-3. preserve only enduring domain behavior in a proper abstraction;
-4. delete the patch when its required behavior is covered;
-5. do not copy the patch into the Expo client under a cleaner filename.
+Architecture tests assert that the retired desktop-companion and Tauri surfaces remain absent.
 
-## `runtime` — Python inference and local service
+## `runtime` — inference and local service ownership
 
-The Python runtime owns model/inference behavior, the local HTTP/session API, GPU/model process supervision, registry/manifests, voice-profile processing, provider/runtime adapters, and coordination with native desktop audio services where applicable.
+The Python runtime owns:
 
-The UI consumes stable capability/API contracts rather than importing or reproducing Python implementation details.
+- inference orchestration;
+- modular and direct translation strategy selection;
+- model registry/catalog state;
+- model install/activation/uninstall ownership;
+- backend-owned installability reasons;
+- voice-profile persistence/normalization/synthesis;
+- GPU/model process supervision;
+- TTS manifests/runtime profiles/backend runtime catalog;
+- local HTTP/bootstrap/session APIs;
+- caption/event transport;
+- native-audio routing/configuration orchestration.
 
-Direct speech-to-speech providers and the modular `VAD -> ASR -> NMT -> TTS` pipeline are translation strategies behind runtime/session contracts, not communication-platform-specific implementations.
+The client consumes stable contracts rather than reproducing implementation details.
 
-## `crates` — native/shared Rust
+## Native audio ownership
 
-Rust crates own reusable native audio/protocol code that is independent of the Expo UI framework.
+### `crates/audio-core`
 
-Current direction:
+Portable native audio types/contracts:
+
+- endpoint roles;
+- stream configuration;
+- bounded capture/render abstractions;
+- protocol-neutral audio platform interfaces.
+
+### `crates/audio-windows`
+
+Windows Core Audio implementation:
+
+- MMDevice stable endpoint enumeration;
+- WASAPI microphone capture;
+- WASAPI render loopback capture;
+- bounded WASAPI render output;
+- Windows native helper executable.
+
+### `crates/audio-linux`
+
+Linux implementation:
+
+- PipeWire/PipeWire-Pulse endpoint discovery;
+- physical capture;
+- sink-monitor loopback/system capture;
+- render output;
+- Linux native helper executable.
+
+### `native/macos/audio-helper`
+
+macOS CoreAudio implementation:
+
+- stable CoreAudio UID enumeration;
+- physical microphone/output I/O;
+- macOS 14.2+ Core Audio process taps for system capture;
+- direct device I/O for VoxPassport HAL endpoints;
+- PCM normalization at the native boundary.
+
+### `drivers/*/virtual-audio`
+
+Platform system-facing virtual microphone implementations and their install/build/validation tooling.
+
+The virtual endpoint names are consistent across desktop OSes:
+
+- `VoxPassport Translation Sink`;
+- `VoxPassport Virtual Microphone`.
+
+## `account_api` — optional account service
+
+The account service is independent of the local inference daemon. It owns PostgreSQL-backed users/sessions/provider credentials when accounts are enabled.
+
+Local-only deployments disable this boundary and do not require PostgreSQL or a VoxPassport account.
+
+## TTS ownership
 
 ```text
-crates/
-├── protocol/        Shared Rust wire/audio types
-├── audio-core/      Portable audio buses, buffers, endpoint/platform contracts
-└── audio-windows/   Windows Core Audio/WASAPI implementation
+runtime/tts_manifests/
+    model identity/capabilities/driver metadata
+
+runtime/tts_backend_runtimes/
+    reusable backend server-family lifecycle metadata
+
+runtime/profiles/
+    dependency-compatible runtime environments
+
+runtime/workers/tts_host/
+    generic worker host and TtsDriver implementations
+
+runtime/inference/tts_plugins/
+    application adapter/supervisor/catalog integration
 ```
 
-Future macOS/Linux implementations should satisfy the same portable contracts rather than require product-screen changes.
-
-These crates may be used by a local native audio service/helper or other explicitly approved integration boundary. Their existence does not imply a Tauri desktop application.
+A model manifest does not own fixed worker/backend ports or application process topology.
 
 ## Where a change belongs
 
 ```text
-Change Translator/Settings/Models UI
+Translator/Settings/Models/Voice UI
     -> apps/client
 
-Change Expo client platform behavior
-    -> apps/client platform-specific module
+Expo platform behavior
+    -> apps/client narrowly scoped platform module
 
-Change local runtime/session API
+Local runtime/session/bootstrap API
     -> runtime
 
-Change Windows audio device/capture/loopback behavior
+Model installability/active-slot semantics
+    -> runtime model registry/model-manager API
+
+Windows capture/loopback/render/helper
     -> crates/audio-windows
 
-Change portable audio abstractions
+Linux capture/loopback/render/helper
+    -> crates/audio-linux
+
+Portable audio contract
     -> crates/audio-core
 
-Change system virtual-microphone driver/helper
-    -> native and/or native audio service code
+macOS CoreAudio helper behavior
+    -> native/macos/audio-helper
 
-Change inference/model/provider behavior
+System virtual microphone implementation
+    -> drivers/<platform>/virtual-audio
+
+Inference/model/provider behavior
     -> runtime/inference
 
-Add/modify TTS model metadata
+TTS model metadata
     -> runtime/tts_manifests
 
-Add reusable TTS backend server family
+Reusable TTS backend server family
     -> runtime/tts_backend_runtimes
 
-Change browser-only meeting integration
+Browser-only meeting overlay/integration
     -> apps/browser-extension
 
-Add developer one-off migration/admin command
+Account/auth behavior
+    -> account_api
+
+Developer migration/admin/validation command
     -> scripts
 ```
 
 ## Naming rules
 
-- Name modules after their enduring responsibility, not why they were added.
-- Do not create `*-fixes.*`, `*-patch.*`, `new-*`, `old-*`, or numbered replacement files in canonical application code.
-- A temporary compatibility module must live under an explicitly named `legacy`/`compat` boundary, explain its removal condition, and have a tracked migration plan.
-- Do not create `apps/desktop` or add Tauri dependencies unless the architecture is explicitly changed in the plan first.
-- Do not use `model-manager` for an application surface that owns unrelated product workflows.
+- Name modules after enduring responsibility, not why they were added.
+- Do not create `*-fixes.*`, `*-patch.*`, `new-*`, `old-*`, or numbered replacement modules in canonical code.
+- Do not create `apps/desktop`, `apps/desktop-companion`, or another duplicate product UI without first changing the architecture plan explicitly.
+- Do not put model/provider process topology in Expo components.
+- Do not route raw PCM through React state or REST JSON.
 
 ## Architectural invariants
 
-1. One canonical product UI: `apps/client` using Expo + React Native + React Native Web.
+1. One canonical product UI: `apps/client`.
 2. Desktop priority does not create a second UI framework.
-3. Desktop-native audio/driver work stays behind runtime/native contracts.
-4. Communication platform and inference provider are independent axes.
-5. Providers/models are selected by capabilities/contracts rather than UI model-name branches.
-6. Local/self-hosted operation does not depend on VoxPassport Cloud.
-7. Mobile implementation can be deferred without compromising the universal Expo client architecture.
-8. Legacy patch files are removed by correcting their causes, not consolidated wholesale.
-9. Tauri is not part of the current architecture.
+3. Platform-native audio stays behind stable runtime/native contracts.
+4. High-frequency PCM remains on native/subprocess media paths.
+5. Communication platform and inference provider are independent axes.
+6. Providers/models are selected through capability/contracts rather than UI model-name branches.
+7. Local/self-hosted operation never depends on VoxPassport-hosted infrastructure.
+8. Voice profiles remain model-independent.
+9. TTS process topology/residency belongs to the supervisor.
+10. Legacy patch layers and retired desktop surfaces stay removed.
+11. Hosted CI validation and physical-device acceptance are documented separately.

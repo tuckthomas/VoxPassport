@@ -1,6 +1,6 @@
 # Model Bakeoff Results & Historical Selection Snapshot
 
-> **Historical benchmark record.** The measurements below document the environment and model paths used when these bakeoffs were run. They are not the source of truth for the current runtime architecture, dependency versions, or active model selection. Current architecture is documented in `README.md`, `docs/architecture.md`, and `docs/tts-plugin-architecture.md`; current installed/active state comes from Model Settings / Model Registry.
+> **Historical benchmark record.** The measurements below document the environment and model paths used when these bakeoffs were run. They are not the source of truth for the current runtime architecture, dependency versions, or active model selection. Current architecture is documented in `README.md`, `docs/architecture.md`, and `docs/tts-plugin-architecture.md`; current installed/active state comes from the Expo Models & Engines surface / Model Registry.
 
 > The TTS integration has since been refactored. OmniVoice and every other local TTS model now run through `ManifestTtsAdapter` → `voxpassport.tts.v1` → worker-side `TtsDriver`. The quality/latency measurements below remain useful as historical model evidence, but references to the old direct integration should not be interpreted as current architecture.
 

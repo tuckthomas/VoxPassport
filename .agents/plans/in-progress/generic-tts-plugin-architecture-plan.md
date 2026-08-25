@@ -1,6 +1,6 @@
 # Generic TTS Plugin Architecture Plan
 
-Status: Implementation complete; final Runtime Integrity observation and environment/hardware acceptance remain
+Status: Implementation and CI validation complete; environment/hardware acceptance remains
 
 Purpose: Keep VoxPassport local TTS genuinely modular: one application adapter, one stable worker protocol, schema-driven model manifests, reusable backend-runtime definitions, dependency runtime profiles, worker-side drivers, and supervisor-owned local process topology.
 
@@ -23,7 +23,7 @@ Purpose: Keep VoxPassport local TTS genuinely modular: one application adapter, 
 
 ## Reusable backend runtimes
 
-The former per-model `backend_process.command_env` design has been replaced. See `.agents/plans/in-progress/tts-backend-runtime-catalog-plan.md`.
+The former per-model `backend_process.command_env` design has been replaced. See `.agents/plans/completed/tts-backend-runtime-catalog-plan.md`.
 
 - [x] Add `BackendRuntime` / `BackendRuntimeCatalog`.
 - [x] Store reusable backend server lifecycle definitions under `runtime/tts_backend_runtimes/`.
@@ -43,7 +43,7 @@ See `.agents/plans/in-progress/tts-runtime-profile-supervisor-plan.md`.
 - [x] Define `core` and isolated `coqui-xtts` profiles.
 - [x] Let model worker and backend runtime select profiles independently.
 - [x] Add `TtsRuntimeSupervisor` for dynamic worker/backend ports, health, load/unload, residency, rollback, recovery, and idle shutdown.
-- [x] Start no TTS worker/backend from `run.bat`.
+- [x] Make `run.bat` start the integrated runtime plus canonical Expo web client without prestarting model-specific TTS workers/backends.
 - [x] Make `ManifestTtsAdapter.load()` a cheap logical activation.
 - [x] Keep one active supervised local TTS model by default on low-VRAM hardware.
 - [x] Terminate managed backend process trees on model replacement/release.
@@ -70,9 +70,9 @@ See `.agents/plans/in-progress/tts-runtime-profile-supervisor-plan.md`.
 
 - [x] Bridge model manifest metadata into the existing registry without a second hard-coded TTS catalog.
 - [x] Keep backend runtimes as deployment metadata rather than registry model identities.
-- [x] Keep UI routing model-agnostic.
-- [x] Report worker and managed-backend state through diagnostics.
-- [x] Show active runtime broken when either supervised layer exits or becomes unreachable.
+- [x] Keep canonical Expo UI routing model-agnostic.
+- [x] Report worker and managed-backend state through runtime diagnostics.
+- [x] Show the active runtime broken when either supervised layer exits or becomes unreachable.
 
 ## Validation
 
@@ -85,7 +85,7 @@ See `.agents/plans/in-progress/tts-runtime-profile-supervisor-plan.md`.
 - [x] Test dynamic worker/backend ports, same-profile worker reuse, cross-profile termination, managed-backend termination, idle shutdown, rollback, and crash recovery.
 - [x] Add source integrity checks preventing fixed TTS ports and model-specific supervisor branches.
 - [x] Add backend-runtime tests to Runtime Integrity CI.
-- [ ] Observe the final push-triggered Runtime Integrity workflow as green; if unavailable through the connector, run the equivalent pytest/compile checks locally.
+- [x] Observe Runtime Integrity green after the architecture migration and during the final Expo/native-audio branch validation.
 
 ## Environment / hardware acceptance
 
@@ -112,4 +112,4 @@ New application adapter / daemon branch / supervisor model-name branch
     -> almost never
 ```
 
-No backwards-compatibility layer is intentionally retained for the deleted local-TTS adapter/fixed-port/per-model-backend architecture.
+No backwards-compatibility layer is intentionally retained for the deleted local-TTS adapter/fixed-port/per-model-backend architecture. This plan remains in-progress only for the explicitly listed environment/hardware acceptance items.

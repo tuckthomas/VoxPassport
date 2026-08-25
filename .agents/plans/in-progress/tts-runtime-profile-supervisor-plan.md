@@ -1,6 +1,6 @@
 # TTS Runtime Profile Supervisor Plan
 
-Status: Implementation complete; connected-environment lock generation, final CI observation, and RTX 2070 hardware validation pending
+Status: Implementation and CI validation complete; connected-environment lock generation and RTX 2070 hardware validation pending
 
 Purpose: Manage dependency-compatible TTS runtime families centrally so local models can hot-swap without hard-coded ports, model-specific launchers, unmanaged localhost GPU backends, or forced dependency convergence.
 
@@ -44,7 +44,7 @@ Model manifests describe the **model**. Runtime profiles describe **dependency e
 
 ## Model manifest / backend runtime split
 
-The earlier schema-v2 `backend_process` design is superseded by `.agents/plans/in-progress/tts-backend-runtime-catalog-plan.md`.
+The earlier schema-v2 `backend_process` design is superseded by `.agents/plans/completed/tts-backend-runtime-catalog-plan.md`.
 
 - [x] Upgrade local TTS model manifests to schema v3.
 - [x] Require `runtime_profile` in local TTS model manifests.
@@ -142,7 +142,7 @@ The earlier schema-v2 `backend_process` design is superseded by `.agents/plans/i
 - [x] Test unmanaged loopback rejection.
 - [x] Test two different model manifests use one backend runtime definition with different checkpoint arguments.
 - [x] Add backend-runtime and supervisor suites to Runtime Integrity CI.
-- [ ] Observe final Runtime Integrity green; if the connector does not expose it, run the workflow/equivalent pytest locally.
+- [x] Observe Runtime Integrity green after the architecture migration and during the final Expo/native-audio branch validation.
 
 ## Documentation
 
@@ -170,4 +170,4 @@ new protocol semantics
 
 No model-specific application adapter, fixed local port, model-name supervisor branch, per-model launch command environment, or unmanaged localhost GPU backend is part of the supported architecture.
 
-Remaining work is environmental: initial XTTS uv lock generation, final CI observation, and RTX 2070 residency validation.
+Remaining work is environmental: initial XTTS uv lock generation and RTX 2070 residency validation.

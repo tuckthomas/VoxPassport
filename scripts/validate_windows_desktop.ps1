@@ -116,7 +116,7 @@ if (-not $SkipCableTest) {
 
 if ($UninstallAfter) {
     Write-Host "`n== Uninstall test virtual audio driver ==" -ForegroundColor Cyan
-    & (Join-Path $driverRoot 'uninstall-test.ps1') -Platform $Platform
+    & (Join-Path $driverRoot 'uninstall-test.ps1')
     if ($LASTEXITCODE -ne 0) { throw 'Virtual audio driver uninstall failed.' }
 }
 

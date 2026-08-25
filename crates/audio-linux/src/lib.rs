@@ -1,9 +1,10 @@
 //! VoxPassport Linux native-audio backend.
 //!
-//! PipeWire owns realtime device I/O. We intentionally invoke its native
-//! `pw-record` / `pw-play` clients for raw PCM instead of routing media through
-//! PulseAudio JSON or the UI. PipeWire-Pulse (`pactl`) is used only for stable
-//! endpoint discovery and for the separately installed virtual sink/source.
+//! PipeWire owns realtime device I/O. PipeWire-Pulse provides stable named
+//! source/sink targeting for both ordinary endpoints and the VoxPassport
+//! virtual pair, so `parec` / `paplay` carry raw PCM while `pactl` owns
+//! endpoint discovery. High-frequency media remains in subprocess pipes and
+//! never crosses REST/JSON/UI state.
 
 use livetranslator_audio_core::{
     AudioCaptureConfig, AudioCaptureStats, AudioCaptureStream, AudioEndpointDescriptor,
@@ -118,10 +119,10 @@ impl AudioPlatform for LinuxAudioPlatform {
     fn capabilities(&self) -> AudioPlatformCapabilities {
         AudioPlatformCapabilities {
             enumerate_microphones: command_exists("pactl"),
-            capture_microphone: command_exists("pw-record"),
+            capture_microphone: command_exists("parec"),
             enumerate_render_endpoints: command_exists("pactl"),
-            capture_loopback: command_exists("pw-record"),
-            render_output: command_exists("pw-play"),
+            capture_loopback: command_exists("parec"),
+            render_output: command_exists("paplay"),
             // The helper probe promotes this dynamically only when both
             // VoxPassport virtual endpoints actually enumerate.
             virtual_microphone_output: false,
@@ -300,28 +301,20 @@ struct PipeWireCapture {
 
 impl PipeWireCapture {
     fn start(target: String, config: AudioCaptureConfig) -> Result<Self, AudioPlatformError> {
-        // Ubuntu 24.04 PipeWire's pw-cat aliases infer raw PCM from the
-        // explicit rate/channels/format options; they do not accept --raw.
-        // Omitting that non-portable switch also works on newer PipeWire.
-        let mut child = Command::new("pw-record")
-            .arg("--rate")
-            .arg(config.sample_rate_hz.to_string())
-            .arg("--channels")
-            .arg(config.channels.to_string())
-            .arg("--format")
-            .arg("s16")
-            .arg("--latency")
-            .arg(format!("{}ms", config.chunk_duration_ms))
-            .arg("--target")
-            .arg(&target)
-            .arg("-")
+        let mut child = Command::new("parec")
+            .arg("--raw")
+            .arg(format!("--rate={}", config.sample_rate_hz))
+            .arg(format!("--channels={}", config.channels))
+            .arg("--format=s16le")
+            .arg(format!("--latency-msec={}", config.chunk_duration_ms))
+            .arg(format!("--device={target}"))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .map_err(|error| AudioPlatformError::Platform(format!("failed to launch pw-record: {error}")))?;
+            .map_err(|error| AudioPlatformError::Platform(format!("failed to launch parec: {error}")))?;
         let mut stdout = child.stdout.take().ok_or_else(|| {
-            AudioPlatformError::Platform("pw-record stdout pipe is unavailable".into())
+            AudioPlatformError::Platform("parec stdout pipe is unavailable".into())
         })?;
         let child = Arc::new(Mutex::new(child));
         let active = Arc::new(AtomicBool::new(true));
@@ -336,7 +329,7 @@ impl PipeWireCapture {
             * 2
             * config.chunk_duration_ms as u64)
             / 1000) as usize;
-        let stream_id = format!("pipewire:{target}");
+        let stream_id = format!("pipewire-pulse:{target}");
         let sample_rate_hz = config.sample_rate_hz;
         let channels = config.channels;
         let worker = thread::spawn(move || {
@@ -432,23 +425,19 @@ struct PipeWireRender {
 
 impl PipeWireRender {
     fn start(target: String, config: AudioRenderConfig) -> Result<Self, AudioPlatformError> {
-        let mut child = Command::new("pw-play")
-            .arg("--rate")
-            .arg(config.sample_rate_hz.to_string())
-            .arg("--channels")
-            .arg(config.channels.to_string())
-            .arg("--format")
-            .arg("s16")
-            .arg("--target")
-            .arg(&target)
-            .arg("-")
+        let mut child = Command::new("paplay")
+            .arg("--raw")
+            .arg(format!("--rate={}", config.sample_rate_hz))
+            .arg(format!("--channels={}", config.channels))
+            .arg("--format=s16le")
+            .arg(format!("--device={target}"))
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()
-            .map_err(|error| AudioPlatformError::Platform(format!("failed to launch pw-play: {error}")))?;
+            .map_err(|error| AudioPlatformError::Platform(format!("failed to launch paplay: {error}")))?;
         let mut stdin = child.stdin.take().ok_or_else(|| {
-            AudioPlatformError::Platform("pw-play stdin pipe is unavailable".into())
+            AudioPlatformError::Platform("paplay stdin pipe is unavailable".into())
         })?;
         let child = Arc::new(Mutex::new(child));
         let active = Arc::new(AtomicBool::new(true));

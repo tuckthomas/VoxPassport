@@ -78,6 +78,7 @@ drivers/windows/virtual-audio/out/
 
 # --- Node / Web Build Artifacts ---
 node_modules/
+apps/client/.expo/
 dist/
 .vite/
 .vite-temp/

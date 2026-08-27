@@ -63,7 +63,7 @@ Purpose: Replace the prototype browser-only frontend with one maintainable Expo 
 - [x] Build/sign/stage the Windows virtual driver in hosted WDK-capable CI.
 - [ ] Test-sign/install the staged Windows virtual driver on the development Windows machine under its allowed driver policy.
 - [ ] Run `scripts/validate_virtual_audio.py` successfully against the installed Windows endpoint pair.
-- [ ] Validate desktop PWA/client plus native helper/runtime startup together on the target Windows machine.
+- [x] Validate desktop PWA/client plus native helper/runtime startup together on the target Windows machine.
 - [ ] Select `VoxPassport Virtual Microphone` in at least one real conferencing application and confirm translated audio is received.
 - [ ] Complete explicit echo/feedback ownership validation under real conference routing.
 - [ ] Validate real macOS microphone/output/TCC and conferencing behavior on a physical Mac.
@@ -234,7 +234,7 @@ For every legacy `*-fixes.js` behavior:
 - [x] Resolve the obsolete `Runtime Integrity` failure tracked as run `32773745017`; later integrity/account/Expo/macOS/Linux compile jobs have passed after the migration fixes.
 - [x] Complete the hosted Windows WDK kernel-driver compile and staged INF/SYS verification.
 - [x] Make the headless Linux helper crossover validation green after the PipeWire-Pulse media-boundary change.
-- [ ] Validate Expo web/PWA in a browser on the target Windows machine.
+- [x] Validate Expo web/PWA in a browser on the target Windows machine.
 - [ ] Validate Windows endpoint enumeration/capture/loopback on real hardware.
 - [ ] Validate `VoxPassport Translation Sink` -> driver bridge -> `VoxPassport Virtual Microphone` with `scripts/validate_virtual_audio.py` on Windows.
 - [ ] Validate the actual Windows virtual microphone with a conferencing application.

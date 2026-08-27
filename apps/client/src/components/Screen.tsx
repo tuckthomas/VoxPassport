@@ -1,6 +1,7 @@
 import type { PropsWithChildren, ReactNode } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { StudioShell } from '@/components/StudioShell';
 import { theme } from '@/theme';
 
 export function Screen({
@@ -10,6 +11,7 @@ export function Screen({
   action,
 }: PropsWithChildren<{ title: string; subtitle?: string; action?: ReactNode }>) {
   return (
+    <StudioShell>
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.headerRow}>
@@ -22,6 +24,7 @@ export function Screen({
         {children}
       </ScrollView>
     </SafeAreaView>
+    </StudioShell>
   );
 }
 

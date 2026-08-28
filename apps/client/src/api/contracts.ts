@@ -40,6 +40,23 @@ export type RuntimeStatus = {
   live_translation_session?: LiveTranslationSessionStatus | null;
 };
 
+export type ResourceSnapshot = {
+  sampled_at_ms: number;
+  cpu: { usage_percent: number; logical_cores: number };
+  memory: { used_gb: number; total_gb: number; usage_percent: number };
+  gpu: {
+    available: boolean;
+    name: string;
+    usage_percent: number | null;
+    memory_used_gb: number;
+    memory_total_gb: number;
+    memory_percent: number;
+    temperature_c: number | null;
+    source: string;
+  };
+  tts_runtime?: Record<string, unknown>;
+};
+
 export type DesktopAudioCapabilities = {
   device_enumeration: boolean;
   physical_microphone_capture: boolean;
@@ -201,6 +218,7 @@ export type ModelEntry = {
   upstream_id?: string;
   revision?: string;
   installation_status?: 'not_installed' | 'downloading' | 'installing' | 'installed' | 'failed' | string;
+  recommendation_state?: 'RECOMMENDED_FOR_LOCAL_BENCHMARK' | 'RECOMMENDED_UPGRADE' | 'CANDIDATE' | 'WATCH' | 'IGNORE' | string;
   installable?: boolean;
   installation_reason?: string | null;
   is_active?: boolean;
@@ -208,6 +226,12 @@ export type ModelEntry = {
   is_pipeline_enabled?: boolean;
   required_runtime?: string;
   runtime_requirements?: Record<string, unknown>;
+  estimated_download_size_gb?: number;
+  installed_size_gb?: number | null;
+  expected_vram_tiers?: Record<string, string>;
+  expected_ram_gb?: number | null;
+  license?: string;
+  commercial_use?: string;
   voice_cloning_support?: boolean;
   cross_lingual_voice_cloning?: boolean;
   supported_source_languages?: string[];
@@ -229,6 +253,18 @@ export type ModelMutationResponse = {
   ui_model_id?: string;
   active_slots?: Record<string, string>;
   error?: string;
+};
+
+export type ModelStorageSettings = { model_store_dir: string; success?: boolean; error?: string };
+export type ModelStorageBrowseResult = { success: boolean; cancelled: boolean; model_store_dir: string | null; error?: string };
+
+export type RemoteModelEndpoint = {
+  endpoint_id: string;
+  name: string;
+  base_url: string;
+  capabilities: string[];
+  auth_token_env?: string;
+  selected_model_id?: string;
 };
 
 export type VoiceProfile = {

@@ -60,6 +60,36 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 logger = logging.getLogger("VoxPassportDaemon")
 
 
+def _choose_windows_directory(initial_directory: str) -> str | None:
+    """Open the native Windows folder picker and return the selected absolute path."""
+    if sys.platform != "win32":
+        raise RuntimeError("The native model-storage folder picker is currently available on Windows only")
+    script = r"""
+Add-Type -AssemblyName System.Windows.Forms
+$dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+$dialog.Description = 'Choose the default VoxPassport model storage folder'
+$dialog.ShowNewFolderButton = $true
+if ($args[0] -and (Test-Path -LiteralPath $args[0] -PathType Container)) {
+    $dialog.SelectedPath = $args[0]
+}
+if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+    [Console]::Out.Write($dialog.SelectedPath)
+}
+"""
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-STA", "-Command", script, initial_directory],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "The Windows folder picker could not be opened")
+    selected = result.stdout.strip()
+    return str(Path(selected).resolve()) if selected else None
+
+
 class LiveTranslatorApp:
     """Unified VoxPassport runtime and control plane."""
 
@@ -201,10 +231,10 @@ class LiveTranslatorApp:
     def _load_runtime_residency(self) -> str:
         try:
             data = json.loads(self._runtime_settings_path.read_text(encoding="utf-8"))
-            value = str(data.get("model_residency", "ready")).strip().lower()
-            return value if value in {"ready", "on_demand"} else "ready"
+            value = str(data.get("model_residency", "on_demand")).strip().lower()
+            return value if value in {"ready", "on_demand"} else "on_demand"
         except Exception:
-            return "ready"
+            return "on_demand"
 
     def _save_runtime_residency(self) -> None:
         self._runtime_settings_path.parent.mkdir(parents=True, exist_ok=True)
@@ -593,6 +623,15 @@ class LiveTranslatorApp:
             except Exception as exc:
                 return web.json_response({"success": False, "error": str(exc)}, status=400)
 
+        async def api_model_storage_browse(request):
+            try:
+                data = await request.json() if request.can_read_body else {}
+                initial = str(data.get("initial_directory") or self._model_store_dir)
+                path = await asyncio.to_thread(_choose_windows_directory, initial)
+                return web.json_response({"success": True, "cancelled": path is None, "model_store_dir": path})
+            except Exception as exc:
+                return web.json_response({"success": False, "error": str(exc)}, status=500)
+
         async def api_remote_endpoints(request):
             if request.method == "GET":
                 return web.json_response([{
@@ -713,7 +752,7 @@ class LiveTranslatorApp:
                 })
             data = await request.json()
             try:
-                await self._set_runtime_residency(data.get("model_residency", "ready"))
+                await self._set_runtime_residency(data.get("model_residency", "on_demand"))
                 return web.json_response({
                     "success": True,
                     "model_residency": self._runtime_residency,
@@ -1196,6 +1235,7 @@ class LiveTranslatorApp:
         app.router.add_post("/api/models/active", api_models_active)
         app.router.add_post("/api/models/pipeline", api_model_pipeline)
         app.router.add_route("*", "/api/settings/model-storage", api_model_storage)
+        app.router.add_post("/api/settings/model-storage/browse", api_model_storage_browse)
         app.router.add_route("*", "/api/remote-endpoints", api_remote_endpoints)
         app.router.add_delete("/api/remote-endpoints/{endpoint_id}", api_remote_endpoint_delete)
         app.router.add_post("/api/models/install", api_models_install)

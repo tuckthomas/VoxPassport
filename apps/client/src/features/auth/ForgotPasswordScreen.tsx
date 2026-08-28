@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Link, Redirect } from 'expo-router';
-import { Pressable, Text, TextInput } from 'react-native';
+import { Text, TextInput } from 'react-native';
 import { useAuth } from '@/auth/AuthContext';
 import { Card } from '@/components/Card';
+import { RaisedButton } from '@/components/RaisedButton';
 import { Screen } from '@/components/Screen';
 import { colors } from '@/theme';
 
@@ -51,9 +52,7 @@ export default function ForgotPasswordScreen() {
           </Text>
         ) : null}
         {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
-        <Pressable disabled={busy || !email.trim()} onPress={() => void submit()} style={buttonStyle}>
-          <Text style={{ color: colors.text, fontWeight: '700' }}>{busy ? 'Sending…' : 'Send reset link'}</Text>
-        </Pressable>
+        <RaisedButton label={busy ? 'Sending…' : 'Send reset link'} disabled={busy || !email.trim()} onPress={() => void submit()} />
         <Link href="/login" style={{ color: colors.accent }}>Back to sign in</Link>
       </Card>
     </Screen>

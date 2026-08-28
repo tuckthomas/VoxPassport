@@ -10,6 +10,7 @@ import type {
 } from '@/api/contracts';
 import { useVoxPassportApi } from '@/api/useVoxPassportApi';
 import { Card } from '@/components/Card';
+import { RaisedButton } from '@/components/RaisedButton';
 import { Screen } from '@/components/Screen';
 import { useRuntimeTarget } from '@/config/RuntimeTargetContext';
 import { colors } from '@/theme';
@@ -167,17 +168,9 @@ export default function RuntimeScreen() {
           “Configured” only proves both endpoint IDs exist. Mark it validated only after translated audio reaches a real conferencing app through the selected capture endpoint.
         </Text>
         <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
-          <Pressable
-            disabled={busy || !routing?.virtual_microphone_configured}
-            onPress={() => void confirmVirtualMicrophone(true)}
-            style={buttonStyle}
-          >
-            <Text style={{ color: colors.text }}>Mark conferencing test passed</Text>
-          </Pressable>
+          <RaisedButton label="Mark conferencing test passed" disabled={busy || !routing?.virtual_microphone_configured} backgroundColor="#059669" onPress={() => void confirmVirtualMicrophone(true)} />
           {routing?.virtual_microphone_validated ? (
-            <Pressable disabled={busy} onPress={() => void confirmVirtualMicrophone(false)} style={buttonStyle}>
-              <Text style={{ color: colors.warning }}>Clear validation</Text>
-            </Pressable>
+            <RaisedButton label="Clear validation" disabled={busy} backgroundColor="#b45309" onPress={() => void confirmVirtualMicrophone(false)} />
           ) : null}
         </View>
       </Card>
@@ -223,6 +216,8 @@ function EndpointSelector({
         return (
           <Pressable
             key={`${role}:${device.id}`}
+            accessibilityRole="radio"
+            accessibilityState={{ checked: selected }}
             disabled={disabled}
             onPress={() => onSelect(device.id)}
             style={[buttonStyle, selected ? { borderColor: colors.accent } : null]}
@@ -230,14 +225,12 @@ function EndpointSelector({
             <Text style={{ color: colors.text, fontWeight: selected ? '700' : '500' }}>
               {selected ? '✓ ' : ''}{device.name}{device.is_default ? ' · default' : ''}
             </Text>
-            <Text selectable style={{ color: colors.muted, fontSize: 11 }}>{device.id}</Text>
+            <Text selectable style={{ color: colors.muted, fontSize: 13 }}>{device.id}</Text>
           </Pressable>
         );
       })}
       {selectedId ? (
-        <Pressable disabled={disabled} onPress={() => onSelect(null)} style={buttonStyle}>
-          <Text style={{ color: colors.muted }}>Clear selection</Text>
-        </Pressable>
+        <RaisedButton label="Clear selection" disabled={disabled} backgroundColor="#475569" onPress={() => onSelect(null)} />
       ) : null}
     </Card>
   );
@@ -254,9 +247,7 @@ function StatusLine({ label, value }: { label: string; value: string }) {
 
 function RefreshButton({ onPress }: { onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} style={buttonStyle}>
-      <Text style={{ color: colors.text }}>Refresh</Text>
-    </Pressable>
+    <RaisedButton label="Refresh" backgroundColor="#475569" onPress={onPress} />
   );
 }
 

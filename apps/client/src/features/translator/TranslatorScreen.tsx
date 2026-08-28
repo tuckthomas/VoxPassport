@@ -20,6 +20,8 @@ import type {
 import { LiveTranslationClient } from '@/api/liveTranslationClient';
 import { useVoxPassportApi } from '@/api/useVoxPassportApi';
 import { StudioShell } from '@/components/StudioShell';
+import { RaisedButton } from '@/components/RaisedButton';
+import { StatusLight } from '@/components/StatusLight';
 import { useRuntimeTarget } from '@/config/RuntimeTargetContext';
 
 const MODULAR_STRATEGY_ID = 'modular-pipeline';
@@ -147,7 +149,7 @@ export default function TranslatorScreen() {
         <StudioTab label="Live Mode" icon="◉" active={activeTab === 'live'} onPress={() => setActiveTab('live')} />
         <StudioTab label="Debug Mode" icon="☆" active={activeTab === 'debug'} onPress={() => setActiveTab('debug')} />
         <View style={styles.runtimeStatus}>
-          <View style={styles.onlineDot} />
+          <StatusLight tone="green" size={7} />
           <Text style={styles.runtimeStatusText}>{target.mode.toUpperCase()} RUNTIME</Text>
         </View>
       </View>
@@ -159,14 +161,7 @@ export default function TranslatorScreen() {
               <PaneHeader title="Live Source Speech" badge="PARAKEET-TDT-CTC-110M" subtitle="Real-Time Dictation Stream" />
               <View style={styles.paneBody}>
                 <View style={styles.micBar}>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={live?.active ? 'Stop live recording' : 'Start live recording'}
-                    onPress={() => void toggleLive()}
-                    style={({ pressed }) => [styles.recordButton, pressed && styles.pressed]}
-                  >
-                    <Text style={styles.recordButtonText}>● {live?.active ? 'STOP STREAM' : 'LIVE RECORD'}</Text>
-                  </Pressable>
+                  <RaisedButton label={`● ${live?.active ? 'STOP STREAM' : 'LIVE RECORD'}`} accessibilityLabel={live?.active ? 'Stop live recording' : 'Start live recording'} backgroundColor="#b8323a" style={styles.recordButton} labelStyle={styles.recordButtonText} onPress={() => void toggleLive()} />
                   <Waveform active={Boolean(live?.active)} />
                 </View>
                 <View style={styles.transcriptBox}>
@@ -182,12 +177,8 @@ export default function TranslatorScreen() {
           <View style={[styles.divider, compact && styles.dividerCompact]}>
             {!compact ? <View style={styles.dividerLine} /> : null}
             <Text style={styles.dividerLabel}>TARGET</Text>
-            <Pressable accessibilityRole="button" onPress={swapLanguages} style={styles.languagePill}>
-              <Text style={styles.languagePillText}>{destinationName === 'ROMANIAN' ? '🇷🇴 RO' : destination.toUpperCase()}</Text>
-            </Pressable>
-            <Pressable accessibilityRole="button" onPress={swapLanguages} style={styles.streamArrow}>
-              <Text style={styles.streamArrowText}>{compact ? '↓' : '→'}</Text>
-            </Pressable>
+            <RaisedButton compact label={destinationName === 'ROMANIAN' ? '🇷🇴 RO' : destination.toUpperCase()} backgroundColor="#183b6d" style={styles.languagePill} labelStyle={styles.languagePillText} onPress={swapLanguages} />
+            <RaisedButton compact label={compact ? '↓' : '→'} backgroundColor="#1f6fd1" style={styles.streamArrow} labelStyle={styles.streamArrowText} onPress={swapLanguages} />
             <Text style={[styles.dividerLabel, styles.autoStream]}>AUTO STREAM</Text>
             {!compact ? <View style={styles.dividerLine} /> : null}
           </View>
@@ -233,12 +224,8 @@ export default function TranslatorScreen() {
           <View style={[styles.divider, compact && styles.dividerCompact]}>
             {!compact ? <View style={styles.dividerLine} /> : null}
             <Text style={styles.dividerLabel}>TARGET</Text>
-            <Pressable accessibilityRole="button" onPress={swapLanguages} style={styles.languagePill}>
-              <Text style={styles.languagePillText}>{source.toUpperCase()} → {destination.toUpperCase()}</Text>
-            </Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel="Translate text" disabled={busy || !input.trim() || strategy?.kind === 'direct_speech_translation'} onPress={() => void translate()} style={({ pressed }) => [styles.translateButton, pressed && styles.pressed]}>
-              <Text style={styles.translateButtonText}>{compact ? '↓' : '→'}</Text>
-            </Pressable>
+            <RaisedButton compact label={`${source.toUpperCase()} → ${destination.toUpperCase()}`} backgroundColor="#183b6d" style={styles.languagePill} labelStyle={styles.languagePillText} onPress={swapLanguages} />
+            <RaisedButton compact label={compact ? '↓' : '→'} accessibilityLabel="Translate text" backgroundColor="#1f6fd1" disabled={busy || !input.trim() || strategy?.kind === 'direct_speech_translation'} style={styles.translateButton} labelStyle={styles.translateButtonText} onPress={() => void translate()} />
             <Text style={[styles.dividerLabel, styles.autoStream]}>{busy ? 'TRANSLATING' : 'TRANSLATE'}</Text>
             {!compact ? <View style={styles.dividerLine} /> : null}
           </View>
@@ -313,8 +300,9 @@ function Waveform({ active = false, large = false }: { active?: boolean; large?:
 
 function EngineChoice({ title, active, disabled, onPress }: { title: string; active: boolean; disabled: boolean; onPress: () => void }) {
   return (
-    <Pressable disabled={disabled} onPress={onPress} style={[styles.engineChoice, active && styles.engineChoiceActive, disabled && styles.disabled]}>
-      <Text numberOfLines={1} style={[styles.engineChoiceText, active && styles.engineChoiceTextActive]}>{active ? '●' : '○'} {title}</Text>
+    <Pressable accessibilityRole="radio" accessibilityState={{ checked: active, disabled }} disabled={disabled} onPress={onPress} style={[styles.engineChoice, active && styles.engineChoiceActive, disabled && styles.disabled]}>
+      <StatusLight tone={active ? 'white' : 'off'} size={7} />
+      <Text numberOfLines={1} style={[styles.engineChoiceText, active && styles.engineChoiceTextActive]}>{title}</Text>
     </Pressable>
   );
 }
@@ -339,8 +327,7 @@ const styles = StyleSheet.create({
   tabText: { fontFamily: font, color: palette.textDim, fontSize: 13, fontWeight: '700' },
   tabTextActive: { color: palette.heading },
   runtimeStatus: { marginLeft: 'auto', height: 36, flexDirection: 'row', alignItems: 'center', gap: 7 },
-  runtimeStatusText: { fontFamily: font, color: palette.textDim, fontSize: 11, fontWeight: '700', letterSpacing: 0.8 },
-  onlineDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: palette.success },
+  runtimeStatusText: { fontFamily: font, color: palette.textDim, fontSize: 13, fontWeight: '700', letterSpacing: 0.8 },
   workspace: { flexGrow: 1, minHeight: 600, padding: 20, flexDirection: 'row', alignItems: 'stretch' },
   workspaceCompact: { flexDirection: 'column', minHeight: 900 },
   column: { flex: 1, minWidth: 0 },
@@ -354,15 +341,15 @@ const styles = StyleSheet.create({
   paneHeader: { minHeight: 58, paddingHorizontal: 18, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: palette.borderSubtle, backgroundColor: 'rgba(0,0,0,0.15)', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
   paneTitleRow: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   paneTitle: { fontFamily: font, color: palette.heading, fontSize: 14, lineHeight: 18, fontWeight: '800' },
-  paneSubtitle: { maxWidth: 180, fontFamily: font, color: palette.textDim, fontSize: 11, lineHeight: 15, textAlign: 'right' },
+  paneSubtitle: { maxWidth: 180, fontFamily: font, color: palette.textDim, fontSize: 13, lineHeight: 17, textAlign: 'right' },
   badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, borderWidth: 1, borderColor: 'rgba(59,130,246,0.3)', backgroundColor: 'rgba(59,130,246,0.1)' },
-  badgeText: { fontFamily: font, color: '#60a5fa', fontSize: 10, lineHeight: 12, fontWeight: '800', letterSpacing: 0.4 },
+  badgeText: { fontFamily: font, color: '#60a5fa', fontSize: 13, lineHeight: 16, fontWeight: '800', letterSpacing: 0.4 },
   paneBody: { flex: 1, minHeight: 0, padding: 16, gap: 12 },
   paneBodyTight: { flex: 1, minHeight: 0, padding: 14 },
   audioBody: { justifyContent: 'center' },
   micBar: { minHeight: 50, padding: 10, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: palette.input, borderWidth: 1, borderColor: palette.borderSubtle, borderRadius: 6 },
   recordButton: { minHeight: 34, minWidth: 136, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 15, backgroundColor: palette.danger, borderWidth: 1, borderColor: '#f87171', borderRadius: 4, boxShadow: '0 3px 8px rgba(239,68,68,0.3)' },
-  recordButtonText: { fontFamily: font, color: '#ffffff', fontSize: 12, fontWeight: '800', letterSpacing: 0.3 },
+  recordButtonText: { fontFamily: font, color: '#ffffff', fontSize: 13, fontWeight: '800', letterSpacing: 0.3 },
   waveform: { flex: 1, minWidth: 80, height: 30, paddingHorizontal: 8, flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', overflow: 'hidden', backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.borderSubtle, borderRadius: 4 },
   waveformLarge: { width: '100%', flex: 0, height: 46 },
   waveBar: { width: 2, minHeight: 2, borderRadius: 1, backgroundColor: '#334155' },
@@ -373,24 +360,24 @@ const styles = StyleSheet.create({
   placeholderText: { color: palette.textDim },
   italic: { fontStyle: 'italic' },
   paneFooter: { minHeight: 46, paddingHorizontal: 18, paddingVertical: 10, borderTopWidth: 1, borderTopColor: palette.borderSubtle, backgroundColor: 'rgba(0,0,0,0.15)', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
-  footerText: { fontFamily: font, color: palette.textDim, fontSize: 11 },
+  footerText: { fontFamily: font, color: palette.textDim, fontSize: 13 },
   metricBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 4, borderWidth: 1, borderColor: 'rgba(59,130,246,0.3)', backgroundColor: 'rgba(59,130,246,0.08)' },
-  metricText: { fontFamily: 'JetBrains Mono, monospace', color: '#60a5fa', fontSize: 11, fontWeight: '600' },
+  metricText: { fontFamily: 'JetBrains Mono, monospace', color: '#60a5fa', fontSize: 13, fontWeight: '600' },
   divider: { width: 96, alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 20 },
   dividerCompact: { width: '100%', minHeight: 96, flexDirection: 'row', paddingVertical: 12 },
   dividerLine: { width: 1, flex: 1, minHeight: 30, backgroundColor: palette.borderSubtle },
-  dividerLabel: { fontFamily: font, color: palette.textDim, fontSize: 10, fontWeight: '700', letterSpacing: 0.6 },
+  dividerLabel: { fontFamily: font, color: palette.textDim, fontSize: 13, fontWeight: '700', letterSpacing: 0.6 },
   autoStream: { opacity: 0.6 },
   languagePill: { minWidth: 80, paddingHorizontal: 8, paddingVertical: 5, alignItems: 'center', backgroundColor: palette.input, borderWidth: 1, borderColor: palette.border, borderRadius: 10 },
-  languagePillText: { fontFamily: font, color: palette.body, fontSize: 11, fontWeight: '700' },
+  languagePillText: { fontFamily: font, color: palette.body, fontSize: 13, fontWeight: '700' },
   streamArrow: { width: 42, height: 42, borderRadius: 22, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(16,185,129,0.15)', borderWidth: 1, borderColor: 'rgba(16,185,129,0.35)' },
   streamArrowText: { color: palette.success, fontSize: 24, lineHeight: 28 },
   translateButton: { width: 44, height: 44, borderRadius: 24, justifyContent: 'center', alignItems: 'center', backgroundColor: palette.accentDark, borderWidth: 1, borderColor: palette.accent, boxShadow: '0 4px 16px rgba(59,130,246,0.4)' },
   translateButtonText: { color: '#ffffff', fontSize: 24, lineHeight: 28 },
   engineStrip: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  engineChoice: { maxWidth: 230, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 5, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.input },
+  engineChoice: { maxWidth: 230, paddingHorizontal: 10, paddingVertical: 7, flexDirection: 'row', alignItems: 'center', gap: 7, borderRadius: 5, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.input },
   engineChoiceActive: { borderColor: palette.accent, backgroundColor: 'rgba(59,130,246,0.1)' },
-  engineChoiceText: { fontFamily: font, color: palette.muted, fontSize: 11, fontWeight: '700' },
+  engineChoiceText: { fontFamily: font, color: palette.muted, fontSize: 13, fontWeight: '700' },
   engineChoiceTextActive: { color: '#60a5fa' },
   disabled: { opacity: 0.5 },
   textArea: { flex: 1, minHeight: 300, padding: 16, color: palette.heading, fontFamily: font, fontSize: 15, lineHeight: 24, textAlignVertical: 'top', backgroundColor: palette.input, borderWidth: 1, borderColor: palette.border, borderRadius: 10 },

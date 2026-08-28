@@ -10,6 +10,7 @@
     "web": "expo start --web",
     "export:web": "expo export --platform web",
     "typecheck": "tsc --noEmit",
+    "check:ui": "node ../../scripts/check_client_ui_primitives.mjs",
     "doctor": "expo-doctor"
   },
   "dependencies": {

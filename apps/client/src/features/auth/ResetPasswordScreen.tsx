@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { Link, Redirect, useLocalSearchParams } from 'expo-router';
-import { Pressable, Text, TextInput } from 'react-native';
+import { Text, TextInput } from 'react-native';
 import { useAuth } from '@/auth/AuthContext';
 import { Card } from '@/components/Card';
+import { RaisedButton } from '@/components/RaisedButton';
 import { Screen } from '@/components/Screen';
 import { colors } from '@/theme';
 
@@ -72,9 +73,7 @@ export default function ResetPasswordScreen() {
               onSubmitEditing={() => void submit()}
             />
             {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
-            <Pressable disabled={busy || !token} onPress={() => void submit()} style={buttonStyle}>
-              <Text style={{ color: colors.text, fontWeight: '700' }}>{busy ? 'Resetting…' : 'Reset password'}</Text>
-            </Pressable>
+            <RaisedButton label={busy ? 'Resetting…' : 'Reset password'} disabled={busy || !token} onPress={() => void submit()} />
             <Link href="/forgot-password" style={{ color: colors.accent }}>Request another reset link</Link>
           </>
         )}

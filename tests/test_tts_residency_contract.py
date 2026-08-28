@@ -65,3 +65,9 @@ def test_runtime_diagnostics_replace_deleted_resource_monitor_ui():
     assert not (
         REPO_ROOT / "apps" / "desktop-companion" / "model-manager" / "resource-monitor.js"
     ).exists()
+
+
+def test_runtime_defaults_to_on_demand_model_residency():
+    main = (REPO_ROOT / "runtime" / "inference" / "server" / "main.py").read_text(encoding="utf-8")
+    assert 'data.get("model_residency", "on_demand")' in main
+    assert 'else "on_demand"' in main

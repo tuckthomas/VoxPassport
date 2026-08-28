@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Redirect, router, Link } from 'expo-router';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Text, TextInput, View } from 'react-native';
 import { Card } from '@/components/Card';
+import { RaisedButton } from '@/components/RaisedButton';
 import { Screen } from '@/components/Screen';
 import { useAuth } from '@/auth/AuthContext';
 import { colors } from '@/theme';
@@ -60,9 +61,7 @@ export default function LoginScreen() {
           onSubmitEditing={() => void submit()}
         />
         {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
-        <Pressable disabled={busy} onPress={() => void submit()} style={buttonStyle}>
-          <Text style={{ color: colors.text, fontWeight: '700' }}>{busy ? 'Signing in…' : 'Sign in'}</Text>
-        </Pressable>
+        <RaisedButton label={busy ? 'Signing in…' : 'Sign in'} disabled={busy} onPress={() => void submit()} />
         <View style={{ gap: 8 }}>
           <Link href="/forgot-password" style={{ color: colors.accent }}>Forgot password?</Link>
           <Link href="/signup" style={{ color: colors.accent }}>Create an account</Link>

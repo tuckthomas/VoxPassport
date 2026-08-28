@@ -1,9 +1,17 @@
-import { Link, usePathname } from 'expo-router';
+import { Link, usePathname, useRouter } from 'expo-router';
+import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import type { PropsWithChildren } from 'react';
 import { useEffect, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import type { VoiceProfile } from '@/api/contracts';
 import { useVoxPassportApi } from '@/api/useVoxPassportApi';
+import { RaisedButton } from '@/components/RaisedButton';
+import { IconButton } from '@/components/IconButton';
+import { TrashIcon } from '@/components/icons/TrashIcon';
+import { ResourceMonitor } from '@/components/ResourceMonitor';
+import { RaisedNavLink } from '@/components/RaisedNavLink';
+import { StatusLight } from '@/components/StatusLight';
+import { WidgetCard } from '@/components/WidgetCard';
 import { useRuntimeTarget } from '@/config/RuntimeTargetContext';
 
 const palette = {
@@ -20,47 +28,71 @@ const navigation = [
 
 export function StudioShell({ children }: PropsWithChildren) {
   const pathname = usePathname();
+  const router = useRouter();
   const { width } = useWindowDimensions();
   const desktop = width >= 1040;
   const target = useRuntimeTarget();
   const api = useVoxPassportApi();
+  const player = useAudioPlayer(null);
+  const playerStatus = useAudioPlayerStatus(player);
   const [profiles, setProfiles] = useState<VoiceProfile[]>([]);
+  const [playingProfileId, setPlayingProfileId] = useState<string | null>(null);
+  const [overlayOpen, setOverlayOpen] = useState(false);
 
   useEffect(() => {
     if (!target.ready) return;
     api.voiceProfiles().then((response) => setProfiles(response.profiles)).catch(() => setProfiles([]));
   }, [api, target.ready, target.activeBaseUrl, pathname]);
 
-  const activeVoice = profiles.find((profile) => profile.is_active);
+  useEffect(() => {
+    if (playerStatus.didJustFinish || playerStatus.error) setPlayingProfileId(null);
+  }, [playerStatus.didJustFinish, playerStatus.error]);
+
+  function playProfile(playbackId: string, path: string) {
+    if (playingProfileId === playbackId) {
+      player.pause();
+      void player.seekTo(0);
+      setPlayingProfileId(null);
+      return;
+    }
+    setPlayingProfileId(playbackId);
+    player.replace(api.mediaUrl(path));
+    player.play();
+  }
+
+  async function toggleProfile(profile: VoiceProfile) {
+    await api.activateVoiceProfile(profile.is_active ? '' : profile.profile_id);
+    const response = await api.voiceProfiles();
+    setProfiles(response.profiles);
+  }
+
+  function deleteProfile(profile: VoiceProfile) {
+    Alert.alert('Delete voice profile?', `Delete ${profile.profile_name} and its saved audio?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => void api.deleteVoiceProfile(profile.profile_id).then(() => api.voiceProfiles()).then((response) => setProfiles(response.profiles)) },
+    ]);
+  }
 
   return (
     <View style={styles.app}>
       <View style={styles.header}>
         <Link href="/translator" asChild>
           <Pressable accessibilityLabel="Open Translator Studio" style={styles.brand}>
-            <Image source={require('../../assets/VoxPassport_icon_256.png')} style={styles.logo} />
+            <Image source={require('../../assets/VoxPassport_icon_256.png')} resizeMode="contain" style={styles.logo} />
             <Text style={styles.brandTitle}>VoxPassport</Text>
           </Pressable>
         </Link>
         <View style={styles.headerActions}>
-          {activeVoice ? (
-            <View style={styles.activeVoiceBadge}>
-              <Text style={styles.activeVoiceLabel}>ACTIVE VOICE</Text>
-              <Text numberOfLines={1} style={styles.activeVoiceName}>{activeVoice.profile_name}</Text>
-            </View>
-          ) : null}
           <Link href="/runtime" asChild>
             <Pressable accessibilityLabel="Open runtime and audio settings" style={styles.runtimeSwitch}>
-              <View style={styles.runtimeLight} />
+              <StatusLight tone="green" size={7} />
               <Text style={styles.runtimeReady}>READY</Text>
               <View style={styles.runtimeDial}><Text style={styles.runtimeArrow}>◀</Text></View>
               <Text style={styles.runtimeDemand}>ON{desktop ? '\n' : ' '}DEMAND</Text>
-              <View style={styles.runtimeLightOff} />
+              <StatusLight tone="off" size={7} />
             </Pressable>
           </Link>
-          <Link href="/runtime" asChild>
-            <Pressable style={styles.headerButton}><Text style={styles.headerButtonText}>▣  RUNTIME & AUDIO</Text></Pressable>
-          </Link>
+          <RaisedButton label="▣  MEETING OVERLAY" compact backgroundColor="#2563eb" onPress={() => setOverlayOpen(true)} />
         </View>
       </View>
 
@@ -69,7 +101,7 @@ export function StudioShell({ children }: PropsWithChildren) {
           <View style={styles.sidebar}>
             <View style={styles.navSection}>
               {navigation.map((item) => (
-                <SidebarNav key={item.href} href={item.href} label={item.label} icon={item.icon} active={pathname === item.href} />
+                <RaisedNavLink key={item.href} href={item.href} label={item.label} icon={item.icon} selected={pathname === item.href} />
               ))}
             </View>
             <View style={styles.profilesHeader}>
@@ -78,20 +110,19 @@ export function StudioShell({ children }: PropsWithChildren) {
             </View>
             <ScrollView contentContainerStyle={styles.profileList}>
               {profiles.map((profile) => (
-                <Link key={profile.profile_id} href="/voice-profiles" asChild>
-                  <Pressable style={StyleSheet.flatten([styles.profileCard, profile.is_active && styles.profileCardActive])}>
+                <WidgetCard key={profile.profile_id} active={Boolean(profile.is_active)} style={styles.profileCard}>
                     <View style={styles.profileTitleRow}>
-                      <View style={[styles.profileLed, profile.is_active && styles.profileLedActive]} />
+                      <Pressable accessibilityRole="switch" accessibilityState={{ checked: Boolean(profile.is_active) }} accessibilityLabel={profile.is_active ? `Deactivate ${profile.profile_name}` : `Activate ${profile.profile_name}`} onPress={() => void toggleProfile(profile)} style={styles.profileLedButton}><StatusLight tone={profile.is_active ? 'green' : 'red'} size={9} /></Pressable>
                       <Text numberOfLines={1} style={styles.profileName}>{profile.profile_name}</Text>
-                      <Text style={styles.profileMenu}>•••</Text>
+                      <IconButton label={`Delete ${profile.profile_name}`} tone="danger" onPress={() => deleteProfile(profile)}><TrashIcon size={14} /></IconButton>
                     </View>
-                    <Text style={styles.profileMeta}>{(profile.ref_lang || 'unknown').toUpperCase()} REFERENCE</Text>
+                    <View style={styles.profileDetails}><Text style={styles.profileTag}>◎ {languageName(profile.ref_lang)}</Text><Text style={styles.profileMeta}>{profile.pitch_hz ? `${profile.pitch_hz}Hz` : '130Hz Pitch'}</Text></View>
                     <View style={styles.profileActions}>
-                      <View style={styles.miniButton}><Text style={styles.miniButtonText}>▶ ORIGINAL</Text></View>
-                      <View style={[styles.miniButton, styles.miniButtonBlue]}><Text style={styles.miniButtonText}>▶ CLONE</Text></View>
+                      <View style={styles.profileAction}><RaisedButton label="▶ ORIGINAL" compact compactLabelSize={9} latched={playingProfileId === profile.profile_id} style={styles.profileActionButton} backgroundColor="#059669" disabled={!profile.has_audio} onPress={() => playProfile(profile.profile_id, `/api/voice/audio/${encodeURIComponent(profile.profile_id)}?t=${Date.now()}`)} /></View>
+                      <View style={styles.profileAction}><RaisedButton label="▶ TRANSLATION" compact compactLabelSize={9} latched={playingProfileId === `translation:${profile.profile_id}`} style={styles.profileActionButton} backgroundColor="#059669" disabled={!profile.has_translation_audio} onPress={() => playProfile(`translation:${profile.profile_id}`, `/api/voice/translation/${encodeURIComponent(profile.profile_id)}?t=${Date.now()}`)} /></View>
+                      <View style={styles.profileAction}><RaisedButton label="✎ EDIT" compact compactLabelSize={9} style={styles.profileActionButton} backgroundColor="#1d4f91" onPress={() => router.push({ pathname: '/voice-profiles', params: { profile: profile.profile_id } } as never)} /></View>
                     </View>
-                  </Pressable>
-                </Link>
+                </WidgetCard>
               ))}
               {!profiles.length ? (
                 <View style={styles.emptyProfiles}>
@@ -100,33 +131,38 @@ export function StudioShell({ children }: PropsWithChildren) {
               ) : null}
             </ScrollView>
             <View style={styles.sidebarFooter}>
-              <View style={styles.onlineDot} />
+              <StatusLight tone="green" size={7} />
               <Text style={styles.sidebarFooterText}>{target.mode.toUpperCase()} · {target.activeBaseUrl.replace(/^https?:\/\//, '')}</Text>
             </View>
           </View>
         ) : (
           <ScrollView horizontal contentContainerStyle={styles.mobileNav} showsHorizontalScrollIndicator={false}>
             {navigation.map((item) => (
-              <SidebarNav key={item.href} href={item.href} label={item.label} icon={item.icon} active={pathname === item.href} compact />
+              <RaisedNavLink key={item.href} href={item.href} label={item.label} icon={item.icon} selected={pathname === item.href} compact />
             ))}
           </ScrollView>
         )}
-        <View style={styles.main}>{children}</View>
+        <View style={styles.contentColumn}>
+          <View style={styles.main}>{children}</View>
+          <ResourceMonitor />
+        </View>
       </View>
+      <Modal visible={overlayOpen} transparent animationType="fade" onRequestClose={() => setOverlayOpen(false)}>
+        <View style={styles.overlayBackdrop}>
+          <WidgetCard title="Meeting Overlay" subtitle="Floating subtitles for Zoom, Google Meet, Teams, and other conferencing apps." style={styles.overlayCard}>
+            <View style={styles.overlayPreview}><Text style={styles.overlayPreviewText}>TRANSLATED SUBTITLES WILL APPEAR HERE</Text></View>
+            <Text style={styles.overlayBody}>The overlay launcher is restored to its original place. Conference-window attachment is intentionally not wired yet.</Text>
+            <View style={styles.overlayActions}><RaisedButton label="Close" backgroundColor="#475569" onPress={() => setOverlayOpen(false)} /></View>
+          </WidgetCard>
+        </View>
+      </Modal>
     </View>
   );
 }
 
-function SidebarNav({ href, label, icon, active, compact = false }: { href: string; label: string; icon: string; active: boolean; compact?: boolean }) {
-  return (
-    <Link href={href as never} asChild>
-      <Pressable accessibilityRole="link" style={StyleSheet.flatten([styles.navButton, compact && styles.navButtonCompact, active && styles.navButtonActive])}>
-        <View style={[styles.navLed, active && styles.navLedActive]} />
-        <Text style={styles.navIcon}>{icon}</Text>
-        <Text numberOfLines={1} style={styles.navText}>{label}</Text>
-      </Pressable>
-    </Link>
-  );
+function languageName(code?: string) {
+  const names: Record<string, string> = { en: 'English (US)', ro: 'Romanian (RO)', es: 'Spanish (ES)', fr: 'French (FR)', de: 'German (DE)', it: 'Italian (IT)' };
+  return names[(code || 'en').toLowerCase()] || (code || 'Unknown').toUpperCase();
 }
 
 const font = 'Plus Jakarta Sans, system-ui, -apple-system, sans-serif';
@@ -135,54 +171,45 @@ const styles = StyleSheet.create({
   app: { flex: 1, minHeight: '100%', backgroundColor: palette.base },
   header: { height: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24, backgroundColor: palette.surface, borderBottomWidth: 1, borderBottomColor: palette.border },
   brand: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  logo: { width: 30, height: 30, resizeMode: 'contain' },
+  logo: { width: 30, height: 30 },
   brandTitle: { color: palette.heading, fontFamily: font, fontSize: 15, fontWeight: '800', letterSpacing: -0.3 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  activeVoiceBadge: { maxWidth: 230, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, backgroundColor: 'rgba(59,130,246,0.1)', borderWidth: 1, borderColor: 'rgba(59,130,246,0.3)' },
-  activeVoiceLabel: { color: palette.muted, fontFamily: font, fontSize: 9, fontWeight: '700' },
-  activeVoiceName: { flexShrink: 1, color: '#60a5fa', fontFamily: font, fontSize: 11, fontWeight: '800' },
   runtimeSwitch: { height: 40, minWidth: 184, paddingHorizontal: 7, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderRadius: 3, borderWidth: 1, borderColor: '#252a31', backgroundColor: '#15181d', boxShadow: 'inset 0 1px 4px rgba(0,0,0,.8), 0 3px 0 #020617' },
-  runtimeLight: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#34d399', boxShadow: '0 0 8px #34d399' },
-  runtimeLightOff: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#26303a' },
-  runtimeReady: { width: 48, textAlign: 'center', color: palette.heading, fontFamily: font, fontSize: 8, fontWeight: '800', letterSpacing: 0.7 },
-  runtimeDemand: { width: 52, textAlign: 'center', color: '#6b7280', fontFamily: font, fontSize: 8, lineHeight: 9, fontWeight: '800', letterSpacing: 0.7 },
+  runtimeReady: { width: 58, textAlign: 'center', color: palette.heading, fontFamily: font, fontSize: 13, fontWeight: '800', letterSpacing: 0.7 },
+  runtimeDemand: { width: 72, textAlign: 'center', color: '#6b7280', fontFamily: font, fontSize: 13, lineHeight: 16, fontWeight: '800', letterSpacing: 0.7 },
   runtimeDial: { width: 29, height: 29, borderRadius: 15, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#636b75', backgroundColor: '#7b838c', boxShadow: '0 2px 3px rgba(0,0,0,.9), inset 0 1px 2px rgba(255,255,255,.8)' },
-  runtimeArrow: { color: '#080b10', fontSize: 10, fontWeight: '800' },
-  headerButton: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 4, backgroundColor: palette.accentDark, borderWidth: 1, borderColor: palette.accent, boxShadow: '0 3px 0 #1d4ed8' },
-  headerButtonText: { color: '#ffffff', fontFamily: font, fontSize: 11, fontWeight: '800', letterSpacing: 0.6 },
+  runtimeArrow: { color: '#080b10', fontSize: 13, fontWeight: '800' },
   workspace: { flex: 1, minHeight: 0, flexDirection: 'row' },
   workspaceCompact: { flexDirection: 'column' },
   sidebar: { width: 360, flexShrink: 0, backgroundColor: palette.surface, borderRightWidth: 1, borderRightColor: palette.border },
   navSection: { gap: 8, paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: palette.border },
-  navButton: { minHeight: 42, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 4, backgroundColor: palette.accentDark, borderWidth: 1, borderColor: palette.accent, boxShadow: '0 3px 0 #1d4ed8, 0 5px 10px rgba(0,0,0,.35)' },
-  navButtonActive: { transform: [{ translateY: 3 }], boxShadow: 'inset 0 2px 4px rgba(0,0,0,.5)' },
-  navButtonCompact: { minWidth: 190 },
-  navLed: { width: 7, height: 7, borderRadius: 4, backgroundColor: 'rgba(255,255,255,.25)', borderWidth: 1, borderColor: 'rgba(255,255,255,.35)' },
-  navLedActive: { backgroundColor: '#ffffff', borderColor: '#ffffff', boxShadow: '0 0 7px 2px rgba(255,255,255,.9)' },
-  navIcon: { width: 18, textAlign: 'center', color: '#ffffff', fontSize: 14, fontWeight: '800' },
-  navText: { flex: 1, color: '#ffffff', fontFamily: font, fontSize: 12, fontWeight: '800', letterSpacing: 0.4 },
   profilesHeader: { height: 53, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: palette.border },
-  profilesTitle: { color: palette.muted, fontFamily: font, fontSize: 11, fontWeight: '800', letterSpacing: 0.7 },
+  profilesTitle: { color: palette.muted, fontFamily: font, fontSize: 13, fontWeight: '800', letterSpacing: 0.7 },
   countBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12, backgroundColor: 'rgba(59,130,246,.1)', borderWidth: 1, borderColor: 'rgba(59,130,246,.3)' },
-  countText: { color: '#60a5fa', fontFamily: font, fontSize: 9, fontWeight: '700' },
+  countText: { color: '#60a5fa', fontFamily: font, fontSize: 13, fontWeight: '700' },
   profileList: { flexGrow: 1, gap: 10, padding: 16 },
-  profileCard: { padding: 14, gap: 10, borderRadius: 10, backgroundColor: palette.input, borderWidth: 1, borderColor: palette.border },
-  profileCardActive: { borderColor: palette.accent },
+  profileCard: { padding: 14, gap: 10 },
   profileTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  profileLed: { width: 8, height: 8, borderRadius: 4, backgroundColor: palette.dim },
-  profileLedActive: { backgroundColor: palette.success, boxShadow: '0 0 7px rgba(16,185,129,.85)' },
+  profileLedButton: { width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },
   profileName: { flex: 1, color: palette.heading, fontFamily: font, fontSize: 13, fontWeight: '700' },
-  profileMenu: { color: palette.dim, fontSize: 12, letterSpacing: 1 },
-  profileMeta: { color: palette.dim, fontFamily: 'JetBrains Mono, monospace', fontSize: 10, fontWeight: '500' },
-  profileActions: { flexDirection: 'row', gap: 7 },
-  miniButton: { flex: 1, paddingVertical: 6, alignItems: 'center', borderRadius: 4, backgroundColor: '#172030', borderWidth: 1, borderColor: palette.borderStrong },
-  miniButtonBlue: { backgroundColor: 'rgba(59,130,246,.12)', borderColor: 'rgba(59,130,246,.35)' },
-  miniButtonText: { color: palette.body, fontFamily: font, fontSize: 9, fontWeight: '800' },
+  profileMenu: { color: palette.dim, fontSize: 13, letterSpacing: 1 },
+  profileDetails: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 },
+  profileTag: { color: '#7db7ff', backgroundColor: '#12233a', borderWidth: 1, borderColor: '#23466f', borderRadius: 4, paddingHorizontal: 7, paddingVertical: 3, fontFamily: 'JetBrains Mono, monospace', fontSize: 13, fontWeight: '700' },
+  profileMeta: { color: palette.dim, fontFamily: 'JetBrains Mono, monospace', fontSize: 13, fontWeight: '500' },
+  profileActions: { flexDirection: 'row', gap: 6 },
+  profileAction: { flex: 1 },
+  profileActionButton: { paddingHorizontal: 4 },
   emptyProfiles: { padding: 16, borderRadius: 10, borderWidth: 1, borderStyle: 'dashed', borderColor: palette.borderStrong },
-  emptyProfilesText: { color: palette.dim, fontFamily: font, fontSize: 12, lineHeight: 18, textAlign: 'center' },
+  emptyProfilesText: { color: palette.dim, fontFamily: font, fontSize: 13, lineHeight: 18, textAlign: 'center' },
   sidebarFooter: { minHeight: 42, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center', gap: 8, borderTopWidth: 1, borderTopColor: palette.border },
-  onlineDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: palette.success },
-  sidebarFooterText: { flex: 1, color: palette.dim, fontFamily: 'JetBrains Mono, monospace', fontSize: 9 },
+  sidebarFooterText: { flex: 1, color: palette.dim, fontFamily: 'JetBrains Mono, monospace', fontSize: 13 },
   mobileNav: { gap: 8, padding: 10, backgroundColor: palette.surface, borderBottomWidth: 1, borderBottomColor: palette.border },
+  contentColumn: { flex: 1, minWidth: 0, minHeight: 0 },
   main: { flex: 1, minWidth: 0, minHeight: 0, backgroundColor: palette.base },
+  overlayBackdrop: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, backgroundColor: 'rgba(3,7,14,.86)' },
+  overlayCard: { width: '100%', maxWidth: 620, padding: 20 },
+  overlayPreview: { minHeight: 150, borderRadius: 10, borderWidth: 1, borderColor: '#30578b', backgroundColor: '#070b12', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  overlayPreviewText: { color: '#8fc4ff', fontSize: 15, fontWeight: '800', letterSpacing: 0.7, textAlign: 'center' },
+  overlayBody: { color: palette.muted, fontSize: 13, lineHeight: 20 },
+  overlayActions: { alignItems: 'flex-end' },
 });

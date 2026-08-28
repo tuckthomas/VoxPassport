@@ -120,14 +120,20 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Enable pnpm
+        run: corepack enable
+
       - name: Install Expo client dependencies
-        run: npm install --prefix apps/client --no-audit --no-fund
+        run: pnpm --dir apps/client install --no-frozen-lockfile
+
+      - name: Enforce shared UI primitives and no-xs non-button typography
+        run: pnpm --dir apps/client run check:ui
 
       - name: Type-check Expo client
-        run: npm run --prefix apps/client typecheck
+        run: pnpm --dir apps/client run typecheck
 
       - name: Export Expo web client
-        run: npm run --prefix apps/client export:web
+        run: pnpm --dir apps/client run export:web
 
   linux-audio:
     runs-on: ubuntu-latest

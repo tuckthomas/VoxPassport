@@ -6,8 +6,12 @@ import type {
   ModelEntry,
   ModelInstallProgress,
   ModelMutationResponse,
+  ModelStorageSettings,
+  ModelStorageBrowseResult,
   NativeAudioRouting,
   NativeAudioRoutingPatch,
+  ResourceSnapshot,
+  RemoteModelEndpoint,
   RuntimeBootstrap,
   RuntimeStatus,
   TranslationResponse,
@@ -71,6 +75,10 @@ export class VoxPassportApi {
 
   status(): Promise<RuntimeStatus> {
     return this.request('/api/status');
+  }
+
+  resources(): Promise<ResourceSnapshot> {
+    return this.request('/api/resources');
   }
 
   audioStatus(): Promise<DesktopAudioStatus> {
@@ -160,6 +168,26 @@ export class VoxPassportApi {
       method: 'POST',
       body: JSON.stringify({ capability, model_id: modelId }),
     });
+  }
+
+  modelStorage(): Promise<ModelStorageSettings> {
+    return this.request('/api/settings/model-storage');
+  }
+
+  saveModelStorage(modelStoreDir: string): Promise<ModelStorageSettings> {
+    return this.request('/api/settings/model-storage', { method: 'POST', body: JSON.stringify({ model_store_dir: modelStoreDir }) });
+  }
+
+  browseModelStorage(initialDirectory: string): Promise<ModelStorageBrowseResult> {
+    return this.request('/api/settings/model-storage/browse', { method: 'POST', body: JSON.stringify({ initial_directory: initialDirectory }) });
+  }
+
+  remoteModelEndpoints(): Promise<RemoteModelEndpoint[]> {
+    return this.request('/api/remote-endpoints');
+  }
+
+  createRemoteModelEndpoint(input: Omit<RemoteModelEndpoint, 'endpoint_id'>): Promise<{ success: boolean; endpoint_id?: string; error?: string }> {
+    return this.request('/api/remote-endpoints', { method: 'POST', body: JSON.stringify(input) });
   }
 
   voiceProfiles(): Promise<VoiceProfilesResponse> {

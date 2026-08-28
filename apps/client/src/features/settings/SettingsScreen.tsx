@@ -4,6 +4,7 @@ import { Pressable, Text, TextInput, View } from 'react-native';
 import type { ProviderCredentialSummary } from '@/auth/contracts';
 import { useAuth } from '@/auth/AuthContext';
 import { Card } from '@/components/Card';
+import { RaisedButton } from '@/components/RaisedButton';
 import { Screen } from '@/components/Screen';
 import { useRuntimeTarget, type RuntimeMode } from '@/config/RuntimeTargetContext';
 import { colors, theme } from '@/theme';
@@ -92,24 +93,18 @@ export default function SettingsScreen() {
       </Card>
       <Card title="Local runtime URL">
         <TextInput value={localUrl} onChangeText={setLocalUrl} autoCapitalize="none" style={inputStyle} />
-        <Pressable onPress={() => void target.setLocalBaseUrl(localUrl)} style={buttonStyle}>
-          <Text style={{ color: colors.text }}>Save local URL</Text>
-        </Pressable>
+        <RaisedButton label="Save local URL" onPress={() => void target.setLocalBaseUrl(localUrl)} />
       </Card>
       <Card title="Self-hosted runtime URL">
         <TextInput value={selfHostedUrl} onChangeText={setSelfHostedUrl} autoCapitalize="none" style={inputStyle} />
-        <Pressable onPress={() => void target.setSelfHostedBaseUrl(selfHostedUrl)} style={buttonStyle}>
-          <Text style={{ color: colors.text }}>Save self-hosted URL</Text>
-        </Pressable>
+        <RaisedButton label="Save self-hosted URL" onPress={() => void target.setSelfHostedBaseUrl(selfHostedUrl)} />
       </Card>
 
       {auth.enabled ? (
         <>
           <Card title="Account service URL" subtitle="Separate from inference so local/private use does not require an account.">
             <TextInput value={accountUrl} onChangeText={setAccountUrl} autoCapitalize="none" style={inputStyle} />
-            <Pressable onPress={() => void auth.setAccountBaseUrl(accountUrl)} style={buttonStyle}>
-              <Text style={{ color: colors.text }}>Save account URL</Text>
-            </Pressable>
+            <RaisedButton label="Save account URL" onPress={() => void auth.setAccountBaseUrl(accountUrl)} />
           </Card>
 
           <Card title="Provider credential vault" subtitle="Provider secrets are encrypted by the account service and are never returned by list APIs.">
@@ -138,18 +133,14 @@ export default function SettingsScreen() {
                   placeholderTextColor={colors.muted}
                   style={inputStyle}
                 />
-                <Pressable disabled={credentialBusy || !providerSecret} onPress={() => void saveCredential()} style={buttonStyle}>
-                  <Text style={{ color: colors.text }}>{credentialBusy ? 'Saving…' : 'Encrypt & save credential'}</Text>
-                </Pressable>
+                <RaisedButton label={credentialBusy ? 'Saving…' : 'Encrypt & save credential'} disabled={credentialBusy || !providerSecret} onPress={() => void saveCredential()} />
                 {credentialMessage ? <Text style={{ color: colors.success }}>{credentialMessage}</Text> : null}
                 {credentialError ? <Text style={{ color: colors.danger }}>{credentialError}</Text> : null}
                 {credentials.length ? credentials.map((item) => (
                   <View key={item.id} style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10, gap: 6 }}>
                     <Text style={{ color: colors.text, fontWeight: '700' }}>{item.provider} · {item.label}</Text>
                     <Text style={{ color: colors.muted }}>Encrypted credential · key version {item.key_version}</Text>
-                    <Pressable disabled={credentialBusy} onPress={() => void removeCredential(item)} style={buttonStyle}>
-                      <Text style={{ color: colors.danger }}>Delete</Text>
-                    </Pressable>
+                    <RaisedButton label="Delete" backgroundColor="#b23b42" disabled={credentialBusy} onPress={() => void removeCredential(item)} />
                   </View>
                 )) : <Text style={{ color: colors.muted }}>No account-scoped provider credentials saved.</Text>}
               </>
@@ -180,6 +171,8 @@ function ModeButton({
 }) {
   return (
     <Pressable
+      accessibilityRole="radio"
+      accessibilityState={{ checked: selected === value }}
       onPress={() => void onSelect(value)}
       style={[
         buttonStyle,

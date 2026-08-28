@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Redirect, router, Link } from 'expo-router';
-import { Pressable, Text, TextInput } from 'react-native';
+import { Text, TextInput } from 'react-native';
 import { Card } from '@/components/Card';
+import { RaisedButton } from '@/components/RaisedButton';
 import { Screen } from '@/components/Screen';
 import { useAuth } from '@/auth/AuthContext';
 import { colors } from '@/theme';
@@ -89,9 +90,7 @@ export default function SignupScreen() {
             : 'A verification link is issued at signup, but this deployment does not require verification before sign-in.'}
         </Text>
         {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
-        <Pressable disabled={busy} onPress={() => void submit()} style={buttonStyle}>
-          <Text style={{ color: colors.text, fontWeight: '700' }}>{busy ? 'Creating…' : 'Create account'}</Text>
-        </Pressable>
+        <RaisedButton label={busy ? 'Creating…' : 'Create account'} disabled={busy} onPress={() => void submit()} />
         <Link href="/login" style={{ color: colors.accent }}>Already have an account? Sign in</Link>
       </Card>
     </Screen>

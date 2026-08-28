@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, Redirect, useLocalSearchParams } from 'expo-router';
-import { Pressable, Text, TextInput } from 'react-native';
+import { Text, TextInput } from 'react-native';
 import { useAuth } from '@/auth/AuthContext';
 import { Card } from '@/components/Card';
+import { RaisedButton } from '@/components/RaisedButton';
 import { Screen } from '@/components/Screen';
 import { colors } from '@/theme';
 
@@ -81,9 +82,7 @@ export default function VerifyEmailScreen() {
             />
             {message ? <Text style={{ color: colors.success }}>{message}</Text> : null}
             {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
-            <Pressable disabled={busy || !email.trim()} onPress={() => void resend()} style={buttonStyle}>
-              <Text style={{ color: colors.text, fontWeight: '700' }}>{busy ? 'Working…' : 'Send verification link'}</Text>
-            </Pressable>
+            <RaisedButton label={busy ? 'Working…' : 'Send verification link'} disabled={busy || !email.trim()} onPress={() => void resend()} />
             <Link href="/login" style={{ color: colors.accent }}>Back to sign in</Link>
           </>
         )}

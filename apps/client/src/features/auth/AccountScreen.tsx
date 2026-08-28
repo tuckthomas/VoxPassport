@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Link, Redirect } from 'expo-router';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Text, TextInput, View } from 'react-native';
 import { Card } from '@/components/Card';
+import { RaisedButton } from '@/components/RaisedButton';
 import { Screen } from '@/components/Screen';
 import { useAuth } from '@/auth/AuthContext';
 import { colors } from '@/theme';
@@ -79,9 +80,7 @@ export default function AccountScreen() {
         </Text>
         {!auth.user.email_verified ? (
           <View style={{ gap: 8 }}>
-            <Pressable disabled={busy} onPress={() => void resendVerification()} style={buttonStyle}>
-              <Text style={{ color: colors.text }}>Resend verification</Text>
-            </Pressable>
+            <RaisedButton label="Resend verification" disabled={busy} onPress={() => void resendVerification()} />
             <Link
               href={{ pathname: '/verify-email', params: { email: auth.user.email } }}
               style={{ color: colors.accent }}
@@ -91,12 +90,8 @@ export default function AccountScreen() {
           </View>
         ) : null}
         <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
-          <Pressable onPress={() => void auth.logout()} style={buttonStyle}>
-            <Text style={{ color: colors.text }}>Sign out here</Text>
-          </Pressable>
-          <Pressable onPress={() => void auth.logoutAll()} style={buttonStyle}>
-            <Text style={{ color: colors.text }}>Sign out everywhere</Text>
-          </Pressable>
+          <RaisedButton label="Sign out here" backgroundColor="#475569" onPress={() => void auth.logout()} />
+          <RaisedButton label="Sign out everywhere" backgroundColor="#b23b42" onPress={() => void auth.logoutAll()} />
         </View>
       </Card>
 
@@ -133,9 +128,7 @@ export default function AccountScreen() {
         />
         {message ? <Text style={{ color: colors.success }}>{message}</Text> : null}
         {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
-        <Pressable disabled={busy} onPress={() => void changePassword()} style={buttonStyle}>
-          <Text style={{ color: colors.text }}>{busy ? 'Changing…' : 'Change password'}</Text>
-        </Pressable>
+        <RaisedButton label={busy ? 'Changing…' : 'Change password'} disabled={busy} onPress={() => void changePassword()} />
       </Card>
     </Screen>
   );
